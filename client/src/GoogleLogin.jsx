@@ -21,7 +21,7 @@ function GoogleLogin({ onLogin }) {
   }, []);
 
   const handleLogin = () => {
-    window.location.href = "https://minesweeper-flags-frontend.onrender.com/auth/google";
+    window.location.href = "https://minesweeper-flags-backend.onrender.com/auth/google";
   };
 
   return (
