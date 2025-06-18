@@ -35,7 +35,7 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      sameSite: "lax", // allow across ports
+      sameSite: "none", // allow across ports
       secure: process.env.NODE_ENV === 'production'   // true only if using HTTPS
     },
   })
