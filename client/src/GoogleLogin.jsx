@@ -8,7 +8,7 @@ function GoogleLogin({ onLogin }) {
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get("https://minesweeperflags.com/me");
+      const res = await axios.get("https://minesweeper-flags-frontend.onrender.com/me");
       setUser(res.data.user);
       onLogin(res.data.user.displayName); // Send name to parent
     } catch {
@@ -21,7 +21,7 @@ function GoogleLogin({ onLogin }) {
   }, []);
 
   const handleLogin = () => {
-    window.location.href = "https://minesweeperflags.com/auth/google";
+    window.location.href = "https://minesweeper-flags-frontend.onrender.com/auth/google";
   };
 
   return (
