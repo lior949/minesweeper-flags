@@ -46,8 +46,8 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 passport.use(new GoogleStrategy({
-  clientID: GOOGLE_CLIENT_ID,
-  clientSecret: GOOGLE_CLIENT_SECRET,
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
   return done(null, profile);
