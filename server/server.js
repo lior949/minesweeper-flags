@@ -13,7 +13,7 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: "https://minesweeperflags.com",
+    origin: "https://minesweeper-flags-frontend.onrender.com",
     methods: ["GET", "POST"],
   },
 });
@@ -23,7 +23,7 @@ const GOOGLE_CLIENT_SECRET = "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";
 
 app.use(
   cors({
-    origin: "https://minesweeperflags.com", // your frontend
+    origin: "https://minesweeper-flags-frontend.onrender.com", // your frontend
     credentials: true, // allow cookies
   })
 );
@@ -48,7 +48,7 @@ app.use(passport.session());
 passport.use(new GoogleStrategy({
   clientID: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
-  callbackURL: "https://minesweeperflags.com/auth/google/callback"
+  callbackURL: "https://minesweeper-flags-frontend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
   return done(null, profile);
 }));
@@ -67,8 +67,8 @@ app.get("/auth/google",
 
 app.get("/auth/google/callback",
   passport.authenticate("google", {
-    failureRedirect: "https://minesweeperflags.com",
-    successRedirect: "https://minesweeperflags.com",
+    failureRedirect: "https://minesweeper-flags-frontend.onrender.com",
+    successRedirect: "https://minesweeper-flags-frontend.onrender.com",
   })
 );
 
