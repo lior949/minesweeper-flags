@@ -4,7 +4,7 @@ import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin";
 import "./App.css";
 
-const socket = io("https://minesweeperflags.com");
+const socket = io("https://https://minesweeper-flags-frontend.onrender.com");
 
 function App() {
   // Lobby & auth
@@ -158,7 +158,7 @@ function App() {
 
   const logout = async () => {
   try {
-    await fetch("https://minesweeperflags.com/logout", {
+    await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
       method: "GET",
       credentials: "include", // Important for cookies
     });
