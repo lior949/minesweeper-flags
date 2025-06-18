@@ -4,7 +4,7 @@ import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin";
 import "./App.css";
 
-const socket = io("https://https://minesweeper-flags-frontend.onrender.com");
+const socket = io("https://https://minesweeper-flags-backend.onrender.com");
 
 function App() {
   // Lobby & auth
