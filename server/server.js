@@ -76,7 +76,7 @@ passport.deserializeUser((obj, done) => {
 
 // === Routes ===
 app.get("/auth/facebook",
-  passport.authenticate("facebook", { scope: ['email', 'public_profile'] }) // Request necessary scopes
+  passport.authenticate("facebook", { scope: ['public_profile'] }) // Request necessary scopes
 );
 
 app.get("/auth/facebook/callback",
