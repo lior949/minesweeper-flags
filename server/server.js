@@ -33,11 +33,13 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      sameSite: "lax", // allow across ports
-      secure: process.env.NODE_ENV === 'production'   // true only if using HTTPS
+      sameSite: "none", // allow across ports
+      secure: true,	
     },
   })
 );
+
+app.set('trust proxy', 1);
 
 const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
