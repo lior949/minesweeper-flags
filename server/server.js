@@ -18,9 +18,6 @@ const io = new Server(server, {
   },
 });
 
-const GOOGLE_CLIENT_ID = "1090162759135-h71ms5ke9h6aov4b439r9dgg7gosnivk.apps.googleusercontent.com";
-const GOOGLE_CLIENT_SECRET = "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";
-
 app.use(
   cors({
     origin: "https://minesweeper-flags-frontend.onrender.com", // your frontend
