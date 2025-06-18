@@ -31,7 +31,7 @@ app.use(
 // === Session middleware ===
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "a-fallback-secret-for-dev",
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
