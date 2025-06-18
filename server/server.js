@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const FacebookStrategy = require("passport-facebook").Strategy; // <--- NEW IMPORT
 
 const app = express();
 const server = http.createServer(app);
@@ -38,6 +39,9 @@ app.use(
   })
 );
 
+const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
+const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
+
 // === Passport config ===
 app.use(passport.initialize());
 app.use(passport.session());
@@ -50,6 +54,19 @@ passport.use(new GoogleStrategy({
   return done(null, profile);
 }));
 
+passport.use(new FacebookStrategy({
+    clientID: FACEBOOK_CLIENT_ID,
+    clientSecret: FACEBOOK_CLIENT_SECRET,
+    callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/facebook/callback", // Your Render backend callback URL
+    profileFields: ['id', 'displayName', 'photos', 'email'] // Request more info if needed
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    // In a real app, you'd find or create a user in your DB here.
+    // For now, we just pass the profile directly.
+    return cb(null, profile);
+  }
+));
+
 passport.serializeUser((user, done) => {
   done(null, user);
 });
@@ -58,6 +75,17 @@ passport.deserializeUser((obj, done) => {
 });
 
 // === Routes ===
+app.get("/auth/facebook",
+  passport.authenticate("facebook", { scope: ['email', 'public_profile'] }) // Request necessary scopes
+);
+
+app.get("/auth/facebook/callback",
+  passport.authenticate("facebook", {
+    failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed", // Or your desired frontend failure URL
+    successRedirect: "https://minesweeper-flags-frontend.onrender.com", // Your frontend success URL
+  })
+);
+
 app.get("/auth/google",
   passport.authenticate("google", { scope: ["profile"] })
 );
