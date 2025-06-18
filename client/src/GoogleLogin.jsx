@@ -8,7 +8,7 @@ function GoogleLogin({ onLogin }) {
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get("https://minesweeper-flags-frontend.onrender.com/me");
+      const res = await axios.get("https://minesweeper-flags-backend.onrender.com/me");
       setUser(res.data.user);
       onLogin(res.data.user.displayName); // Send name to parent
     } catch {
