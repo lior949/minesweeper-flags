@@ -440,4 +440,7 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(3001, () => console.log("Server running on http://localhost:3001"));
+const PORT = process.env.PORT || 3001; // 3001 for local dev, Render provides PORT
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
