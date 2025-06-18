@@ -1,0 +1,29 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #202124;
+  color: #e8eaed;
+}
+.board {
+  display: grid;
+  grid-template-columns: repeat(9, 38px);
+  gap: 4px;
+  margin: 20px auto;
+  width: fit-content;
+}
+.tile {
+  width: 38px;
+  height: 38px;
+  background: #5f6368;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+}
+.tile.revealed {
+  background: #9aa0a6;
+  cursor: default;
+  font-weight: bold;
+}

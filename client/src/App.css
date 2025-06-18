@@ -1,0 +1,133 @@
+body {
+  background-color: #222;
+  color: #eee;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+.lobby {
+  padding: 20px;
+  text-align: center;
+}
+
+.player-list {
+  list-style: none;
+  padding: 0;
+  max-width: 300px;
+  margin: 10px auto;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #333;
+}
+
+.player-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid #555;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.player-item:last-child {
+  border-bottom: none;
+}
+
+.player-item:hover {
+  background: #555;
+}
+
+.invite-popup {
+  margin-top: 20px;
+  background: #444;
+  border-radius: 8px;
+  padding: 10px;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.invite-popup button {
+  margin: 5px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.app {
+  max-width: 700px;
+  margin: 20px auto;
+  padding: 10px;
+  text-align: center;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.bomb-button {
+  background-color: #aa3333;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  font-weight: bold;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.bomb-button:disabled {
+  background-color: #555;
+  cursor: default;
+}
+
+.bomb-button:hover:not(:disabled) {
+  background-color: #cc4444;
+}
+
+.grid {
+  display: grid;
+  justify-content: center;
+  gap: 2px;
+  user-select: none;
+  margin-top: 15px;
+}
+
+.tile {
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  font-weight: bold;
+  font-size: 18px;
+  text-align: center;
+  vertical-align: middle;
+  border-radius: 4px;
+  cursor: pointer;
+  color: white;
+  user-select: none;
+}
+
+.tile.hidden {
+  background-color: #555;
+  border: 2px solid #666;
+}
+
+.tile.revealed {
+  background-color: #222;
+  border: 2px solid #999;
+  cursor: default;
+}
+
+.tile.mine {
+  color: inherit;
+  font-size: 26px;
+}
+
+.tile.revealed:hover {
+  cursor: default;
+}
+
