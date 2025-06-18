@@ -36,7 +36,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       sameSite: "lax", // allow across ports
-      secure: false,   // true only if using HTTPS
+      secure: true,   // true only if using HTTPS
     },
   })
 );
