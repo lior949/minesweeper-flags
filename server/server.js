@@ -56,6 +56,10 @@ const MINES = 51;
 const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
 const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
 
+// Determine cookie domain dynamically for production vs local development
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const COOKIE_DOMAIN = NODE_ENV === 'production' ? '.onrender.com' : undefined; // Set to .onrender.com for cross-subdomain cookies in production
+
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -87,8 +91,8 @@ try {
   // === Define the session middleware instance with FirestoreStore ===
   sessionMiddleware = session({ // Assign to the already declared variable
     secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev", // Use env var, fallback for local dev
-    resave: true, // Changed to true for testing session persistence
-    saveUninitialized: false,
+    resave: false, // Changed to false: generally recommended to only resave modified sessions
+    saveUninitialized: false, // Prevents storing empty sessions in Firestore
     store: new FirestoreStore({ // Instantiate FirestoreStore with 'new'
       dataset: firestoreClient, // Pass the Firestore client instance
       kind: 'express-sessions', // Optional: collection name for sessions, defaults to 'express-sessions'
@@ -96,7 +100,7 @@ try {
     cookie: {
       sameSite: "none",
       secure: true,
-      // 'domain' property removed for better compatibility with Render deployments
+      domain: COOKIE_DOMAIN, // Explicitly set domain for cross-subdomain cookies
       maxAge: 1000 * 60 * 60 * 24 // 24 hours (example)
     },
   });
@@ -261,7 +265,8 @@ app.get("/logout", (req, res, next) => {
       res.clearCookie("connect.sid", {
           path: '/',
           secure: true,
-          sameSite: 'none'
+          sameSite: 'none',
+          domain: COOKIE_DOMAIN, // Ensure domain is cleared as well
       }); // Clear the session cookie from the client
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
@@ -824,7 +829,7 @@ io.on("connection", (socket) => {
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
-        _gameOver: game.gameOver, // This should be `gameOver`
+        gameOver: game.gameOver, // Corrected from _gameOver
         opponentName: inviterPlayer.name,
       });
 
