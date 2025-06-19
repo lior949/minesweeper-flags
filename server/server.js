@@ -735,6 +735,24 @@ io.on("connection", (socket) => {
       games[gameId] = game;
 
       try {
+          console.log(`[Firestore] Attempting to save new game ${game.gameId} to Firestore.`);
+          console.log(`[Firestore] Game data to save: ${JSON.stringify({
+              gameId: game.gameId,
+              board: game.board,
+              player1_userId: inviter.userId,
+              player2_userId: responder.userId,
+              player1_name: inviter.name,
+              player2_name: responder.name,
+              turn: game.turn,
+              scores: game.scores,
+              bombsUsed: game.bombsUsed,
+              gameOver: game.gameOver,
+              status: 'active',
+              lastUpdated: Timestamp.now(),
+              winnerId: null,
+              loserId: null
+          })}`);
+
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
               gameId: game.gameId,
               board: game.board,
@@ -753,7 +771,7 @@ io.on("connection", (socket) => {
           });
           console.log(`Game ${gameId} saved to Firestore.`);
       } catch (error) {
-          console.error("Error saving new game to Firestore:", error);
+          console.error("Error saving new game to Firestore:", error); // Log the full error object
           io.to(inviter.id).emit("join-error", "Failed to start game (DB error).");
           io.to(responder.id).emit("join-error", "Failed to start game (DB error).");
           delete games[gameId];
@@ -810,8 +828,8 @@ io.on("connection", (socket) => {
     }
 
     try {
-        const gameDocRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
-        await gameDocRef.update({
+        console.log(`[Firestore] Attempting to update game ${gameId} (tile-click).`);
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
             board: game.board,
             turn: game.turn,
             scores: game.scores,
@@ -823,7 +841,7 @@ io.on("connection", (socket) => {
         });
         console.log(`Game ${gameId} updated in Firestore (tile-click).`);
     } catch (error) {
-        console.error("Error updating game in Firestore (tile-click):", error);
+        console.error("Error updating game in Firestore (tile-click):", error); // Log the full error object
     }
 
     game.players.forEach(p => {
@@ -895,8 +913,8 @@ io.on("connection", (socket) => {
     else game.turn = game.turn === 1 ? 2 : 1;
 
     try {
-        const gameDocRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
-        await gameDocRef.update({
+        console.log(`[Firestore] Attempting to update game ${gameId} (bomb-center).`);
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
             board: game.board,
             turn: game.turn,
             scores: game.scores,
@@ -908,7 +926,7 @@ io.on("connection", (socket) => {
         });
         console.log(`Game ${gameId} updated in Firestore (bomb-center).`);
     } catch (error) {
-        console.error("Error updating game in Firestore (bomb-center):", error);
+        console.error("Error updating game in Firestore (bomb-center):", error); // Log the full error object
     }
 
     game.players.forEach(p => {
@@ -935,8 +953,8 @@ io.on("connection", (socket) => {
     game.gameOver = false;
 
     try {
-        const gameDocRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
-        await gameDocRef.update({
+        console.log(`[Firestore] Attempting to restart game ${gameId}.`);
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
             board: game.board,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -949,7 +967,7 @@ io.on("connection", (socket) => {
         });
         console.log(`Game ${gameId} restarted and updated in Firestore.`);
     } catch (error) {
-        console.error("Error restarting game in Firestore:", error);
+        console.error("Error restarting game in Firestore:", error); // Log the full error object
     }
 
     game.players.forEach(p => {
@@ -980,9 +998,11 @@ io.on("connection", (socket) => {
                         io.to(opponent.id).emit("opponent-left");
                         console.log(`Notified opponent ${opponent.name} of ${playerInGame.name}'s disconnection.`);
                     }
+                    console.log(`[Firestore] Attempting to update game ${gameId} status to 'waiting_for_resume'.`);
                     await gameDocRef.update({ status: 'waiting_for_resume', lastUpdated: Timestamp.now() });
                     console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to disconnect.`);
                 } else {
+                    console.log(`[Firestore] Attempting to update game ${gameId} status to 'completed'.`);
                     await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
                         status: 'completed',
                         lastUpdated: Timestamp.now()
@@ -990,7 +1010,7 @@ io.on("connection", (socket) => {
                     console.log(`Game ${gameId} status set to 'completed' (last player disconnected).`);
                 }
             } catch (error) {
-                console.error("Error updating game status on disconnect:", error);
+                console.error("Error updating game status on disconnect:", error); // Log the full error object
             }
             delete games[gameId];
             break;
