@@ -52,6 +52,7 @@ function App() {
     });
 
     socket.on("game-start", (data) => {
+      // This is the full game initialization
       setGameId(data.gameId);
       setPlayerNumber(data.playerNumber);
       setBoard(data.board);
@@ -91,22 +92,20 @@ function App() {
     });
 
     // --- NEW Socket.IO event listener for game restart ---
-    socket.on("game-restarted", (newGame) => {
+    socket.on("game-restarted", (data) => { // 'data' now contains all game state
       console.log("Game restarted by server!");
-      // Update all game-related state variables with the new game object
-      setGameId(newGame.gameId); // Game ID should remain the same, but good to set explicitly
-      // playerNumber might remain the same for the client if they are same players,
-      // but the server sends the full game object so we update everything
-      setBoard(newGame.board);
-      setTurn(newGame.turn);
-      setScores(newGame.scores);
-      setBombsUsed(newGame.bombsUsed);
-      setGameOver(newGame.gameOver); // Should be false after restart
+      // Re-initialize all game-related state variables exactly like 'game-start'
+      setGameId(data.gameId);
+      setPlayerNumber(data.playerNumber); // This will be 1 or 2, specific to the client
+      setBoard(data.board);
+      setTurn(data.turn);
+      setScores(data.scores);
+      setBombsUsed(data.bombsUsed);
+      setGameOver(data.gameOver);
+      setOpponentName(data.opponentName); // Ensure opponent name is reset
       setBombMode(false); // Reset bomb mode
-      // opponentName likely remains the same
-
-      // You could also add a temporary message to the user, e.g.:
-      // alert("Game restarted because a blank tile was hit first!");
+      // Optionally, add a user alert
+      alert("Game restarted: Blank tile hit before any flags!");
     });
 
     return () => {
