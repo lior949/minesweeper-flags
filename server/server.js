@@ -70,7 +70,7 @@ try {
   // === Define the session middleware instance with FirestoreStore ===
   sessionMiddleware = session({ // Assign to the already declared variable
     secret: process.env.SESSION_SECRET, // Make sure SESSION_SECRET is set in Render env vars
-    resave: false,
+    resave: true, // Changed to true for testing session persistence
     saveUninitialized: false,
     store: new FirestoreStore({ // Instantiate FirestoreStore with 'new'
       dataset: firestoreClient, // Pass the Firestore client instance
@@ -186,9 +186,15 @@ app.get("/auth/facebook/callback",
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
   (req, res) => { // Add a callback to manually save session
+    console.log(`[Session Save] Attempting to save session after Facebook auth.`);
+    console.log(`[Session Save] Session before save (Facebook): ${JSON.stringify(req.session)}`);
+    console.log(`[Session Save] req.session.passport before save (Facebook): ${JSON.stringify(req.session?.passport)}`);
+
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
+      } else {
+        console.log(`[Session Save] Session successfully saved after Facebook auth.`);
       }
       res.redirect("https://minesweeper-flags-frontend.onrender.com");
     });
@@ -204,9 +210,15 @@ app.get("/auth/google/callback",
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com",
   }),
   (req, res) => { // Add a callback to manually save session
+    console.log(`[Session Save] Attempting to save session after Google auth.`);
+    console.log(`[Session Save] Session before save (Google): ${JSON.stringify(req.session)}`);
+    console.log(`[Session Save] req.session.passport before save (Google): ${JSON.stringify(req.session?.passport)}`);
+
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
+      } else {
+        console.log(`[Session Save] Session successfully saved after Google auth.`);
       }
       res.redirect("https://minesweeper-flags-frontend.onrender.com");
     });
@@ -970,7 +982,7 @@ io.on("connection", (socket) => {
                         status: 'completed',
                         lastUpdated: Timestamp.now()
                     });
-                    console.log(`Game ${gameId} status set to 'completed' as last player left.`);
+                    console.log(`Game ${gameId} status set to 'completed' (last player disconnected).`);
                 }
             } catch (error) {
                 console.error("Error updating game status on disconnect:", error);
