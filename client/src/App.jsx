@@ -30,8 +30,253 @@ function App() {
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
 
-  // --- Helper Functions ---
-  const resetGameState = () => {
+  // --- Helper to display messages (replaces alert) ---
+  const showMessage = (msg, isError = false) => {
+    setMessage(msg);
+    if (isError) {
+      console.error(msg);
+    } else {
+      console.log(msg);
+    }
+    // Clear message after some time (e.g., 5 seconds)
+    setTimeout(() => setMessage(""), 5000);
+  };
+
+  // --- Initial Authentication Check on Component Mount ---
+  useEffect(() => {
+    const checkAuthStatus = async () => {
+      try {
+        const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
+          setLoggedIn(true);
+          console.log("Frontend: Auth check successful, user:", data.user.displayName || data.user.name);
+          socket.emit("join-lobby", data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
+        } else {
+          setLoggedIn(false);
+          setName("");
+          console.log("Frontend: Auth check failed (response not ok).");
+        }
+      } catch (err) {
+        console.error("Frontend: Error during auth check:", err);
+        setLoggedIn(false);
+        setName("");
+      }
+    };
+    checkAuthStatus();
+
+    // --- Socket.IO Event Listeners ---
+    socket.on("join-error", (msg) => {
+      showMessage(msg, true); // Use showMessage for errors
+      setLoggedIn(false);
+      setName("");
+      window.location.reload();
+    });
+
+    socket.on("lobby-joined", (userName) => {
+      setLoggedIn(true);
+      setName(userName);
+      showMessage(`Lobby joined successfully as ${userName}!`);
+      socket.emit("request-unfinished-games");
+    });
+
+    socket.on("players-list", (players) => {
+      setPlayersList(players);
+    });
+
+    socket.on("game-invite", (inviteData) => {
+      setInvite(inviteData);
+      showMessage(`Invitation from ${inviteData.fromName}!`);
+    });
+
+    socket.on("invite-rejected", ({ fromName, reason }) => {
+      showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
+    });
+
+    socket.on("game-start", (data) => {
+      setGameId(data.gameId);
+      setPlayerNumber(data.playerNumber);
+      // IMPORTANT: Deserialize the board received from the backend
+      setBoard(JSON.parse(data.board));
+      setTurn(data.turn);
+      setScores(data.scores);
+      setBombsUsed(data.bombsUsed);
+      setGameOver(data.gameOver);
+      setOpponentName(data.opponentName);
+      setBombMode(false);
+      setMessage(""); // Clear message when game starts
+      console.log("Frontend: Game started! My player number:", data.playerNumber);
+      setUnfinishedGames([]); // Clear unfinished games list as a game has started/resumed
+    });
+
+    socket.on("board-update", (game) => {
+      // IMPORTANT: Deserialize the board received from the backend
+      setBoard(JSON.parse(game.board));
+      setTurn(game.turn);
+      setScores(game.scores);
+      setBombsUsed(game.bombsUsed);
+      setGameOver(game.gameOver);
+      setBombMode(false);
+      setMessage(""); // Clear message on board update
+    });
+
+    socket.on("wait-bomb-center", () => {
+      setBombMode(true);
+      setMessage("Select 5x5 bomb center.");
+    });
+
+    socket.on("opponent-left", () => {
+      showMessage("Opponent left the game. Returning to lobby.", true);
+      setGameId(null);
+      setPlayerNumber(null);
+      setBoard([]);
+      setTurn(null);
+      setScores({ 1: 0, 2: 0 });
+      setBombsUsed({ 1: false, 2: false });
+      setGameOver(false);
+      setOpponentName("");
+      setBombMode(false);
+      socket.emit("request-unfinished-games"); // Request updated unfinished games list after returning to lobby
+    });
+
+    socket.on("bomb-error", (msg) => {
+      showMessage(msg, true);
+      setBombMode(false); // Exit bomb mode on error
+    });
+
+    socket.on("receive-unfinished-games", (games) => {
+      // Before setting, ensure boards are deserialized
+      const deserializedGames = games.map(game => ({
+          ...game,
+          board: JSON.parse(game.board) // Deserialize board for each unfinished game
+      }));
+      setUnfinishedGames(deserializedGames);
+      console.log("Received unfinished games:", deserializedGames);
+    });
+
+    socket.on("opponent-reconnected", ({ name }) => {
+        showMessage(`${name} has reconnected!`);
+    });
+
+    socket.on("game-restarted", (data) => {
+      setGameId(data.gameId);
+      setPlayerNumber(data.playerNumber);
+      setBoard(JSON.parse(data.board)); // Deserialize board for restarted game
+      setTurn(data.turn);
+      setScores(data.scores);
+      setBombsUsed(data.bombsUsed);
+      setGameOver(data.gameOver);
+      setOpponentName(data.opponentName);
+      setBombMode(false);
+      setMessage("Game restarted!");
+      console.log("Frontend: Game restarted!");
+    });
+
+
+    // Cleanup function for useEffect
+    return () => {
+      socket.off("join-error");
+      socket.off("lobby-joined");
+      socket.off("players-list");
+      socket.off("game-invite");
+      socket.off("invite-rejected");
+      socket.off("game-start");
+      socket.off("board-update");
+      socket.off("wait-bomb-center");
+      socket.off("opponent-left");
+      socket.off("bomb-error");
+      socket.off("receive-unfinished-games");
+      socket.off("opponent-reconnected");
+      socket.off("game-restarted");
+    };
+  }, []);
+
+  // --- User Interaction Functions ---
+
+  const invitePlayer = (id) => {
+    if (loggedIn && id !== socket.id) {
+      socket.emit("invite-player", id);
+      showMessage("Invitation sent.");
+    }
+  };
+
+  const respondInvite = (accept) => {
+    if (invite) {
+      socket.emit("respond-invite", { fromId: invite.fromId, accept });
+      setInvite(null); // Clear the invitation after responding.
+    }
+  };
+
+  const handleClick = (x, y) => {
+    if (!gameId) return;
+    if (bombMode) {
+      // --- Client-side validation before emitting bomb-center ---
+      const MIN_COORD = 2; // For 3rd line/column (0-indexed)
+      const MAX_COORD_X = 13; // For 14th column (16-1 - 2)
+      const MAX_COORD_Y = 13; // For 14th line (16-1 - 2)
+
+      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
+        showMessage("Bomb center must be within the 12x12 area.", true);
+        return;
+      }
+
+      let allTilesRevealed = true;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const checkX = x + dx;
+          const checkY = y + dy;
+          if (checkX >= 0 && checkX < board[0].length && checkY >= 0 && checkY < board.length) {
+            if (!board[checkY][checkX].revealed) {
+              allTilesRevealed = false;
+              break;
+            }
+          } else {
+            allTilesRevealed = false;
+            break;
+          }
+        }
+        if (!allTilesRevealed) break;
+      }
+
+      if (allTilesRevealed) {
+        showMessage("All tiles in the bomb's blast area are already revealed.", true);
+        return;
+      }
+      // --- END CLIENT-SIDE VALIDATION ---
+
+      setMessage(""); // Clear message if validation passes
+      socket.emit("bomb-center", { gameId, x, y });
+    } else if (playerNumber === turn && !gameOver) {
+      setMessage(""); // Clear message when clicking a regular tile
+      socket.emit("tile-click", { gameId, x, y });
+    }
+  };
+
+  const useBomb = () => {
+    if (bombMode) {
+      setBombMode(false);
+      setMessage(""); // Clear message when cancelling
+    } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+      socket.emit("use-bomb", { gameId });
+    } else {
+        if (bombsUsed[playerNumber]) {
+            showMessage("You have already used your bomb!", true);
+        } else if (scores[playerNumber] >= scores[playerNumber === 1 ? 2 : 1]) {
+            showMessage("You can only use the bomb when you are behind in score!", true);
+        }
+    }
+  };
+
+  const backToLobby = () => {
+    if (gameId) {
+        socket.emit("leave-game", { gameId });
+    }
+
     setGameId(null);
     setPlayerNumber(null);
     setBoard([]);
@@ -42,288 +287,73 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setMessage(""); // Clear any messages
-    // Trigger fetching unfinished games after returning to lobby
-    socket.emit("request-unfinished-games");
-  };
-
-  const clearMessage = () => {
-    setMessage("");
-  };
-
-  // --- Socket.IO Event Handlers ---
-  useEffect(() => {
-    const handleJoinError = (msg) => {
-      setMessage(msg);
-      // Clear message after some time if it's an error
-      setTimeout(clearMessage, 5000);
-    };
-
-    const handleLobbyJoined = () => {
-      setLoggedIn(true);
-      setMessage("Joined lobby successfully!");
-      setTimeout(clearMessage, 3000);
-      socket.emit("request-unfinished-games"); // Request unfinished games upon joining lobby
-    };
-
-    const handlePlayersList = (players) => {
-      setPlayersList(players);
-    };
-
-    const handleGameInvite = (inviteData) => {
-      setInvite(inviteData);
-    };
-
-    const handleInviteRejected = ({ fromName, reason }) => {
-      setMessage(`${fromName} rejected your invitation.${reason ? ` Reason: ${reason}` : ''}`);
-      setTimeout(clearMessage, 5000);
-      setInvite(null); // Clear the invite if rejected
-    };
-
-    const handleGameStart = (data) => {
-      setGameId(data.gameId);
-      setPlayerNumber(data.playerNumber);
-      setBoard(data.board); // Board should be deserialized on backend if sent as string
-      setTurn(data.turn);
-      setScores(data.scores);
-      setBombsUsed(data.bombsUsed);
-      setGameOver(data.gameOver);
-      setOpponentName(data.opponentName);
-      setBombMode(false);
-      setMessage(`Game started! You are Player ${data.playerNumber}.`);
-      setTimeout(clearMessage, 3000);
-    };
-
-    const handleBoardUpdate = (game) => {
-      setBoard(game.board);
-      setTurn(game.turn);
-      setScores(game.scores);
-      setBombsUsed(game.bombsUsed);
-      setGameOver(game.gameOver);
-      setBombMode(false);
-    };
-
-    const handleWaitBombCenter = () => {
-      setBombMode(true);
-      setMessage("Select a 5x5 bomb center.");
-      setTimeout(clearMessage, 5000);
-    };
-
-    const handleBombError = (msg) => {
-        setMessage(msg);
-        setTimeout(clearMessage, 5000);
-        setBombMode(false); // Exit bomb mode on error
-    };
-
-    const handleOpponentLeft = () => {
-      setMessage("Opponent left the game. Returning to lobby.");
-      setTimeout(clearMessage, 5000);
-      resetGameState();
-    };
-
-    const handleGameRestarted = (data) => {
-        setGameId(data.gameId);
-        setPlayerNumber(data.playerNumber);
-        setBoard(data.board);
-        setTurn(data.turn);
-        setScores(data.scores);
-        setBombsUsed(data.bombsUsed);
-        setGameOver(data.gameOver);
-        setOpponentName(data.opponentName);
-        setBombMode(false);
-        setMessage("Game restarted!");
-        setTimeout(clearMessage, 3000);
-    };
-
-    const handleOpponentReconnected = ({ name }) => {
-        setMessage(`${name} has reconnected!`);
-        setTimeout(clearMessage, 3000);
-    };
-
-    const handleReceiveUnfinishedGames = (games) => {
-        setUnfinishedGames(games);
-    };
-
-
-    // --- Socket.IO Event Listeners ---
-    socket.on("join-error", handleJoinError);
-    socket.on("lobby-joined", handleLobbyJoined);
-    socket.on("players-list", handlePlayersList);
-    socket.on("game-invite", handleGameInvite);
-    socket.on("invite-rejected", handleInviteRejected);
-    socket.on("game-start", handleGameStart);
-    socket.on("board-update", handleBoardUpdate);
-    socket.on("wait-bomb-center", handleWaitBombCenter);
-    socket.on("bomb-error", handleBombError); // NEW listener
-    socket.on("opponent-left", handleOpponentLeft);
-    socket.on("game-restarted", handleGameRestarted); // NEW listener
-    socket.on("opponent-reconnected", handleOpponentReconnected); // NEW listener
-    socket.on("receive-unfinished-games", handleReceiveUnfinishedGames); // NEW listener
-
-
-    // Initial check for authentication status on component mount
-    const checkAuthStatus = async () => {
-        try {
-            const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
-                method: "GET",
-                credentials: "include", // IMPORTANT: Send cookies
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const userDisplayName = data.user.displayName || `User_${data.user.id.substring(0, 8)}`;
-                setName(userDisplayName);
-                setLoggedIn(true);
-                // After successful auth, join lobby. The backend will use the session's userId.
-                socket.emit("join-lobby", userDisplayName);
-            } else {
-                setLoggedIn(false);
-                setName("");
-                setMessage("Not logged in. Please log in to play.");
-            }
-        } catch (err) {
-            console.error("Auth check failed:", err);
-            setLoggedIn(false);
-            setName("");
-            setMessage("Failed to connect to authentication service.");
-            setTimeout(clearMessage, 5000);
-        }
-    };
-
-    // Ensure this runs only once on mount
-    if (!loggedIn) { // Only run if not already logged in
-      checkAuthStatus();
-    }
-
-
-    // Cleanup function for useEffect
-    return () => {
-      socket.off("join-error", handleJoinError);
-      socket.off("lobby-joined", handleLobbyJoined);
-      socket.off("players-list", handlePlayersList);
-      socket.off("game-invite", handleGameInvite);
-      socket.off("invite-rejected", handleInviteRejected);
-      socket.off("game-start", handleGameStart);
-      socket.off("board-update", handleBoardUpdate);
-      socket.off("wait-bomb-center", handleWaitBombCenter);
-      socket.off("bomb-error", handleBombError);
-      socket.off("opponent-left", handleOpponentLeft);
-      socket.off("game-restarted", handleGameRestarted);
-      socket.off("opponent-reconnected", handleOpponentReconnected);
-      socket.off("receive-unfinished-games", handleReceiveUnfinishedGames);
-    };
-  }, [loggedIn]); // Rerun if loggedIn state changes (e.g., after successful login)
-
-
-  // --- User Interaction Handlers ---
-  const invitePlayer = (id) => {
-    if (loggedIn && id !== socket.id) {
-      socket.emit("invite-player", id);
-      setMessage("Invitation sent.");
-      setTimeout(clearMessage, 3000);
-    }
-  };
-
-  const respondInvite = (accept) => {
-    if (invite) {
-      socket.emit("respond-invite", { fromId: invite.fromId, accept });
-      setInvite(null); // Clear the invitation popup
-      if (accept) {
-        setMessage("Accepted invitation!");
-      } else {
-        setMessage("Rejected invitation.");
-      }
-      setTimeout(clearMessage, 3000);
-    }
-  };
-
-  const handleClick = (x, y) => {
-    if (!gameId) return;
-    if (bombMode) {
-      socket.emit("bomb-center", { gameId, x, y });
-    } else if (playerNumber === turn && !gameOver) {
-      socket.emit("tile-click", { gameId, x, y });
-    }
-  };
-
-  const useBomb = () => {
-    if (bombMode) {
-      setBombMode(false); // Cancel bomb mode
-      setMessage("Bomb mode cancelled.");
-      setTimeout(clearMessage, 3000);
-    } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] && !gameOver) {
-      // Only allow using bomb if current player's score is less than opponent's
-      socket.emit("use-bomb", { gameId });
-    }
-  };
-
-  const backToLobby = () => {
-    if (gameId) {
-        socket.emit("leave-game", { gameId });
-    }
-    resetGameState();
-    setMessage("Returned to lobby.");
-    setTimeout(clearMessage, 3000);
-  };
-
-  const restartGame = () => {
-    if (gameId) {
-        socket.emit("restart-game", { gameId });
-        setMessage("Restarting game...");
-        setTimeout(clearMessage, 3000);
-    }
-  };
-
-  const resumeGame = (selectedGameId) => {
-    if (selectedGameId) {
-        socket.emit("resume-game", { gameId: selectedGameId });
-        setMessage("Attempting to resume game...");
-        setTimeout(clearMessage, 3000);
-    }
-  };
-
+    setMessage(""); // Clear message
+    setUnfinishedGames([]); // Clear for re-fetch
+};
 
   const logout = async () => {
-    try {
-      await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
-        method: "GET",
-        credentials: "include",
-      });
+  try {
+    await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
+      method: "GET",
+      credentials: "include",
+    });
 
-      setLoggedIn(false);
-      setName("");
-      resetGameState(); // Reset all game and lobby states
-      setMessage("Logged out successfully.");
-      setTimeout(() => {
-        clearMessage();
-        window.location.reload(); // Force a full reload to clear all states and re-render login
-      }, 2000);
+    setLoggedIn(false);
+    setName("");
+    setGameId(null);
+    setPlayerNumber(null);
+    setBoard([]);
+    setTurn(null);
+    setScores({ 1: 0, 2: 0 });
+    setBombsUsed({ 1: false, 2: false });
+    setBombMode(false);
+    setGameOver(false);
+    setOpponentName("");
+    setInvite(null);
+    setMessage(""); // Clear message
+	window.location.reload();
+  } catch (err) {
+    console.error("Logout failed", err);
+    showMessage("Logout failed. Please try again.", true);
+  }
+};
 
-    } catch (err) {
-      console.error("Logout failed", err);
-      setMessage("Logout failed. Please try again.");
-      setTimeout(clearMessage, 5000);
-    }
-  };
-
-  // --- Render Functions ---
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
     if (tile.isMine) {
-      if (tile.owner === 1) return <span style={{ color: "red", fontSize: "24px" }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: "blue", fontSize: "24px" }}>🚩</span>; // Changed to blue
+      if (tile.owner === 1) return <span style={{ color: "red" }}>🚩</span>;
+      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴‍</span>;
       return "";
     }
-    return tile.adjacentMines > 0 ? tile.adjacentMines : "";
+    // Apply number-specific class for coloring
+    if (tile.adjacentMines > 0) {
+      return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
+    }
+    return "";
   };
 
-  // --- Main App Render Logic ---
+  // --- NEW: Resume Game Function ---
+  const resumeGame = (gameIdToResume) => {
+    if (gameIdToResume) {
+        socket.emit("resume-game", { gameId: gameIdToResume });
+        showMessage("Attempting to resume game...");
+    }
+  };
+
+
+  // --- Conditional Rendering based on App State ---
+
   if (!loggedIn) {
     return (
       <div className="lobby">
-        <h2>Login to Minesweeper Flags</h2>
-        {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
-        <GoogleLogin />
-        {/* Potentially add FacebookLogin here */}
+        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+        <h2>Login with Google to join the lobby</h2>
+        <GoogleLogin
+          onLogin={(googleName) => {
+            setName(googleName);
+            socket.emit("join-lobby", googleName);
+          }}
+        />
       </div>
     );
   }
@@ -331,29 +361,11 @@ function App() {
   if (!gameId) {
     return (
       <div className="lobby">
-        <div className="header">
-            <h2>Lobby - Online Players</h2>
-            <button onClick={logout} className="bomb-button">Logout</button>
-        </div>
-        {message && <p className="app-message">{message}</p>}
-        <h3>Current Player: {name}</h3>
+        {message && <p className="app-message" style={{color: 'green'}}>{message}</p>} {/* Show general success messages */}
+        {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>} {/* Show errors in red */}
 
-        {/* Unfinished Games Section */}
-        {unfinishedGames.length > 0 && (
-            <div className="unfinished-games-list">
-                <h3>Your Unfinished Games</h3>
-                <ul className="player-list">
-                    {unfinishedGames.map((game) => (
-                        <li key={game.gameId} className="player-item" onClick={() => resumeGame(game.gameId)}>
-                            Game ID: {game.gameId.substring(0, 8)}... (vs. {game.opponentName}) - Status: {game.status} - Last Updated: {game.lastUpdated}
-                        </li>
-                    ))}
-                </ul>
-            </div>
-        )}
-
-        {/* Available Players Section */}
-        <h3>Available Players</h3>
+        <h2>Lobby - Online Players</h2>
+		<button onClick={logout} className="bomb-button">Logout</button>
         {playersList.length === 0 && <p>No other players online</p>}
         <ul className="player-list">
           {playersList.map((p) => (
@@ -367,7 +379,6 @@ function App() {
             </li>
           ))}
         </ul>
-
         {invite && (
           <div className="invite-popup">
             <p>
@@ -377,10 +388,28 @@ function App() {
             <button onClick={() => respondInvite(false)}>Reject</button>
           </div>
         )}
+
+        {/* --- NEW: Unfinished Games List in Lobby --- */}
+        <div className="unfinished-games-section">
+            <h3>Your Unfinished Games</h3>
+            {unfinishedGames.length === 0 ? (
+                <p>No unfinished games found.</p>
+            ) : (
+                <ul className="unfinished-game-list">
+                    {unfinishedGames.map(game => (
+                        <li key={game.gameId} className="unfinished-game-item">
+                            Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - Last updated: {game.lastUpdated}
+                            <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
       </div>
     );
   }
 
+  // In game UI
   return (
     <div className="app">
       <div className="header">
@@ -408,14 +437,9 @@ function App() {
       </p>
 
       {gameOver && (
-        <>
-            <button className="bomb-button" onClick={backToLobby}>
-              Back to Lobby
-            </button>
-            <button className="bomb-button" onClick={restartGame} style={{ marginLeft: '10px' }}>
-              Restart Game
-            </button>
-        </>
+        <button className="bomb-button" onClick={backToLobby}>
+          Back to Lobby
+        </button>
       )}
 
       <div
