@@ -78,16 +78,17 @@ function App() {
     });
 
     socket.on("opponent-left", () => {
-      alert("Opponent left the game. Returning to lobby.");
-      setGameId(null);
-      setPlayerNumber(null);
-      setBoard([]);
-      setTurn(null);
-      setScores({ 1: 0, 2: 0 });
-      setBombsUsed({ 1: false, 2: false });
-      setGameOver(false);
-      setOpponentName("");
-      setBombMode(false);
+      // alert("Opponent left the game. Returning to lobby."); // Keep alert for notification
+      // Temporarily comment out these lines to see if it fixes the return to lobby
+      // setGameId(null);
+      // setPlayerNumber(null);
+      // setBoard([]);
+      // setTurn(null);
+      // setScores({ 1: 0, 2: 0 });
+      // setBombsUsed({ 1: false, 2: false });
+      // setGameOver(false);
+      // setOpponentName("");
+      // setBombMode(false);
       // Refresh lobby players list will be automatic on server disconnect update
     });
 
