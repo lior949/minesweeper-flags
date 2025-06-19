@@ -56,16 +56,14 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 
-// === IMPORTANT: Integrate session middleware with Socket.IO ===
-// This ensures `socket.request.session` is available and populated by Passport
-// BEFORE your `io.on("connection")` and subsequent `socket.on` handlers run.
+// === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
+// This single io.use() block ensures that `socket.request.session` AND `socket.request.user`
+// are correctly populated for every Socket.IO connection.
 io.use((socket, next) => {
-  sessionMiddleware(socket.request, {}, next); // Pass empty response object
-});
-
-io.use((socket, next) => {
-    passport.initialize()(socket.request, {}, () => {
-        passport.session()(socket.request, {}, next);
+    sessionMiddleware(socket.request, {}, () => {
+        passport.initialize()(socket.request, {}, () => {
+            passport.session()(socket.request, {}, next);
+        });
     });
 });
 // === END Socket.IO Session Integration ===
@@ -78,14 +76,7 @@ passport.use(new GoogleStrategy({
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
   console.log("Google Auth Profile:", profile.displayName, profile.id);
-  // Store profile.id (Google ID) as the user identifier in session
-  // Also store display name here to easily retrieve later
-  if (profile.displayName) {
-      // Access req.session via done(null, user, info) in older passport versions,
-      // or set it in deserializeUser if you fetch from DB.
-      // For simplicity, we can let join-lobby set it initially for the socket's session.
-  }
-  done(null, profile.id);
+  done(null, profile.id); // Store profile.id (Google ID) in session
 }));
 
 // Passport Facebook Strategy
@@ -106,11 +97,13 @@ passport.serializeUser((userId, done) => {
   done(null, userId);
 });
 
+// IMPORTANT: Modify deserializeUser to return an object with `id` and `displayName`
+// This makes `socket.request.user.id` and `socket.request.user.displayName` available.
 passport.deserializeUser((userId, done) => {
   console.log("deserializeUser:", userId);
-  // You might want to pass more user info (like display name) here if available from your DB
-  // For now, let's assume `req.user` will be the userId.
-  done(null, { id: userId, displayName: `User_${userId.substring(0, 8)}` }); // Pass an object with id and a default displayName
+  // In a real app, you'd fetch the user's display name from your DB using userId
+  // For now, we'll construct a simple object:
+  done(null, { id: userId, displayName: `User_${userId.substring(0, 8)}` });
 });
 
 
@@ -166,8 +159,6 @@ const HEIGHT = 16;
 const MINES = 51;
 let players = []; // Lobby players: { id: socket.id, userId, name }
 let games = {};
-// Helper functions (generateBoard, revealRecursive, revealArea, checkGameOver) remain the same.
-// (Paste them here from your previous server.js if not already present)
 const generateBoard = () => {
     const board = Array.from({ length: HEIGHT }, () =>
       Array.from({ length: WIDTH }, () => ({
@@ -247,11 +238,13 @@ const checkGameOver = (scores) => {
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
 
-  // After io.use() with session and passport, socket.request.user should be available here
+  // Now socket.request.user should be reliably populated if authenticated
   const userIdOnConnect = socket.request.user ? socket.request.user.id : null;
+  const userNameOnConnect = socket.request.user ? socket.request.user.displayName : null;
+
 
   if (userIdOnConnect) {
-    console.log(`User ${userIdOnConnect} (re)connected. Socket ID: ${socket.id}`);
+    console.log(`User ${userNameOnConnect} (${userIdOnConnect}) (re)connected. Socket ID: ${socket.id}`);
 
     userSocketMap[userIdOnConnect] = socket.id; // Update user-to-socket mapping
 
@@ -294,8 +287,8 @@ io.on("connection", (socket) => {
 
 
   socket.on("join-lobby", (name) => {
-    // Now socket.request.user should be reliably populated if authenticated
     const userId = socket.request.user ? socket.request.user.id : null;
+    const userDisplayName = socket.request.user ? socket.request.user.displayName : null;
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to join lobby. Please login.");
@@ -303,17 +296,12 @@ io.on("connection", (socket) => {
         return;
     }
 
-    // Store user's display name, either from `req.user` or fallback to `name` from client
-    // `req.user.displayName` should be available if passed in deserializeUser.
-    const userDisplayName = socket.request.user.displayName || name;
-
-
     userSocketMap[userId] = socket.id;
 
-    players = players.filter(p => p.userId !== userId);
-    players.push({ id: socket.id, userId: userId, name: userDisplayName }); // Use userDisplayName
+    players = players.filter(p => p.userId !== userId); // Filter out old entry if user reconnected
+    players.push({ id: socket.id, userId: userId, name: userDisplayName || name }); // Use userDisplayName, fallback to name from client
 
-    console.log(`Player ${userDisplayName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
+    console.log(`Player ${userDisplayName || name} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined");
     io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
   });
@@ -604,7 +592,6 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`Socket disconnected: ${socket.id}`);
-    // Use socket.request.user.id if available from passport middleware
     const disconnectedUserId = socket.request.user ? socket.request.user.id : null;
 
     if (disconnectedUserId) {
