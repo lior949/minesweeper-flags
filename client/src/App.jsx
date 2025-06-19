@@ -90,6 +90,25 @@ function App() {
       // Refresh lobby players list will be automatic on server disconnect update
     });
 
+    // --- NEW Socket.IO event listener for game restart ---
+    socket.on("game-restarted", (newGame) => {
+      console.log("Game restarted by server!");
+      // Update all game-related state variables with the new game object
+      setGameId(newGame.gameId); // Game ID should remain the same, but good to set explicitly
+      // playerNumber might remain the same for the client if they are same players,
+      // but the server sends the full game object so we update everything
+      setBoard(newGame.board);
+      setTurn(newGame.turn);
+      setScores(newGame.scores);
+      setBombsUsed(newGame.bombsUsed);
+      setGameOver(newGame.gameOver); // Should be false after restart
+      setBombMode(false); // Reset bomb mode
+      // opponentName likely remains the same
+
+      // You could also add a temporary message to the user, e.g.:
+      // alert("Game restarted because a blank tile was hit first!");
+    });
+
     return () => {
       socket.off("join-error");
       socket.off("lobby-joined");
@@ -100,6 +119,7 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
+      socket.off("game-restarted"); // <--- IMPORTANT: Clean up the new listener
     };
   }, []);
 
@@ -127,20 +147,20 @@ function App() {
   };
 
   const useBomb = () => {
-  if (bombMode) {
-    // Cancel bomb mode
-    setBombMode(false);
-  } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
-    socket.emit("use-bomb", { gameId });
-  }
-};
+    if (bombMode) {
+      // Cancel bomb mode
+      setBombMode(false);
+    } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+      socket.emit("use-bomb", { gameId });
+    }
+  };
 
   // --- NEW/MODIFIED FUNCTION ---
   const backToLobby = () => {
     // Before resetting client-side state, tell the server you're leaving the game.
     // Only emit if you were actually in a game
     if (gameId) {
-        socket.emit("leave-game", { gameId });
+      socket.emit("leave-game", { gameId });
     }
 
     // Reset all game-related state on the client
@@ -154,34 +174,35 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null); // Clear any pending invites in case they were active
-};
+  };
 
   const logout = async () => {
-  try {
-    await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
-      method: "GET",
-      credentials: "include", // Important for cookies
-    });
+    try {
+      await fetch("https://minesweeper-flags-backend.onrender.com/logout", { // Ensure this is backend URL
+        method: "GET",
+        credentials: "include", // Important for cookies
+      });
 
-    // Reset all state
-    setLoggedIn(false);
-    setName("");
-    setGameId(null);
-    setPlayerNumber(null);
-    setBoard([]);
-    setTurn(null);
-    setScores({ 1: 0, 2: 0 });
-    setBombsUsed({ 1: false, 2: false });
-    setBombMode(false);
-    setGameOver(false);
-    setOpponentName("");
-    setInvite(null);
-	window.location.reload();
-  } catch (err) {
-    console.error("Logout failed", err);
-    alert("Logout failed. Please try again.");
-  }
-};
+      // Reset all state
+      setLoggedIn(false);
+      setName("");
+      setGameId(null);
+      setPlayerNumber(null);
+      setBoard([]);
+      setTurn(null);
+      setScores({ 1: 0, 2: 0 });
+      setBombsUsed({ 1: false, 2: 0 });
+      setBombMode(false);
+      setGameOver(false);
+      setOpponentName("");
+      setInvite(null);
+      window.location.reload(); // This will refresh the page and re-check login
+    } catch (err) {
+      console.error("Logout failed", err);
+      alert("Logout failed. Please try again.");
+    }
+  };
+
 
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
@@ -194,24 +215,24 @@ function App() {
   };
 
   if (!loggedIn) {
-  return (
-    <div className="lobby">
-      <h2>Login with Google to join the lobby</h2>
-      <GoogleLogin
-        onLogin={(googleName) => {
-          setName(googleName);
-          socket.emit("join-lobby", googleName);
-        }}
-      />
-    </div>
-  );
-}
+    return (
+      <div className="lobby">
+        <h2>Login with Google to join the lobby</h2>
+        <GoogleLogin
+          onLogin={(googleName) => {
+            setName(googleName);
+            socket.emit("join-lobby", googleName);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (!gameId) {
     return (
       <div className="lobby">
         <h2>Lobby - Online Players</h2>
-		<button onClick={logout} className="bomb-button">Logout</button>
+        <button onClick={logout} className="bomb-button">Logout</button>
         {playersList.length === 0 && <p>No other players online</p>}
         <ul className="player-list">
           {playersList.map((p) => (
@@ -248,8 +269,8 @@ function App() {
           scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
           !gameOver && (
             <button className="bomb-button" onClick={useBomb}>
-				{bombMode ? "Cancel Bomb" : "Use Bomb"}
-			</button>
+              {bombMode ? "Cancel Bomb" : "Use Bomb"}
+            </button>
           )}
       </div>
 
