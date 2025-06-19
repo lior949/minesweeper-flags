@@ -16,7 +16,9 @@ const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestor
 const { Firestore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
 
 // --- NEW: Corrected Firestore Session Store Imports ---
-const FirestoreStore = require('@google-cloud/connect-firestore')(session);
+// The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
+// It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
+const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
 const app = express();
@@ -34,6 +36,8 @@ app.set('trust proxy', 1); // Crucial when deployed behind a load balancer (like
 
 // === Initialize Firebase Admin SDK first, so `db` is available ===
 let db;
+let sessionMiddleware; // Declare sessionMiddleware here to make it accessible to io.use
+
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
   admin.initializeApp({
@@ -47,16 +51,17 @@ try {
     projectId: serviceAccount.project_id, // Use project_id from service account
     credentials: {
       client_email: serviceAccount.client_email,
-      private_key: serviceAccount.private_key.replace(/\\n/g, '\n'), // Replace escaped newlines with actual ones
+      // Ensure private_key handles actual newlines, as required by @google-cloud/firestore client
+      private_key: serviceAccount.private_key.replace(/\\n/g, '\n'),
     },
   });
 
   // === Define the session middleware instance with FirestoreStore ===
-  const sessionMiddleware = session({
+  sessionMiddleware = session({ // Assign to the already declared variable
     secret: process.env.SESSION_SECRET, // Make sure SESSION_SECRET is set in Render env vars
     resave: false,
     saveUninitialized: false,
-    store: new FirestoreStore({ // Use FirestoreStore for persistent sessions
+    store: new FirestoreStore({ // Instantiate FirestoreStore with 'new'
       dataset: firestoreClient, // Pass the Firestore client instance
       kind: 'express-sessions', // Optional: collection name for sessions, defaults to 'express-sessions'
     }),
