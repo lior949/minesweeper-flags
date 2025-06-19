@@ -103,7 +103,8 @@ try {
       sameSite: "none",
       secure: true,
       domain: COOKIE_DOMAIN, // Explicitly set domain for cross-subdomain cookies
-      maxAge: 1000 * 60 * 60 * 24 // 24 hours (example)
+      maxAge: 1000 * 60 * 60 * 24, // 24 hours (example)
+      proxy: true, // IMPORTANT: Inform express-session that it's behind a proxy
     },
   });
 
@@ -269,6 +270,7 @@ app.get("/logout", (req, res, next) => {
           secure: true,
           sameSite: 'none',
           domain: COOKIE_DOMAIN, // Ensure domain is cleared as well
+          proxy: true, // Clear cookie with proxy setting
       }); // Clear the session cookie from the client
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
