@@ -4,7 +4,11 @@ import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin";
 import "./App.css";
 
-const socket = io("https://minesweeper-flags-backend.onrender.com");
+// Initialize Socket.IO connection with credentials
+// This is CRUCIAL for the backend to recognize the authenticated session.
+const socket = io("https://minesweeper-flags-backend.onrender.com", {
+  withCredentials: true, // Tell Socket.IO to send cookies with the handshake
+});
 
 function App() {
   // === Lobby & Authentication State ===
@@ -69,7 +73,6 @@ function App() {
     // --- Socket.IO Event Listeners ---
     socket.on("join-error", (msg) => {
       showMessage(msg, true); // Use showMessage for errors
-      // If join-lobby fails due to auth, force logout on client
       setLoggedIn(false);
       setName("");
       window.location.reload();
@@ -79,7 +82,6 @@ function App() {
       setLoggedIn(true);
       setName(userName);
       showMessage(`Lobby joined successfully as ${userName}!`);
-      // Request unfinished games immediately after joining lobby
       socket.emit("request-unfinished-games");
     });
 
@@ -108,8 +110,7 @@ function App() {
       setBombMode(false);
       setMessage(""); // Clear message when game starts
       console.log("Frontend: Game started! My player number:", data.playerNumber);
-      // Clear unfinished games list as a game has started/resumed
-      setUnfinishedGames([]);
+      setUnfinishedGames([]); // Clear unfinished games list as a game has started/resumed
     });
 
     socket.on("board-update", (game) => {
@@ -129,7 +130,6 @@ function App() {
 
     socket.on("opponent-left", () => {
       showMessage("Opponent left the game. Returning to lobby.", true);
-      // Reset all game-related states to return to the lobby view.
       setGameId(null);
       setPlayerNumber(null);
       setBoard([]);
@@ -139,8 +139,7 @@ function App() {
       setGameOver(false);
       setOpponentName("");
       setBombMode(false);
-      // Request updated unfinished games list after returning to lobby
-      socket.emit("request-unfinished-games");
+      socket.emit("request-unfinished-games"); // Request updated unfinished games list after returning to lobby
     });
 
     socket.on("bomb-error", (msg) => {
@@ -148,17 +147,14 @@ function App() {
       setBombMode(false); // Exit bomb mode on error
     });
 
-    // --- NEW: Listener for unfinished games list ---
     socket.on("receive-unfinished-games", (games) => {
       setUnfinishedGames(games);
       console.log("Received unfinished games:", games);
     });
 
-    // --- NEW: Opponent reconnected listener (if implemented in backend) ---
     socket.on("opponent-reconnected", ({ name }) => {
         showMessage(`${name} has reconnected!`);
     });
-
 
     // Cleanup function for useEffect
     return () => {
@@ -172,8 +168,8 @@ function App() {
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
       socket.off("bomb-error");
-      socket.off("receive-unfinished-games"); // Clean up new listener
-      socket.off("opponent-reconnected"); // Clean up new listener
+      socket.off("receive-unfinished-games");
+      socket.off("opponent-reconnected");
     };
   }, []);
 
@@ -245,7 +241,6 @@ function App() {
     } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
       socket.emit("use-bomb", { gameId });
     } else {
-        // Provide user feedback if bomb cannot be used
         if (bombsUsed[playerNumber]) {
             showMessage("You have already used your bomb!", true);
         } else if (scores[playerNumber] >= scores[playerNumber === 1 ? 2 : 1]) {
