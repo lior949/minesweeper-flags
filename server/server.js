@@ -377,6 +377,26 @@ io.on("connection", (socket) => {
       game.scores[player.number]++;
       if (checkGameOver(game.scores)) game.gameOver = true;
     } else {
+      const isBlankTile = tile.adjacentMines === 0;
+      const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
+
+      if (isBlankTile && noFlagsRevealedYet) {
+        console.log(`Player ${player.number} hit a blank tile before any flags were revealed. Restarting game ${gameId}.`);
+        // Reset game state
+        game.board = generateBoard(); // Generate a brand new board
+        game.scores = { 1: 0, 2: 0 }; // Reset scores
+        game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
+        game.turn = 1; // Reset turn to player 1
+        game.gameOver = false; // Game is no longer over
+
+        // Inform both players about the new board
+        io.to(game.players[0].id).emit("game-restarted", game); // New event for frontend
+        if (game.players[1]) {
+            io.to(game.players[1].id).emit("game-restarted", game); // New event for frontend
+        }
+        return; // Stop further processing for this click
+      }
+
       revealRecursive(game.board, x, y);
       game.turn = game.turn === 1 ? 2 : 1;
     }
