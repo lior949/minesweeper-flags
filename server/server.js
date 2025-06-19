@@ -64,7 +64,7 @@ try {
       private_key: privateKeyCleaned, // Use the cleaned private key
     },
     // Explicitly target the default database to avoid potential issues
-    databaseId: '(default)', 
+    databaseId: '(default)',
   });
 
   // === Define the session middleware instance with FirestoreStore ===
@@ -78,8 +78,8 @@ try {
     }),
     cookie: {
       sameSite: "none",
-      secure: true,	
-      domain: '.onrender.com', // Explicitly set domain for cross-subdomain cookies
+      secure: true,
+      // Removed 'domain' here. Let the browser determine the domain for greater compatibility
       maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days (example)
     },
   });
@@ -105,7 +105,12 @@ try {
   // Moved inside try block to ensure sessionMiddleware is defined
   io.use((socket, next) => {
       console.log(`[Socket.IO Auth] Socket ${socket.id} connecting.`);
-      socket.request.res = {}; // Dummy response object for session middleware compatibility
+      // Mock a 'res' object for session and passport middleware compatibility
+      const dummyRes = {
+          writeHead: () => {}, // Add no-op writeHead
+          end: () => {} // Add no-op end
+      };
+      socket.request.res = dummyRes;
 
       // Apply session middleware
       sessionMiddleware(socket.request, socket.request.res, () => {
@@ -238,7 +243,7 @@ app.get("/logout", (req, res) => {
       }
       res.clearCookie("connect.sid", {
           path: '/',
-          domain: '.onrender.com',
+          // Removed 'domain' here as well
           secure: true,
           sameSite: 'none'
       });
