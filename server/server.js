@@ -615,7 +615,7 @@ io.on("connection", (socket) => {
                     playerNumber: playerInExistingGame.number,
                     board: JSON.stringify(existingGame.board), // Send serialized board
                     turn: existingGame.turn,
-                    scores: existinggGame.scores,
+                    scores: existingGame.scores, // Corrected from existinggGame.scores
                     bombsUsed: existingGame.bombsUsed,
                     gameOver: existingGame.gameOver,
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
@@ -877,77 +877,92 @@ io.on("connection", (socket) => {
         return;
     }
 
-    // Add debug logs for restart condition
-    const isBlankTile = tile.adjacentMines === 0;
-    const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0; // Check initial state
+    // --- Start of Re-ordered and Corrected Logic ---
+    if (tile.isMine) {
+      tile.revealed = true;
+      tile.owner = player.number; // Assign owner to the mine
+      game.scores[player.number]++; // Increment score for capturing a mine
 
-    console.log(`[Tile Click Debug] Tile at (${x},${y}).`);
-    console.log(`[Tile Click Debug] tile.isMine: ${tile.isMine}, tile.adjacentMines: ${tile.adjacentMines}, tile.revealed: ${tile.revealed}`);
-    console.log(`[Tile Click Debug] Current scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
-    console.log(`[Tile Click Debug] isBlankTile (calculated from adjacentMines): ${isBlankTile}`);
-    console.log(`[Tile Click Debug] noFlagsRevealedYet (calculated from scores): ${noFlagsRevealedYet}`);
-    console.log(`[Tile Click Debug] Combined restart condition (isBlankTile && noFlagsRevealedYet): ${isBlankTile && noFlagsRevealedYet}`);
+      console.log(`[Tile Click] Player ${player.name} revealed a mine at (${x},${y}). New score: ${game.scores[player.number]}`);
 
+      if (checkGameOver(game.scores)) {
+          game.gameOver = true;
+          console.log(`[Game Over] Game ${gameId} ended. Final Scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+      }
+      // Turn always switches after any successful click (mine or non-mine)
+      game.turn = game.turn === 1 ? 2 : 1;
 
-    // Check for game restart condition (first click on blank tile)
-    if (isBlankTile && noFlagsRevealedYet) {
-      console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
+    } else { // This block handles non-mine tiles
+      const isBlankTile = tile.adjacentMines === 0;
+      const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
-      // Reset game state properties within the existing game object
-      game.board = generateBoard(); // Generate a brand new board
-      game.scores = { 1: 0, 2: 0 }; // Reset scores
-      game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
-      game.turn = 1; // Reset turn to player 1
-      game.gameOver = false; // Game is no longer over
+      console.log(`[Tile Click Debug] Tile at (${x},${y}).`);
+      console.log(`[Tile Click Debug] tile.isMine: ${tile.isMine}, tile.adjacentMines: ${tile.adjacentMines}, tile.revealed: ${tile.revealed}`);
+      console.log(`[Tile Click Debug] Current scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+      console.log(`[Tile Click Debug] isBlankTile (calculated from adjacentMines): ${isBlankTile}`);
+      console.log(`[Tile Click Debug] noFlagsRevealedYet (calculated from scores): ${noFlagsRevealedYet}`);
+      console.log(`[Tile Click Debug] Combined restart condition (isBlankTile && noFlagsRevealedYet): ${isBlankTile && noFlagsRevealedYet}`);
 
-      try {
-        const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: serializedBoard, // Update with serialized board
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            turn: game.turn,
-            gameOver: game.gameOver,
-            status: 'active',
-            lastUpdated: Timestamp.now(),
-            winnerId: null,
-            loserId: null
+      if (isBlankTile && noFlagsRevealedYet) {
+        console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
+
+        // Reset game state properties within the existing game object
+        game.board = generateBoard(); // Generate a brand new board
+        game.scores = { 1: 0, 2: 0 }; // Reset scores
+        game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
+        game.turn = 1; // Reset turn to player 1
+        game.gameOver = false; // Game is no longer over
+
+        try {
+          const serializedBoard = JSON.stringify(game.board);
+          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+              board: serializedBoard,
+              scores: game.scores,
+              bombsUsed: game.bombsUsed,
+              turn: game.turn,
+              gameOver: game.gameOver,
+              status: 'active',
+              lastUpdated: Timestamp.now(),
+              winnerId: null,
+              loserId: null
+          });
+          console.log(`Game ${gameId} restarted and updated in Firestore.`);
+        } catch (error) {
+            console.error("Error restarting game in Firestore:", error);
+        }
+
+        game.players.forEach(p => {
+            if (p.socketId) {
+                const opponentPlayer = game.players.find(op => op.userId !== p.userId);
+                io.to(p.socketId).emit("game-restarted", {
+                    gameId: game.gameId,
+                    playerNumber: p.number,
+                    board: JSON.stringify(game.board),
+                    turn: game.turn,
+                    scores: game.scores,
+                    bombsUsed: game.bombsUsed,
+                    gameOver: game.gameOver,
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                });
+            } else {
+                console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send restart event.`);
+            }
         });
-        console.log(`Game ${gameId} restarted and updated in Firestore.`);
-      } catch (error) {
-          console.error("Error restarting game in Firestore:", error); // Log the full error object
+        console.log(`[GAME RESTARTED] Game ${gameId} state after reset. Players: ${game.players.map(p => p.name).join(', ')}`);
+        return; // Important: Exit after restarting
       }
 
-      // Emit "game-restarted" with full game data for both players, using their current socketId
-      game.players.forEach(p => {
-          if (p.socketId) { // Only emit if the player has a currently active socket
-              const opponentPlayer = game.players.find(op => op.userId !== p.userId);
-              io.to(p.socketId).emit("game-restarted", {
-                  gameId: game.gameId,
-                  playerNumber: p.number,
-                  board: JSON.stringify(game.board), // Send serialized board to client
-                  turn: game.turn,
-                  scores: game.scores,
-                  bombsUsed: game.bombsUsed,
-                  gameOver: game.gameOver,
-                  opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
-              });
-          } else {
-              console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send restart event.`);
-          }
-      });
-      console.log(`[GAME RESTARTED] Game ${gameId} state after reset. Players: ${game.players.map(p => p.name).join(', ')}`);
-      return; // Stop further processing for this click
+      // If not a mine and not a restart condition on a blank tile, then it's a normal reveal
+      revealRecursive(game.board, x, y);
+      game.turn = game.turn === 1 ? 2 : 1; // Switch turn for non-mine reveals
     }
-
-    revealRecursive(game.board, x, y); // Normal reveal
-    game.turn = game.turn === 1 ? 2 : 1; // Switch turn
+    // --- End of Re-ordered and Corrected Logic ---
 
     // Update game state in Firestore
     try {
-        const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
+        const serializedBoard = JSON.stringify(game.board);
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: serializedBoard, // Update with serialized board
+            board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -958,17 +973,16 @@ io.on("connection", (socket) => {
         });
         console.log(`Game ${gameId} updated in Firestore (tile-click).`);
     } catch (error) {
-        console.error("Error updating game in Firestore (tile-click):", error); // Log the full error object
+        console.error("Error updating game in Firestore (tile-click):", error);
     }
 
-    // Only emit board-update if the game was NOT restarted by this click
-    // If the game was restarted, the 'game-restarted' event handles the update
+    // Emit board-update to both players
     game.players.forEach(p => {
-        if (p.socketId) { // Only emit if the player has a currently active socket
+        if (p.socketId) {
             io.to(p.socketId).emit("board-update", {
                 gameId: game.gameId,
                 playerNumber: p.number,
-                board: JSON.stringify(game.board), // Send serialized board to client
+                board: JSON.stringify(game.board),
                 turn: game.turn,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
