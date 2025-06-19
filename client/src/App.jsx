@@ -90,7 +90,7 @@ function App() {
       // Refresh lobby players list will be automatic on server disconnect update
     });
 
-    return () => {Add  actions
+    return () => {
       socket.off("join-error");
       socket.off("lobby-joined");
       socket.off("players-list");
@@ -100,7 +100,7 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
-    };Add  actions
+    };
   }, []);
 
   const invitePlayer = (id) => {
@@ -134,14 +134,14 @@ function App() {
     socket.emit("use-bomb", { gameId });
   }
 };
-Add  actions
+
   // --- NEW/MODIFIED FUNCTION ---
   const backToLobby = () => {
     // Before resetting client-side state, tell the server you're leaving the game.
     // Only emit if you were actually in a game
     if (gameId) {
         socket.emit("leave-game", { gameId });
-    }Add  actions
+    }
 
     // Reset all game-related state on the client
     setGameId(null);
@@ -155,21 +155,21 @@ Add  actions
     setOpponentName("");
     setInvite(null); // Clear any pending invites in case they were active
 };
-Add  actions
+
   const logout = async () => {
   try {
     await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
       method: "GET",
       credentials: "include", // Important for cookies
     });
-Add  actions
+
   const logout = async () => {
   try {
     await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
       method: "GET",
       credentials: "include", // Important for cookies
     });
-Add  actions
+
     // Reset all state
     setLoggedIn(false);
     setName("");
@@ -213,13 +213,13 @@ Add  actions
     </div>
   );
 }
-Add  actions
+
   if (!gameId) {
     return (
       <div className="lobby">
         <h2>Lobby - Online Players</h2>
 		<button onClick={logout} className="bomb-button">Logout</button>
-        {playersList.length === 0 && <p>No other players online</p>}Add  actions
+        {playersList.length === 0 && <p>No other players online</p>}
         <ul className="player-list">
           {playersList.map((p) => (
             <li
@@ -257,7 +257,7 @@ Add  actions
             <button className="bomb-button" onClick={useBomb}>
 				{bombMode ? "Cancel Bomb" : "Use Bomb"}
 			</button>
-          )}Add  actions
+          )}
       </div>
 
       <h2>
