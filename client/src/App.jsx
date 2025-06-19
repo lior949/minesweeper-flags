@@ -7,12 +7,13 @@ import "./App.css";
 const socket = io("https://minesweeper-flags-backend.onrender.com");
 
 function App() {
-  // Lobby & auth
+  // === Lobby & Authentication State ===
   const [name, setName] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [playersList, setPlayersList] = useState([]);
+  const [message, setMessage] = useState(""); // General message/error display
 
-  // Game
+  // === Game State ===
   const [gameId, setGameId] = useState(null);
   const [playerNumber, setPlayerNumber] = useState(null);
   const [board, setBoard] = useState([]);
@@ -23,45 +24,63 @@ function App() {
   const [gameOver, setGameOver] = useState(false);
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
-  const [bombError, setBombError] = useState(""); // New state for bomb errors
+  const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
 
-  // Join lobby
-  const joinLobby = () => {
-    if (!name.trim()) return;
-    socket.emit("join-lobby", name.trim());
+  // --- Helper to display messages (replaces alert) ---
+  const showMessage = (msg, isError = false) => {
+    setMessage(msg);
+    if (isError) {
+      console.error(msg);
+    } else {
+      console.log(msg);
+    }
+    // Clear message after some time (e.g., 5 seconds)
+    setTimeout(() => setMessage(""), 5000);
   };
 
+  // --- Initial Authentication Check on Component Mount ---
   useEffect(() => {
-    // Initial Authentication Check (from previous version)
     const checkAuthStatus = async () => {
-        try {
-            const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
-                method: "GET",
-                credentials: "include",
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
-                setLoggedIn(true);
-                socket.emit("join-lobby", data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
-            } else {
-                setLoggedIn(false);
-                setName("");
-            }
-        } catch (err) {
-            console.error("Auth check failed:", err);
-            setLoggedIn(false);
-            setName("");
+      try {
+        const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
+          setLoggedIn(true);
+          console.log("Frontend: Auth check successful, user:", data.user.displayName || data.user.name);
+          socket.emit("join-lobby", data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
+        } else {
+          setLoggedIn(false);
+          setName("");
+          console.log("Frontend: Auth check failed (response not ok).");
         }
+      } catch (err) {
+        console.error("Frontend: Error during auth check:", err);
+        setLoggedIn(false);
+        setName("");
+      }
     };
     checkAuthStatus();
 
+    // --- Socket.IO Event Listeners ---
     socket.on("join-error", (msg) => {
-      alert(msg);
+      showMessage(msg, true); // Use showMessage for errors
+      // If join-lobby fails due to auth, force logout on client
+      setLoggedIn(false);
+      setName("");
+      window.location.reload();
     });
 
-    socket.on("lobby-joined", () => {
+    socket.on("lobby-joined", (userName) => {
       setLoggedIn(true);
+      setName(userName);
+      showMessage(`Lobby joined successfully as ${userName}!`);
+      // Request unfinished games immediately after joining lobby
+      socket.emit("request-unfinished-games");
     });
 
     socket.on("players-list", (players) => {
@@ -70,10 +89,11 @@ function App() {
 
     socket.on("game-invite", (inviteData) => {
       setInvite(inviteData);
+      showMessage(`Invitation from ${inviteData.fromName}!`);
     });
 
-    socket.on("invite-rejected", ({ fromName }) => {
-      alert(`${fromName} rejected your invitation.`);
+    socket.on("invite-rejected", ({ fromName, reason }) => {
+      showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
     });
 
     socket.on("game-start", (data) => {
@@ -86,7 +106,10 @@ function App() {
       setGameOver(data.gameOver);
       setOpponentName(data.opponentName);
       setBombMode(false);
-      setBombError(""); // Clear any previous bomb errors
+      setMessage(""); // Clear message when game starts
+      console.log("Frontend: Game started! My player number:", data.playerNumber);
+      // Clear unfinished games list as a game has started/resumed
+      setUnfinishedGames([]);
     });
 
     socket.on("board-update", (game) => {
@@ -96,16 +119,17 @@ function App() {
       setBombsUsed(game.bombsUsed);
       setGameOver(game.gameOver);
       setBombMode(false);
-      setBombError(""); // Clear bomb error on board update
+      setMessage(""); // Clear message on board update
     });
 
     socket.on("wait-bomb-center", () => {
       setBombMode(true);
-      setBombError(""); // Clear previous errors when entering bomb mode
+      setMessage("Select 5x5 bomb center.");
     });
 
     socket.on("opponent-left", () => {
-      alert("Opponent left the game. Returning to lobby.");
+      showMessage("Opponent left the game. Returning to lobby.", true);
+      // Reset all game-related states to return to the lobby view.
       setGameId(null);
       setPlayerNumber(null);
       setBoard([]);
@@ -115,18 +139,28 @@ function App() {
       setGameOver(false);
       setOpponentName("");
       setBombMode(false);
-      setBombError(""); // Clear bomb error
-      // Refresh lobby players list will be automatic on server disconnect update
+      // Request updated unfinished games list after returning to lobby
+      socket.emit("request-unfinished-games");
     });
 
-    // --- NEW: Bomb error listener ---
     socket.on("bomb-error", (msg) => {
-      setBombError(msg); // Set the error message
+      showMessage(msg, true);
       setBombMode(false); // Exit bomb mode on error
-      console.error("Bomb Error:", msg);
+    });
+
+    // --- NEW: Listener for unfinished games list ---
+    socket.on("receive-unfinished-games", (games) => {
+      setUnfinishedGames(games);
+      console.log("Received unfinished games:", games);
+    });
+
+    // --- NEW: Opponent reconnected listener (if implemented in backend) ---
+    socket.on("opponent-reconnected", ({ name }) => {
+        showMessage(`${name} has reconnected!`);
     });
 
 
+    // Cleanup function for useEffect
     return () => {
       socket.off("join-error");
       socket.off("lobby-joined");
@@ -137,39 +171,41 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
-      socket.off("bomb-error"); // Clean up new listener
+      socket.off("bomb-error");
+      socket.off("receive-unfinished-games"); // Clean up new listener
+      socket.off("opponent-reconnected"); // Clean up new listener
     };
   }, []);
+
+  // --- User Interaction Functions ---
 
   const invitePlayer = (id) => {
     if (loggedIn && id !== socket.id) {
       socket.emit("invite-player", id);
-      alert("Invitation sent.");
+      showMessage("Invitation sent.");
     }
   };
 
   const respondInvite = (accept) => {
     if (invite) {
       socket.emit("respond-invite", { fromId: invite.fromId, accept });
-      setInvite(null);
+      setInvite(null); // Clear the invitation after responding.
     }
   };
 
   const handleClick = (x, y) => {
     if (!gameId) return;
     if (bombMode) {
-      // --- NEW: Client-side validation before emitting bomb-center ---
+      // --- Client-side validation before emitting bomb-center ---
       const MIN_COORD = 2; // For 3rd line/column (0-indexed)
       const MAX_COORD_X = 13; // For 14th column (16-1 - 2)
       const MAX_COORD_Y = 13; // For 14th line (16-1 - 2)
 
       if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
-        setBombError("Bomb center must be within the highlighted 12x12 area.");
-        console.log(`Client-side: Bomb center (${x},${y}) out of bounds.`);
-        return; // Prevent emitting to server
+        showMessage("Bomb center must be within the 12x12 area.", true);
+        return;
       }
 
-      // Check if all tiles in the 5x5 area are already revealed
       let allTilesRevealed = true;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
@@ -181,7 +217,6 @@ function App() {
               break;
             }
           } else {
-            // If any part of the bomb area is outside the board, it's not "all revealed"
             allTilesRevealed = false;
             break;
           }
@@ -190,26 +225,32 @@ function App() {
       }
 
       if (allTilesRevealed) {
-        setBombError("All tiles in the bomb's blast area are already revealed.");
-        console.log(`Client-side: Bomb area at (${x},${y}) already fully revealed.`);
-        return; // Prevent emitting to server
+        showMessage("All tiles in the bomb's blast area are already revealed.", true);
+        return;
       }
-      // --- END NEW CLIENT-SIDE VALIDATION ---
+      // --- END CLIENT-SIDE VALIDATION ---
 
-      setBombError(""); // Clear error if validation passes
+      setMessage(""); // Clear message if validation passes
       socket.emit("bomb-center", { gameId, x, y });
     } else if (playerNumber === turn && !gameOver) {
-      setBombError(""); // Clear error when clicking a regular tile
+      setMessage(""); // Clear message when clicking a regular tile
       socket.emit("tile-click", { gameId, x, y });
     }
   };
 
   const useBomb = () => {
     if (bombMode) {
-      setBombMode(false); // Cancel bomb mode
-      setBombError(""); // Clear error when cancelling
+      setBombMode(false);
+      setMessage(""); // Clear message when cancelling
     } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
       socket.emit("use-bomb", { gameId });
+    } else {
+        // Provide user feedback if bomb cannot be used
+        if (bombsUsed[playerNumber]) {
+            showMessage("You have already used your bomb!", true);
+        } else if (scores[playerNumber] >= scores[playerNumber === 1 ? 2 : 1]) {
+            showMessage("You can only use the bomb when you are behind in score!", true);
+        }
     }
   };
 
@@ -228,7 +269,8 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setBombError(""); // Clear bomb error
+    setMessage(""); // Clear message
+    setUnfinishedGames([]); // Clear for re-fetch
 };
 
   const logout = async () => {
@@ -250,11 +292,11 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setBombError(""); // Clear bomb error
+    setMessage(""); // Clear message
 	window.location.reload();
   } catch (err) {
     console.error("Logout failed", err);
-    alert("Logout failed. Please try again.");
+    showMessage("Logout failed. Please try again.", true);
   }
 };
 
@@ -268,23 +310,38 @@ function App() {
     return tile.adjacentMines > 0 ? tile.adjacentMines : "";
   };
 
+  // --- NEW: Resume Game Function ---
+  const resumeGame = (gameIdToResume) => {
+    if (gameIdToResume) {
+        socket.emit("resume-game", { gameId: gameIdToResume });
+        showMessage("Attempting to resume game...");
+    }
+  };
+
+
+  // --- Conditional Rendering based on App State ---
+
   if (!loggedIn) {
-  return (
-    <div className="lobby">
-      <h2>Login with Google to join the lobby</h2>
-      <GoogleLogin
-        onLogin={(googleName) => {
-          setName(googleName);
-          socket.emit("join-lobby", googleName);
-        }}
-      />
-    </div>
-  );
-}
+    return (
+      <div className="lobby">
+        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+        <h2>Login with Google to join the lobby</h2>
+        <GoogleLogin
+          onLogin={(googleName) => {
+            setName(googleName);
+            socket.emit("join-lobby", googleName);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (!gameId) {
     return (
       <div className="lobby">
+        {message && <p className="app-message" style={{color: 'green'}}>{message}</p>} {/* Show general success messages */}
+        {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>} {/* Show errors in red */}
+
         <h2>Lobby - Online Players</h2>
 		<button onClick={logout} className="bomb-button">Logout</button>
         {playersList.length === 0 && <p>No other players online</p>}
@@ -309,6 +366,23 @@ function App() {
             <button onClick={() => respondInvite(false)}>Reject</button>
           </div>
         )}
+
+        {/* --- NEW: Unfinished Games List in Lobby --- */}
+        <div className="unfinished-games-section">
+            <h3>Your Unfinished Games</h3>
+            {unfinishedGames.length === 0 ? (
+                <p>No unfinished games found.</p>
+            ) : (
+                <ul className="unfinished-game-list">
+                    {unfinishedGames.map(game => (
+                        <li key={game.gameId} className="unfinished-game-item">
+                            Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - Last updated: {game.lastUpdated}
+                            <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
       </div>
     );
   }
@@ -335,8 +409,7 @@ function App() {
         {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
         {bombMode && " – Select 5x5 bomb center"}
       </p>
-      {/* Display bomb error if any */}
-      {bombError && <p style={{ color: 'red', fontWeight: 'bold' }}>{bombError}</p>}
+      {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
       <p>
         Score 🔴 {scores[1]} | 🔵 {scores[2]}
       </p>
