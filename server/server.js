@@ -10,43 +10,66 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy;
 const { v4: uuidv4 } = require("uuid");
 
+// --- Redis Session Store Imports ---
+const RedisStore = require("connect-redis").default;
+const { createClient } = require("redis");
+
 const app = express();
 const server = http.createServer(app);
 
-const userSocketMap = {};
-const userGameMap = {};
+// New global data structures for robust player tracking across reconnections
+const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID)
+const userGameMap = {};   // Maps userId to the gameId they are currently in
 
+// Configure CORS for Express
 app.use(
   cors({
-    origin: "https://minesweeper-flags-frontend.onrender.com",
-    credentials: true,
+    origin: "https://minesweeper-flags-frontend.onrender.com", // Your frontend URL
+    credentials: true, // Allow cookies to be sent cross-origin
   })
 );
 
+// Configure Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: "https://minesweeper-flags-frontend.onrender.com",
+    origin: "https://minesweeper-flags-frontend.onrender.com", // Your frontend URL
     methods: ["GET", "POST"],
-    credentials: true,
+    credentials: true, // Allow cookies
   },
 });
 
+// === Environment Variables for OAuth ===
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
-app.set('trust proxy', 1);
+app.set('trust proxy', 1); // Crucial when deployed behind a load balancer (like Render)
 
-// Define the session middleware instance ONCE
+// === Redis Client Setup ===
+let redisClient = createClient({
+    url: process.env.REDIS_URL || 'redis://localhost:6379' // Use env var for Render deployment
+});
+
+redisClient.on('connect', () => console.log('Connected to Redis!'));
+redisClient.on('error', (err) => console.error('Redis Client Error', err));
+
+// Connect to Redis. This should be awaited or handled before starting the server to ensure store is ready.
+// For simplicity in the main script flow, we'll connect here and log errors.
+redisClient.connect().catch(e => console.error("Failed to connect to Redis:", e));
+
+
+// === Express Session Middleware ===
+// Define the session middleware instance ONCE, now using RedisStore
 const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev",
-  resave: false,
-  saveUninitialized: false,
+  store: new RedisStore({ client: redisClient }), // Use RedisStore for persistent sessions
+  secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev", // Use env var
+  resave: false, // Don't save session if unmodified
+  saveUninitialized: false, // Don't save uninitialized sessions
   cookie: {
-    sameSite: "none",
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 1000 * 60 * 60 * 24
+    sameSite: "none",   // Required for cross-site cookie transmission
+    secure: process.env.NODE_ENV === 'production', // true only if using HTTPS
+    maxAge: 1000 * 60 * 60 * 24 // Cookie valid for 24 hours
   },
 });
 
@@ -145,7 +168,6 @@ app.get("/me", (req, res) => {
   console.log("Session object (req.session):", req.session);
 
   if (req.isAuthenticated() && req.user) {
-    // req.user will now be the object { id: userId, displayName: ... }
     res.json({ user: { id: req.user.id, displayName: req.user.displayName } });
   } else {
     res.status(401).json({ error: "Not authenticated" });
@@ -159,6 +181,8 @@ const HEIGHT = 16;
 const MINES = 51;
 let players = []; // Lobby players: { id: socket.id, userId, name }
 let games = {};
+
+// Helper to generate a new Minesweeper board
 const generateBoard = () => {
     const board = Array.from({ length: HEIGHT }, () =>
       Array.from({ length: WIDTH }, () => ({
