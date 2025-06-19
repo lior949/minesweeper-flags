@@ -41,9 +41,9 @@ app.use(
 // These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-// Removed duplicate declaration of FACEBOOK_CLIENT_ID and FACEBOOK_CLIENT_SECRET
-// const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
-// const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
+// Re-added Facebook client ID and secret declaration here
+const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
+const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
@@ -154,7 +154,7 @@ try {
 }
 
 
-// These variables are already declared near the top. Removed duplicate declaration.
+// These variables are now properly declared at the top of the file
 // const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 // const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
@@ -170,8 +170,8 @@ passport.use(new GoogleStrategy({
 }));
 
 passport.use(new FacebookStrategy({
-  clientID: FACEBOOK_CLIENT_ID,
-  clientSecret: FACEBOOK_CLIENT_SECRET,
+  clientID: FACEBOOK_CLIENT_ID, // Correctly using the declared variable
+  clientSecret: FACEBOOK_CLIENT_SECRET, // Correctly using the declared variable
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/facebook/callback",
   profileFields: ['id', 'displayName', 'photos', 'email']
 },
@@ -1150,7 +1150,8 @@ io.on("connection", (socket) => {
                   lastUpdated: Timestamp.now()
               });
               console.log(`Game ${gameId} status set to 'completed' in Firestore as all players left.`);
-          } catch (error) {
+          }
+           catch (error) {
               console.error("Error updating game status to 'completed' on leave:", error);
           }
           console.log(`Game ${gameId} deleted from memory.`);
