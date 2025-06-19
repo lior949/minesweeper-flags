@@ -163,13 +163,6 @@ function App() {
       credentials: "include", // Important for cookies
     });
 
-  const logout = async () => {
-  try {
-    await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
-      method: "GET",
-      credentials: "include", // Important for cookies
-    });
-
     // Reset all state
     setLoggedIn(false);
     setName("");
@@ -301,3 +294,5 @@ function App() {
     </div>
   );
 }
+
+export default App;
