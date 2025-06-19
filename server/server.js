@@ -7,180 +7,153 @@ const { Server } = require("socket.io");
 const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
-const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
-const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
+const FacebookStrategy = require("passport-facebook").Strategy;
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const server = http.createServer(app);
 
-// --- Session Storage setup (REQUIRED for multi-instance deployments like Render) ---
-// Using memory store is NOT recommended for production.
-// If you encounter persistent session issues, consider a Redis store (e.g., connect-redis)
-// For now, keeping default in-memory for simplicity as per previous context,
-// but be aware this is a potential issue for scaling.
+const userSocketMap = {};
+const userGameMap = {};
 
-// New global data structures for robust player tracking across reconnections
-const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID)
-const userGameMap = {};   // Maps userId to the gameId they are currently in
-
-// Configure CORS for Express
-// MUST match your frontend Render URL exactly
 app.use(
   cors({
-    origin: "https://minesweeper-flags-frontend.onrender.com", // Your frontend URL
-    credentials: true, // Allow cookies to be sent cross-origin
+    origin: "https://minesweeper-flags-frontend.onrender.com",
+    credentials: true,
   })
 );
 
-// Configure Socket.IO with CORS
-// MUST match your frontend Render URL exactly
 const io = new Server(server, {
   cors: {
-    origin: "https://minesweeper-flags-frontend.onrender.com", // Your frontend URL
+    origin: "https://minesweeper-flags-frontend.onrender.com",
     methods: ["GET", "POST"],
-    credentials: true, // Allow cookies
+    credentials: true,
   },
 });
 
-// === Environment Variables for OAuth (DO NOT HARDCODE IN PRODUCTION) ===
-// These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
-// === Express Session Middleware ===
-// `app.set('trust proxy', 1)` is crucial when deployed behind a load balancer (like Render)
-// to correctly interpret secure (HTTPS) connections and allow cookies to be set.
 app.set('trust proxy', 1);
 
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev", // Use env var, fallback for local dev
-    resave: false, // Don't save session if unmodified
-    saveUninitialized: false, // Don't save uninitialized sessions
-    cookie: {
-      sameSite: "none",   // Required for cross-site cookie transmission (frontend different domain from backend)
-      secure: process.env.NODE_ENV === 'production', // true only if using HTTPS (which Render provides in production)
-      maxAge: 1000 * 60 * 60 * 24 // Cookie valid for 24 hours (optional, but good practice)
-    },
-  })
-);
+// Define the session middleware instance ONCE
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    sameSite: "none",
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 1000 * 60 * 60 * 24
+  },
+});
 
-// === Passport Configuration ===
+// Apply session middleware to Express
+app.use(sessionMiddleware);
 app.use(passport.initialize());
 app.use(passport.session());
+
+
+// === IMPORTANT: Integrate session middleware with Socket.IO ===
+// This ensures `socket.request.session` is available and populated by Passport
+// BEFORE your `io.on("connection")` and subsequent `socket.on` handlers run.
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, {}, next); // Pass empty response object
+});
+
+io.use((socket, next) => {
+    passport.initialize()(socket.request, {}, () => {
+        passport.session()(socket.request, {}, next);
+    });
+});
+// === END Socket.IO Session Integration ===
+
 
 // Passport Google Strategy
 passport.use(new GoogleStrategy({
   clientID: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
-  // Callback URL MUST match the "Authorized redirect URIs" in Google Cloud Console EXACTLY
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
-  // Store only the necessary profile info in the session
-  // For simplicity, we're storing the entire profile.id as the userId for now.
-  // In a real app, you'd find/create a user in your DB based on profile.id
-  // and pass your internal user object to done().
   console.log("Google Auth Profile:", profile.displayName, profile.id);
-  // Using profile.id as the persistent user identifier for Socket.IO reconnections
-  done(null, profile.id); // Store profile.id (Google ID) in session
+  // Store profile.id (Google ID) as the user identifier in session
+  // Also store display name here to easily retrieve later
+  if (profile.displayName) {
+      // Access req.session via done(null, user, info) in older passport versions,
+      // or set it in deserializeUser if you fetch from DB.
+      // For simplicity, we can let join-lobby set it initially for the socket's session.
+  }
+  done(null, profile.id);
 }));
 
 // Passport Facebook Strategy
 passport.use(new FacebookStrategy({
   clientID: FACEBOOK_CLIENT_ID,
   clientSecret: FACEBOOK_CLIENT_SECRET,
-  // Callback URL MUST match the "Valid OAuth Redirect URIs" in Facebook Developer App EXACTLY
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/facebook/callback",
-  profileFields: ['id', 'displayName', 'photos', 'email'] // Request more info if needed
+  profileFields: ['id', 'displayName', 'photos', 'email']
 },
 function(accessToken, refreshToken, profile, cb) {
   console.log("Facebook Auth Profile:", profile.displayName, profile.id);
-  // Using profile.id as the persistent user identifier for Socket.IO reconnections
-  cb(null, profile.id); // Store profile.id (Facebook ID) in session
+  cb(null, profile.id);
 }));
 
 
-// Passport Serialization/Deserialization
-// This is where Passport stores/retrieves the user identifier in the session.
-// `user` here is whatever you pass to `done()` or `cb()` in your strategy.
 passport.serializeUser((userId, done) => {
-  // Store the user's unique ID (from Google/Facebook profile.id) in the session
   console.log("serializeUser:", userId);
   done(null, userId);
 });
 
 passport.deserializeUser((userId, done) => {
-  // Retrieve the user from the session using the stored ID
-  // In a real app, you'd fetch the user's full data from your DB here using userId
-  // For this app, we're just verifying the userId exists.
   console.log("deserializeUser:", userId);
-  done(null, userId); // Pass the userId back to req.user
+  // You might want to pass more user info (like display name) here if available from your DB
+  // For now, let's assume `req.user` will be the userId.
+  done(null, { id: userId, displayName: `User_${userId.substring(0, 8)}` }); // Pass an object with id and a default displayName
 });
 
 
 // === Authentication Routes ===
+app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+app.get("/auth/google/callback", passport.authenticate("google", {
+    failureRedirect: "https://minesweeper-flags-frontend.onrender.com",
+    successRedirect: "https://minesweeper-flags-frontend.onrender.com",
+}));
 
-// Google Auth Initiate
-app.get("/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] }) // Request necessary scopes
-);
+app.get("/auth/facebook", passport.authenticate("facebook", { scope: ['public_profile'] }));
+app.get("/auth/facebook/callback", passport.authenticate("facebook", {
+    failureRedirect: "https://minesweeper-flags-frontend.onrender.com",
+    successRedirect: "https://minesweeper-flags-frontend.onrender.com",
+}));
 
-// Google Auth Callback
-app.get("/auth/google/callback",
-  passport.authenticate("google", {
-    failureRedirect: "https://minesweeper-flags-frontend.onrender.com", // Frontend URL for failed login
-    successRedirect: "https://minesweeper-flags-frontend.onrender.com", // Frontend URL for successful login
-  })
-);
-
-// Facebook Auth Initiate
-app.get("/auth/facebook",
-  passport.authenticate("facebook", { scope: ['public_profile'] }) // Request necessary scopes (removed 'email' due to common app review issues)
-);
-
-// Facebook Auth Callback
-app.get("/auth/facebook/callback",
-  passport.authenticate("facebook", {
-    failureRedirect: "https://minesweeper-flags-frontend.onrender.com", // Frontend URL for failed login
-    successRedirect: "https://minesweeper-flags-frontend.onrender.com", // Frontend URL for successful login
-  })
-);
-
-
-// Logout Route
 app.get("/logout", (req, res, next) => {
-  req.logout((err) => { // Passport's logout method
+  req.logout((err) => {
     if (err) { return next(err); }
-    req.session.destroy((destroyErr) => { // Destroy the session on the server
+    req.session.destroy((destroyErr) => {
       if (destroyErr) { return next(destroyErr); }
       res.clearCookie("connect.sid", {
           path: '/',
-          domain: '.onrender.com', // Explicitly clear for the .onrender.com domain
+          domain: '.onrender.com',
           secure: true,
           sameSite: 'none'
-      }); // Clear the session cookie from the client
+      });
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
     });
   });
 });
 
-// Login Check Route
 app.get("/me", (req, res) => {
   console.log("------------------- /me Request Received -------------------");
   console.log("Is Authenticated (req.isAuthenticated()):", req.isAuthenticated());
-  console.log("User in session (req.user):", req.user); // This is the userId from deserializeUser
+  console.log("User in session (req.user):", req.user);
   console.log("Session ID (req.sessionID):", req.sessionID);
   console.log("Session object (req.session):", req.session);
 
-  if (req.isAuthenticated()) {
-    // req.user here contains the userId (profile.id) from serializeUser/deserializeUser
-    // To get display name, we'd need to fetch from a database or store it in the session directly
-    // For now, let's mock a displayName from the userId
-    const userDisplayName = req.session.userDisplayName || `User_${req.user.substring(0, 8)}`; // Fallback display name
-    res.json({ user: { id: req.user, displayName: userDisplayName } });
+  if (req.isAuthenticated() && req.user) {
+    // req.user will now be the object { id: userId, displayName: ... }
+    res.json({ user: { id: req.user.id, displayName: req.user.displayName } });
   } else {
     res.status(401).json({ error: "Not authenticated" });
   }
@@ -188,119 +161,99 @@ app.get("/me", (req, res) => {
 });
 
 // --- Game Logic ---
-
-// Game Constants
 const WIDTH = 16;
 const HEIGHT = 16;
 const MINES = 51;
-
-// Global Game Data Structures
 let players = []; // Lobby players: { id: socket.id, userId, name }
-let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver }
-
-// Helper to generate a new Minesweeper board
+let games = {};
+// Helper functions (generateBoard, revealRecursive, revealArea, checkGameOver) remain the same.
+// (Paste them here from your previous server.js if not already present)
 const generateBoard = () => {
-  const board = Array.from({ length: HEIGHT }, () =>
-    Array.from({ length: WIDTH }, () => ({
-      isMine: false,
-      revealed: false,
-      adjacentMines: 0,
-      owner: null, // Player number who claimed the mine
-    }))
-  );
-
-  let minesPlaced = 0;
-  while (minesPlaced < MINES) {
-    const x = Math.floor(Math.random() * WIDTH);
-    const y = Math.floor(Math.random() * HEIGHT);
-    if (!board[y][x].isMine) {
-      board[y][x].isMine = true;
-      minesPlaced++;
+    const board = Array.from({ length: HEIGHT }, () =>
+      Array.from({ length: WIDTH }, () => ({
+        isMine: false,
+        revealed: false,
+        adjacentMines: 0,
+        owner: null,
+      }))
+    );
+    let minesPlaced = 0;
+    while (minesPlaced < MINES) {
+      const x = Math.floor(Math.random() * WIDTH);
+      const y = Math.floor(Math.random() * HEIGHT);
+      if (!board[y][x].isMine) {
+        board[y][x].isMine = true;
+        minesPlaced++;
+      }
     }
-  }
-
-  for (let y = 0; y < HEIGHT; y++) {
-    for (let x = 0; x < WIDTH; x++) {
-      if (board[y][x].isMine) continue;
-      let count = 0;
+    for (let y = 0; y < HEIGHT; y++) {
+      for (let x = 0; x < WIDTH; x++) {
+        if (board[y][x].isMine) continue;
+        let count = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const ny = y + dy;
+            const nx = x + dx;
+            if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
+              if (board[ny][nx].isMine) count++;
+            }
+          }
+        }
+        board[y][x].adjacentMines = count;
+      }
+    }
+    return board;
+};
+const revealRecursive = (board, x, y) => {
+    if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || board[y][x].revealed) {
+      return;
+    }
+    const tile = board[y][x];
+    tile.revealed = true;
+    if (tile.adjacentMines === 0 && !tile.isMine) {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
-          const ny = y + dy;
-          const nx = x + dx;
-          if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
-            if (board[ny][nx].isMine) count++;
+          if (dx !== 0 || dy !== 0) {
+            revealRecursive(board, x + dx, y + dy);
           }
         }
       }
-      board[y][x].adjacentMines = count;
     }
-  }
-  return board;
 };
-
-// Helper for recursive reveal of blank areas
-const revealRecursive = (board, x, y) => {
-  // Check bounds and if already revealed
-  if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || board[y][x].revealed) {
-    return;
-  }
-
-  const tile = board[y][x];
-  tile.revealed = true; // Mark as revealed
-
-  // If it's a blank tile (0 adjacent mines) and not a mine, propagate reveal
-  if (tile.adjacentMines === 0 && !tile.isMine) {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx !== 0 || dy !== 0) { // Exclude the center tile itself
-          revealRecursive(board, x + dx, y + dy);
-        }
-      }
-    }
-  }
-};
-
-// Helper for bomb ability 5x5 reveal
 const revealArea = (board, cx, cy, playerNumber, scores) => {
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
-      const x = cx + dx;
-      const y = cy + dy;
-      if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
-        const tile = board[y][x];
-        if (!tile.revealed) {
-          if (tile.isMine) {
-            tile.revealed = true;
-            tile.owner = playerNumber; // Assign bomb owner
-            scores[playerNumber]++; // Increment score for captured mine
-          } else {
-            revealRecursive(board, x, y); // Recursively reveal non-mine tiles
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+          const tile = board[y][x];
+          if (!tile.revealed) {
+            if (tile.isMine) {
+              tile.revealed = true;
+              tile.owner = playerNumber;
+              scores[playerNumber]++;
+            } else {
+              revealRecursive(board, x, y);
+            }
           }
         }
       }
     }
-  }
 };
-
-// Helper to check for game over condition
 const checkGameOver = (scores) => {
-  // Game over if either player reaches 26 flags (mines)
-  return scores[1] >= 26 || scores[2] >= 26;
+    return scores[1] >= 26 || scores[2] >= 26;
 };
-
-
 // === Socket.IO Connection and Game Events ===
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
 
-  // We no longer need `let currentUserId = null;` here,
-  // as each event handler will now derive it directly.
-  // The reconnection logic still needs to check session.
-  if (socket.request.session && socket.request.session.passport && socket.request.session.passport.user) {
-    const userIdOnConnect = socket.request.session.passport.user;
+  // After io.use() with session and passport, socket.request.user should be available here
+  const userIdOnConnect = socket.request.user ? socket.request.user.id : null;
+
+  if (userIdOnConnect) {
     console.log(`User ${userIdOnConnect} (re)connected. Socket ID: ${socket.id}`);
 
-    userSocketMap[userIdOnConnect] = socket.id;
+    userSocketMap[userIdOnConnect] = socket.id; // Update user-to-socket mapping
 
     if (userGameMap[userIdOnConnect]) {
         const gameId = userGameMap[userIdOnConnect];
@@ -336,14 +289,13 @@ io.on("connection", (socket) => {
         }
     }
   } else {
-      console.log(`Unauthenticated or session-less socket ${socket.id} connected.`);
+      console.log(`Unauthenticated or session-less socket ${socket.id} connected. (No req.user)`);
   }
 
 
-  // Use currentUserId in subsequent handlers
   socket.on("join-lobby", (name) => {
-    // Derive userId directly at the start of the handler
-    const userId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    // Now socket.request.user should be reliably populated if authenticated
+    const userId = socket.request.user ? socket.request.user.id : null;
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to join lobby. Please login.");
@@ -351,27 +303,24 @@ io.on("connection", (socket) => {
         return;
     }
 
-    if (socket.request.session && !socket.request.session.userDisplayName) {
-        socket.request.session.userDisplayName = name;
-        socket.request.session.save((err) => {
-            if (err) console.error("Error saving session userDisplayName:", err);
-        });
-    }
+    // Store user's display name, either from `req.user` or fallback to `name` from client
+    // `req.user.displayName` should be available if passed in deserializeUser.
+    const userDisplayName = socket.request.user.displayName || name;
 
-    userSocketMap[userId] = socket.id; // Update user-socket map
 
-    players = players.filter(p => p.userId !== userId); // Filter out old entry if user reconnected
-    players.push({ id: socket.id, userId: userId, name: name });
+    userSocketMap[userId] = socket.id;
 
-    console.log(`Player ${name} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
+    players = players.filter(p => p.userId !== userId);
+    players.push({ id: socket.id, userId: userId, name: userDisplayName }); // Use userDisplayName
+
+    console.log(`Player ${userDisplayName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined");
     io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
   });
 
-  // Invite Player Event - No changes needed here, as it fetches from `players` array
   socket.on("invite-player", (targetSocketId) => {
-    const inviterPlayer = players.find((p) => p.id === socket.id); // inviterPlayer will have userId
-    const invitedPlayer = players.find((p) => p.id === targetSocketId); // invitedPlayer will have userId
+    const inviterPlayer = players.find((p) => p.id === socket.id);
+    const invitedPlayer = players.find((p) => p.id === targetSocketId);
 
     if (!inviterPlayer || !invitedPlayer || userGameMap[inviterPlayer.userId] || userGameMap[invitedPlayer.userId]) {
       console.warn(`Invite failed: Inviter or invitee not found or already in game. Inviter: ${inviterPlayer?.name}, Invitee: ${invitedPlayer?.name}`);
@@ -385,7 +334,6 @@ io.on("connection", (socket) => {
     console.log(`Invite sent from ${inviterPlayer.name} to ${invitedPlayer.name}`);
   });
 
-  // Respond to Invite Event - Logic for setting up game is correct
   socket.on("respond-invite", ({ fromId, accept }) => {
     const respondingPlayer = players.find((p) => p.id === socket.id);
     const inviterPlayer = players.find((p) => p.id === fromId);
@@ -446,11 +394,8 @@ io.on("connection", (socket) => {
     }
   });
 
-
-  // Tile Click Event (main game action)
   socket.on("tile-click", ({ gameId, x, y }) => {
-    // Derive userId directly at the start of the handler
-    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    const currentUserId = socket.request.user ? socket.request.user.id : null;
     if (!currentUserId) {
         console.warn(`Tile click: Unauthenticated user for socket ${socket.id}.`);
         return;
@@ -462,15 +407,12 @@ io.on("connection", (socket) => {
         return;
     }
 
-    // Find the player within the game object using their userId (more reliable for turn check)
     const player = game.players.find((p) => p.userId === currentUserId);
     if (!player || player.number !== game.turn) {
         console.warn(`Tile click: Not player's turn or player not found in game. Player: ${player?.name}, Turn: ${game?.turn}`);
         return;
     }
 
-    // IMPORTANT: Update player's socketId in the game object with current socket.id
-    // This ensures subsequent emits (like board-update, game-restarted) go to the correct, potentially new, socket.id
     player.socketId = socket.id;
 
     const tile = game.board[y][x];
@@ -534,9 +476,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Use Bomb Event
   socket.on("use-bomb", ({ gameId }) => {
-    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    const currentUserId = socket.request.user ? socket.request.user.id : null;
     if (!currentUserId) {
         console.warn(`Use bomb: Unauthenticated user for socket ${socket.id}.`);
         return;
@@ -554,9 +495,8 @@ io.on("connection", (socket) => {
     console.log(`Player ${player.name} is waiting for bomb center selection.`);
   });
 
-  // Bomb Center Selected Event
   socket.on("bomb-center", ({ gameId, x, y }) => {
-    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    const currentUserId = socket.request.user ? socket.request.user.id : null;
     if (!currentUserId) {
         console.warn(`Bomb center: Unauthenticated user for socket ${socket.id}.`);
         return;
@@ -585,9 +525,8 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Restart Game Event (Manual Restart Button)
   socket.on("restart-game", ({ gameId }) => {
-    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    const currentUserId = socket.request.user ? socket.request.user.id : null;
     if (!currentUserId) {
         console.warn(`Manual restart: Unauthenticated user for socket ${socket.id}.`);
         return;
@@ -599,7 +538,7 @@ io.on("connection", (socket) => {
     const requestingPlayer = game.players.find(p => p.userId === currentUserId);
     if (!requestingPlayer) return;
 
-    requestingPlayer.socketId = socket.id; // Update socket ID on action
+    requestingPlayer.socketId = socket.id;
 
     console.log(`Manual restart requested by ${requestingPlayer.name} for game ${gameId}.`);
 
@@ -612,7 +551,7 @@ io.on("connection", (socket) => {
     game.players.forEach(p => {
         if (p.socketId) {
             const opponentPlayer = game.players.find(op => op.userId !== p.userId);
-            io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
+            io.to(p.socketId).emit("game-restarted", {
                 gameId: game.gameId,
                 playerNumber: p.number,
                 board: game.board,
@@ -626,16 +565,15 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Leave Game Event (Player voluntarily leaves)
   socket.on("leave-game", ({ gameId }) => {
-    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    const currentUserId = socket.request.user ? socket.request.user.id : null;
     if (!currentUserId) {
         console.warn(`Leave game: Unauthenticated user for socket ${socket.id}.`);
         return;
     }
 
     const game = games[gameId];
-    if (game && currentUserId) { // Use currentUserId
+    if (game && currentUserId) {
       const playerIndex = game.players.findIndex(p => p.userId === currentUserId);
       if (playerIndex !== -1) {
         delete userGameMap[currentUserId];
@@ -655,20 +593,19 @@ io.on("connection", (socket) => {
         }
       }
     }
-    // Attempt to re-add player to lobby list if they were logged in
-    if (currentUserId) { // Use currentUserId
+    if (currentUserId) {
         players = players.filter(p => p.userId !== currentUserId);
-        const userDisplayName = socket.request.session.userDisplayName || `User_${currentUserId.substring(0, 8)}`; // Get name from session
+        const userDisplayName = socket.request.user ? socket.request.user.displayName : `User_${currentUserId.substring(0, 8)}`;
         players.push({ id: socket.id, userId: currentUserId, name: userDisplayName });
     }
     io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
   });
 
 
-  // Socket Disconnect Event (e.g., browser tab closed, network drop)
   socket.on("disconnect", () => {
     console.log(`Socket disconnected: ${socket.id}`);
-    const disconnectedUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    // Use socket.request.user.id if available from passport middleware
+    const disconnectedUserId = socket.request.user ? socket.request.user.id : null;
 
     if (disconnectedUserId) {
         delete userSocketMap[disconnectedUserId];
@@ -708,8 +645,7 @@ io.on("connection", (socket) => {
 
 });
 
-// --- Server Startup ---
-const PORT = process.env.PORT || 3001; // Use Render's PORT env var, or 3001 for local dev
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });
