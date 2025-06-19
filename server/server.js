@@ -257,39 +257,30 @@ io.on("connection", (socket) => {
   });
   
   socket.on("leave-game", ({ gameId }) => {
-    const leavingPlayer = players.find((p) => p.id === socket.id);
-    if (!leavingPlayer) {
-      console.log(`Player with ID ${socket.id} not found on leave-game.`);
-      return;
-    }
-
-    // Mark player as not in game and reset their number
-    leavingPlayer.inGame = false;
-    leavingPlayer.number = null;
-    console.log(`Player ${leavingPlayer.name} left game ${gameId}.`);
-
-    // Find the game and its opponent
     const game = games[gameId];
     if (game) {
-      game.players.forEach((p) => {
-        if (p.id !== socket.id) {
-          // This is the opponent
-          io.to(p.id).emit("opponent-left"); // Use the existing 'opponent-left' event
-          const opponent = players.find((pl) => pl.id === p.id);
-          if (opponent) {
-            opponent.inGame = false; // Mark opponent also as not in game
-            opponent.number = null;
-          }
-        }
-      });
-      delete games[gameId]; // Remove the game from the active games list
-    }
+      // Find the player leaving
+      const playerIndex = game.players.findIndex(p => p.id === socket.id);
+      if (playerIndex !== -1) {
+        // Remove the player from the game's player list
+        game.players.splice(playerIndex, 1);
+        console.log(`Player ${socket.id} left game ${gameId}. Players remaining: ${game.players.length}`);
 
-    // Emit updated players list to all clients in the lobby
-    io.emit(
-      "players-list",
-      players.filter((p) => !p.inGame).map((p) => ({ id: p.id, name: p.name }))
-    );
+        // If no players left, clean up the game
+        if (game.players.length === 0) {
+          delete games[gameId];
+          console.log(`Game ${gameId} deleted as no players remain.`);
+        } else {
+          // Notify the remaining player if any
+          const remainingPlayerSocketId = game.players[0].id;
+          io.to(remainingPlayerSocketId).emit("opponent-left");
+        }
+      }
+    }
+    // Also remove player from general lobby list if they were there
+    // This depends on how your `players` array for the lobby is managed.
+    players = players.filter(p => p.id !== socket.id);
+    io.emit("players-list", players); // Update lobby list
   });
 
   socket.on("invite-player", (targetId) => {
@@ -381,19 +372,47 @@ io.on("connection", (socket) => {
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
       if (isBlankTile && noFlagsRevealedYet) {
-        console.log(`Player ${player.number} hit a blank tile before any flags were revealed. Restarting game ${gameId}.`);
-        // Reset game state
+        console.log(`Player ${player.name} (${player.id}) hit a blank tile before any flags were revealed. Restarting game ${gameId}.`);
+
+        // Reset game state properties within the existing game object
         game.board = generateBoard(); // Generate a brand new board
         game.scores = { 1: 0, 2: 0 }; // Reset scores
         game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
         game.turn = 1; // Reset turn to player 1
         game.gameOver = false; // Game is no longer over
 
-        // Inform both players about the new board
-        io.to(game.players[0].id).emit("game-restarted", game); // New event for frontend
+        // Prepare full data objects for each player to "restart" their game view
+        const player1Data = {
+          gameId: game.gameId,
+          playerNumber: 1,
+          board: game.board,
+          turn: game.turn,
+          scores: game.scores,
+          bombsUsed: game.bombsUsed,
+          gameOver: game.gameOver,
+          opponentName: game.players[1] ? game.players[1].name : "Opponent" // Get opponent name
+        };
+
+        const player2Data = {
+          gameId: game.gameId,
+          playerNumber: 2,
+          board: game.board,
+          turn: game.turn,
+          scores: game.scores,
+          bombsUsed: game.bombsUsed,
+          gameOver: game.gameOver,
+          opponentName: game.players[0].name // Get opponent name
+        };
+
+        // Emit "game-restarted" with full game data for each specific player
+        io.to(game.players[0].id).emit("game-restarted", player1Data);
         if (game.players[1]) {
-            io.to(game.players[1].id).emit("game-restarted", game); // New event for frontend
+            io.to(game.players[1].id).emit("game-restarted", player2Data);
         }
+
+        // Add a log to ensure the game object itself is still valid on the server
+        console.log(`Game ${gameId} after restart: Players ${game.players[0].name}, ${game.players[1] ? game.players[1].name : 'N/A'}`);
+
         return; // Stop further processing for this click
       }
 
@@ -401,9 +420,17 @@ io.on("connection", (socket) => {
       game.turn = game.turn === 1 ? 2 : 1;
     }
 
-    io.to(game.players[0].id).emit("board-update", game);
-    io.to(game.players[1].id).emit("board-update", game);
+    // Always emit board update after a valid click (unless game was restarted)
+    // The "game-restarted" event above will handle sending the new board state
+    // We only emit board-update if the game was NOT restarted by this click
+    if (!isBlankTile || !noFlagsRevealedYet) { // Only emit if restart logic was NOT triggered
+        io.to(game.players[0].id).emit("board-update", game);
+        if (game.players[1]) {
+            io.to(game.players[1].id).emit("board-update", game);
+        }
+    }
   });
+
 
   socket.on("use-bomb", ({ gameId }) => {
     const game = games[gameId];
@@ -448,44 +475,26 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    // Remove player from players list
-    const idx = players.findIndex((p) => p.id === socket.id);
-    if (idx !== -1) {
-      const leavingPlayer = players[idx];
-      console.log(`Player ${leavingPlayer.name} disconnected.`);
-      // Remove from any game they are in
-      if (leavingPlayer.inGame) {
-        // Find game and remove
-        for (const gameId in games) {
-          const game = games[gameId];
-          // Check if the game contains the disconnecting player
-          if (game.players.some((p) => p.id === socket.id)) {
-            // Notify opponent of disconnect & end game
-            game.players.forEach((p) => {
-              if (p.id !== socket.id) {
-                io.to(p.id).emit("opponent-left");
-                // Reset opponent status in the global players list
-                const opponent = players.find((pl) => pl.id === p.id);
-                if (opponent) {
-                  opponent.inGame = false;
-                  opponent.number = null;
-                }
-              }
-            });
-            delete games[gameId]; // Remove the game
-            break; // Game found and processed, exit loop
-          }
+    console.log("User disconnected:", socket.id);
+    // When a user disconnects, ensure they are removed from any game
+    // and the lobby. Iterate through games to check.
+    for (const id in games) {
+        const game = games[id];
+        const playerIndex = game.players.findIndex(p => p.id === socket.id);
+        if (playerIndex !== -1) {
+            game.players.splice(playerIndex, 1);
+            if (game.players.length === 0) {
+                delete games[id];
+                console.log(`Game ${id} deleted on disconnect.`);
+            } else {
+                io.to(game.players[0].id).emit("opponent-left");
+            }
         }
-      }
-      players.splice(idx, 1); // Remove player from the global list
-      // Update lobby player list
-      io.emit(
-        "players-list",
-        players.filter((p) => !p.inGame).map((p) => ({ id: p.id, name: p.name }))
-      );
     }
+    // Remove from lobby player list
+    players = players.filter(p => p.id !== socket.id);
+    io.emit("players-list", players); // Update lobby list
   });
-});
 
 const PORT = process.env.PORT || 3001; // 3001 for local dev, Render provides PORT
 server.listen(PORT, () => {
