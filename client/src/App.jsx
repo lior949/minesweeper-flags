@@ -1,4 +1,4 @@
-// App.jsx
+// App.jsxMore actions
 import React, { useEffect, useState } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin";
@@ -24,40 +24,13 @@ function App() {
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
 
-  // Join lobby (this was the original call, without delayed auth check)
+  // Join lobby
   const joinLobby = () => {
     if (!name.trim()) return;
     socket.emit("join-lobby", name.trim());
   };
 
   useEffect(() => {
-    // Initial check for authentication status on component mount
-    const checkAuthStatus = async () => {
-        try {
-            const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
-                method: "GET",
-                credentials: "include",
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setName(data.user.displayName || `User_${data.user.id.substring(0, 8)}`);
-                setLoggedIn(true);
-                // Immediately attempt to join lobby if authenticated on load
-                // This might cause the "Authentication required" issue if backend session is not ready
-                socket.emit("join-lobby", data.user.displayName || `User_${data.user.id.substring(0, 8)}`);
-            } else {
-                setLoggedIn(false);
-                setName("");
-            }
-        } catch (err) {
-            console.error("Auth check failed:", err);
-            setLoggedIn(false);
-            setName("");
-        }
-    };
-    checkAuthStatus();
-
-
     socket.on("join-error", (msg) => {
       alert(msg);
     });
@@ -117,9 +90,7 @@ function App() {
       // Refresh lobby players list will be automatic on server disconnect update
     });
 
-    // No game-restarted or opponent-reconnected in this version
-
-    return () => {
+    return () => {Add commentMore actions
       socket.off("join-error");
       socket.off("lobby-joined");
       socket.off("players-list");
@@ -129,8 +100,8 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
-    };
-  }, []); // Empty dependency array, listeners set once
+    };Add commentMore actions
+  }, []);
 
   const invitePlayer = (id) => {
     if (loggedIn && id !== socket.id) {
@@ -156,17 +127,52 @@ function App() {
   };
 
   const useBomb = () => {
-    if (bombMode) {
-      setBombMode(false);
-    } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
-      socket.emit("use-bomb", { gameId });
-    }
-  };
-
+  if (bombMode) {
+    // Cancel bomb mode
+    setBombMode(false);
+  } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+    socket.emit("use-bomb", { gameId });
+  }
+};
+Add commentMore actions
+  // --- NEW/MODIFIED FUNCTION ---
   const backToLobby = () => {
+    // Before resetting client-side state, tell the server you're leaving the game.
+    // Only emit if you were actually in a game
     if (gameId) {
         socket.emit("leave-game", { gameId });
-    }
+    }Add commentMore actions
+
+    // Reset all game-related state on the client
+    setGameId(null);
+    setPlayerNumber(null);
+    setBoard([]);
+    setTurn(null);
+    setScores({ 1: 0, 2: 0 });
+    setBombsUsed({ 1: false, 2: false });
+    setBombMode(false);
+    setGameOver(false);
+    setOpponentName("");
+    setInvite(null); // Clear any pending invites in case they were active
+};
+Add commentMore actions
+  const logout = async () => {
+  try {
+    await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
+      method: "GET",
+      credentials: "include", // Important for cookies
+    });
+Add commentMore actions
+  const logout = async () => {
+  try {
+    await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
+      method: "GET",
+      credentials: "include", // Important for cookies
+    });
+Add commentMore actions
+    // Reset all state
+    setLoggedIn(false);
+    setName("");
     setGameId(null);
     setPlayerNumber(null);
     setBoard([]);
@@ -177,33 +183,12 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-  };
-
-  const logout = async () => {
-    try {
-      await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
-        method: "GET",
-        credentials: "include",
-      });
-
-      setLoggedIn(false);
-      setName("");
-      setGameId(null);
-      setPlayerNumber(null);
-      setBoard([]);
-      setTurn(null);
-      setScores({ 1: 0, 2: 0 });
-      setBombsUsed({ 1: false, 2: false });
-      setBombMode(false);
-      setGameOver(false);
-      setOpponentName("");
-      setInvite(null);
-      window.location.reload();
-    } catch (err) {
-      console.error("Logout failed", err);
-      alert("Logout failed. Please try again.");
-    }
-  };
+	window.location.reload();
+  } catch (err) {
+    console.error("Logout failed", err);
+    alert("Logout failed. Please try again.");
+  }
+};
 
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
@@ -216,27 +201,25 @@ function App() {
   };
 
   if (!loggedIn) {
-    return (
-      <div className="lobby">
-        <h2>Login with Google to join the lobby</h2>
-        <GoogleLogin
-          onLogin={(googleName) => {
-            setName(googleName);
-            // This socket.emit("join-lobby", googleName); call is what we originally had
-            // before the refined authChecked logic.
-            socket.emit("join-lobby", googleName);
-          }}
-        />
-      </div>
-    );
-  }
-
+  return (
+    <div className="lobby">
+      <h2>Login with Google to join the lobby</h2>
+      <GoogleLogin
+        onLogin={(googleName) => {
+          setName(googleName);
+          socket.emit("join-lobby", googleName);
+        }}
+      />
+    </div>
+  );
+}
+Add commentMore actions
   if (!gameId) {
     return (
       <div className="lobby">
         <h2>Lobby - Online Players</h2>
-        <button onClick={logout} className="bomb-button">Logout</button>
-        {playersList.length === 0 && <p>No other players online</p>}
+		<button onClick={logout} className="bomb-button">Logout</button>
+        {playersList.length === 0 && <p>No other players online</p>}Add commentMore actions
         <ul className="player-list">
           {playersList.map((p) => (
             <li
@@ -262,6 +245,7 @@ function App() {
     );
   }
 
+  // In game UI
   return (
     <div className="app">
       <div className="header">
@@ -271,9 +255,9 @@ function App() {
           scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
           !gameOver && (
             <button className="bomb-button" onClick={useBomb}>
-                {bombMode ? "Cancel Bomb" : "Use Bomb"}
-            </button>
-          )}
+				{bombMode ? "Cancel Bomb" : "Use Bomb"}
+			</button>
+          )}Add commentMore actions
       </div>
 
       <h2>
@@ -287,7 +271,8 @@ function App() {
         Score 🔴 {scores[1]} | 🔵 {scores[2]}
       </p>
 
-      {gameOver && (
+      {/* --- MODIFIED BUTTON RENDERING --- */}
+      {gameOver && ( // Only show "Back to Lobby" if the game is over
         <button className="bomb-button" onClick={backToLobby}>
           Back to Lobby
         </button>
