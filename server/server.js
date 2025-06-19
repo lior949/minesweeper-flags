@@ -41,7 +41,6 @@ app.use(
 // These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-// Re-added Facebook client ID and secret declaration here
 const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
@@ -49,6 +48,13 @@ const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 let db;
 let sessionMiddleware;
 let io; // Declare io here so it's accessible globally
+
+// --- Game Constants (Moved to a more global scope) ---
+const WIDTH = 16;
+const HEIGHT = 16;
+const MINES = 51;
+const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
+const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
 
 
 try {
@@ -153,10 +159,6 @@ try {
   process.exit(1); // Exit process if initialization fails
 }
 
-
-// These variables are now properly declared at the top of the file
-// const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
-// const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Passport config ===
 passport.use(new GoogleStrategy({
@@ -287,13 +289,6 @@ app.get("/login-failed", (req, res) => {
   res.send("Login failed");
 });
 
-
-// --- Game Logic ---
-
-// Game Constants
-const WIDTH = 16;
-const HEIGHT = 16;
-const MINES = 51;
 
 // Global Game Data Structures
 let players = []; // Lobby players: { id: socket.id, userId, name }
@@ -829,7 +824,7 @@ io.on("connection", (socket) => {
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
-        gameOver: game.gameOver,
+        _gameOver: game.gameOver, // This should be `gameOver`
         opponentName: inviterPlayer.name,
       });
 
