@@ -615,7 +615,7 @@ io.on("connection", (socket) => {
                     playerNumber: playerInExistingGame.number,
                     board: JSON.stringify(existingGame.board), // Send serialized board
                     turn: existingGame.turn,
-                    scores: existingGame.scores, // Corrected from existinggGame.scores
+                    scores: existingGame.scores, 
                     bombsUsed: existingGame.bombsUsed,
                     gameOver: existingGame.gameOver,
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
@@ -889,8 +889,8 @@ io.on("connection", (socket) => {
           game.gameOver = true;
           console.log(`[Game Over] Game ${gameId} ended. Final Scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
       }
-      // Turn always switches after any successful click (mine or non-mine)
-      game.turn = game.turn === 1 ? 2 : 1;
+      // Turn does NOT switch if a mine is revealed.
+      // The turn will only switch after a non-mine tile is revealed.
 
     } else { // This block handles non-mine tiles
       const isBlankTile = tile.adjacentMines === 0;
@@ -954,7 +954,7 @@ io.on("connection", (socket) => {
 
       // If not a mine and not a restart condition on a blank tile, then it's a normal reveal
       revealRecursive(game.board, x, y);
-      game.turn = game.turn === 1 ? 2 : 1; // Switch turn for non-mine reveals
+      game.turn = game.turn === 1 ? 2 : 1; // Turn switches only for non-mine reveals
     }
     // --- End of Re-ordered and Corrected Logic ---
 
@@ -1274,7 +1274,7 @@ io.on("connection", (socket) => {
                     io.to(remainingPlayer.socketId).emit("opponent-left");
                     console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
                 } else {
-                    console.warn(`Remaining player in game ${gameId} has no active socket to notify.`);
+                    console.warn(`Remaining player in game ${gameId} has no active socket. Cannot send board update.`);
                 }
                 // Update game status in Firestore to 'waiting_for_resume'
                 try {
