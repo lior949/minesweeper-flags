@@ -23,6 +23,7 @@ function App() {
   const [gameOver, setGameOver] = useState(false);
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
+  const [bombError, setBombError] = useState(""); // New state for bomb errors
 
   // Join lobby
   const joinLobby = () => {
@@ -31,6 +32,30 @@ function App() {
   };
 
   useEffect(() => {
+    // Initial Authentication Check (from previous version)
+    const checkAuthStatus = async () => {
+        try {
+            const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
+                method: "GET",
+                credentials: "include",
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
+                setLoggedIn(true);
+                socket.emit("join-lobby", data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
+            } else {
+                setLoggedIn(false);
+                setName("");
+            }
+        } catch (err) {
+            console.error("Auth check failed:", err);
+            setLoggedIn(false);
+            setName("");
+        }
+    };
+    checkAuthStatus();
+
     socket.on("join-error", (msg) => {
       alert(msg);
     });
@@ -61,6 +86,7 @@ function App() {
       setGameOver(data.gameOver);
       setOpponentName(data.opponentName);
       setBombMode(false);
+      setBombError(""); // Clear any previous bomb errors
     });
 
     socket.on("board-update", (game) => {
@@ -70,10 +96,12 @@ function App() {
       setBombsUsed(game.bombsUsed);
       setGameOver(game.gameOver);
       setBombMode(false);
+      setBombError(""); // Clear bomb error on board update
     });
 
     socket.on("wait-bomb-center", () => {
       setBombMode(true);
+      setBombError(""); // Clear previous errors when entering bomb mode
     });
 
     socket.on("opponent-left", () => {
@@ -87,8 +115,17 @@ function App() {
       setGameOver(false);
       setOpponentName("");
       setBombMode(false);
+      setBombError(""); // Clear bomb error
       // Refresh lobby players list will be automatic on server disconnect update
     });
+
+    // --- NEW: Bomb error listener ---
+    socket.on("bomb-error", (msg) => {
+      setBombError(msg); // Set the error message
+      setBombMode(false); // Exit bomb mode on error
+      console.error("Bomb Error:", msg);
+    });
+
 
     return () => {
       socket.off("join-error");
@@ -100,6 +137,7 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
+      socket.off("bomb-error"); // Clean up new listener
     };
   }, []);
 
@@ -120,30 +158,66 @@ function App() {
   const handleClick = (x, y) => {
     if (!gameId) return;
     if (bombMode) {
+      // --- NEW: Client-side validation before emitting bomb-center ---
+      const MIN_COORD = 2; // For 3rd line/column (0-indexed)
+      const MAX_COORD_X = 13; // For 14th column (16-1 - 2)
+      const MAX_COORD_Y = 13; // For 14th line (16-1 - 2)
+
+      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
+        setBombError("Bomb center must be within the highlighted 12x12 area.");
+        console.log(`Client-side: Bomb center (${x},${y}) out of bounds.`);
+        return; // Prevent emitting to server
+      }
+
+      // Check if all tiles in the 5x5 area are already revealed
+      let allTilesRevealed = true;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const checkX = x + dx;
+          const checkY = y + dy;
+          if (checkX >= 0 && checkX < board[0].length && checkY >= 0 && checkY < board.length) {
+            if (!board[checkY][checkX].revealed) {
+              allTilesRevealed = false;
+              break;
+            }
+          } else {
+            // If any part of the bomb area is outside the board, it's not "all revealed"
+            allTilesRevealed = false;
+            break;
+          }
+        }
+        if (!allTilesRevealed) break;
+      }
+
+      if (allTilesRevealed) {
+        setBombError("All tiles in the bomb's blast area are already revealed.");
+        console.log(`Client-side: Bomb area at (${x},${y}) already fully revealed.`);
+        return; // Prevent emitting to server
+      }
+      // --- END NEW CLIENT-SIDE VALIDATION ---
+
+      setBombError(""); // Clear error if validation passes
       socket.emit("bomb-center", { gameId, x, y });
     } else if (playerNumber === turn && !gameOver) {
+      setBombError(""); // Clear error when clicking a regular tile
       socket.emit("tile-click", { gameId, x, y });
     }
   };
 
   const useBomb = () => {
-  if (bombMode) {
-    // Cancel bomb mode
-    setBombMode(false);
-  } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
-    socket.emit("use-bomb", { gameId });
-  }
-};
+    if (bombMode) {
+      setBombMode(false); // Cancel bomb mode
+      setBombError(""); // Clear error when cancelling
+    } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+      socket.emit("use-bomb", { gameId });
+    }
+  };
 
-  // --- NEW/MODIFIED FUNCTION ---
   const backToLobby = () => {
-    // Before resetting client-side state, tell the server you're leaving the game.
-    // Only emit if you were actually in a game
     if (gameId) {
         socket.emit("leave-game", { gameId });
     }
 
-    // Reset all game-related state on the client
     setGameId(null);
     setPlayerNumber(null);
     setBoard([]);
@@ -153,17 +227,17 @@ function App() {
     setBombMode(false);
     setGameOver(false);
     setOpponentName("");
-    setInvite(null); // Clear any pending invites in case they were active
+    setInvite(null);
+    setBombError(""); // Clear bomb error
 };
 
   const logout = async () => {
   try {
-    await fetch("https://minesweeper-flags-frontend.onrender.com/logout", {
+    await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
       method: "GET",
-      credentials: "include", // Important for cookies
+      credentials: "include",
     });
 
-    // Reset all state
     setLoggedIn(false);
     setName("");
     setGameId(null);
@@ -176,6 +250,7 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
+    setBombError(""); // Clear bomb error
 	window.location.reload();
   } catch (err) {
     console.error("Logout failed", err);
@@ -260,12 +335,13 @@ function App() {
         {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
         {bombMode && " – Select 5x5 bomb center"}
       </p>
+      {/* Display bomb error if any */}
+      {bombError && <p style={{ color: 'red', fontWeight: 'bold' }}>{bombError}</p>}
       <p>
         Score 🔴 {scores[1]} | 🔵 {scores[2]}
       </p>
 
-      {/* --- MODIFIED BUTTON RENDERING --- */}
-      {gameOver && ( // Only show "Back to Lobby" if the game is over
+      {gameOver && (
         <button className="bomb-button" onClick={backToLobby}>
           Back to Lobby
         </button>
