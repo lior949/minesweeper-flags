@@ -443,8 +443,7 @@ io.on("connection", (socket) => {
                         console.log(`Notified opponent ${opponentPlayer.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
                     }
                     // Update lobby list as this game might become active
-                    io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
-
+                    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
                 } else {
                     delete userGameMap[userId]; // Game not found or invalid status, clear map
                     console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore, clearing map.`);
@@ -501,8 +500,8 @@ io.on("connection", (socket) => {
 
     console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined", userName); // Send back the name used
-    // Emit updated player list to all connected clients in the lobby (not in a game)
-    io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+    // Emit updated player list to all connected clients in the lobby (all players now)
+    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
   });
 
   socket.on("request-unfinished-games", async () => {
@@ -707,8 +706,8 @@ io.on("connection", (socket) => {
             console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
-        // Update lobby player list (remove players now in a game)
-        io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+        // Update lobby player list (all players now)
+        io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
     } catch (error) {
         console.error("Error resuming game:", error);
@@ -794,38 +793,8 @@ io.on("connection", (socket) => {
       userGameMap[respondingPlayer.userId] = gameId;
       console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
 
-      // Save game state to Firestore (with serialized board)
-      try {
-          const serializedBoard = JSON.stringify(game.board); // Serialize board for Firestore
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-              gameId: game.gameId,
-              board: serializedBoard, // Save serialized board
-              player1_userId: inviterPlayer.userId,
-              player2_userId: respondingPlayer.userId,
-              player1_name: inviterPlayer.name,
-              player2_name: respondingPlayer.name,
-              turn: game.turn,
-              scores: game.scores,
-              bombsUsed: game.bombsUsed,
-              gameOver: game.gameOver,
-              status: 'active', // Mark as active
-              lastUpdated: Timestamp.now(),
-              winnerId: null,
-              loserId: null
-          });
-          console.log(`Game ${gameId} saved to Firestore.`);
-      } catch (error) {
-          console.error("Error saving new game to Firestore:", error); // Log the full error object
-          io.to(inviterPlayer.id).emit("join-error", "Failed to start game (DB error).");
-          io.to(respondingPlayer.id).emit("join-error", "Failed to start game (DB error).");
-          delete games[gameId]; // Clean up in-memory game if DB save fails
-          delete userGameMap[inviterPlayer.userId];
-          delete userGameMap[respondingPlayer.userId];
-          return;
-      }
-
       // Remove players from the general lobby list as they are now in a game
-      io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+      io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
       // Emit game-start to both players with their specific player number and opponent name
       io.to(inviterPlayer.id).emit("game-start", {
@@ -1215,7 +1184,7 @@ io.on("connection", (socket) => {
         }
       }
     }
-    // Attempt to re-add player to lobby list if they were logged in (if they weren't in a game)
+    // Attempt to re-add player to lobby list if they were logged in (all players now)
     if (userId) {
         // Ensure the player is in the global 'players' list and not marked as being in a game
         let existingPlayerInLobby = players.find(p => p.userId === userId);
@@ -1227,7 +1196,7 @@ io.on("connection", (socket) => {
         }
     }
     // Always update lobby list to reflect changes
-    io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
   });
 
 
@@ -1246,7 +1215,7 @@ io.on("connection", (socket) => {
     // Remove from lobby player list (by socket.id or userId if known)
     // Filter out players whose current socket matches the disconnected one, or if they are the disconnected user and not in a game
     players = players.filter(p => !(p.id === socket.id || (disconnectedUserId && p.userId === disconnectedUserId && !userGameMap[p.userId])));
-    io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
 
     // Check if the disconnected user was in a game
