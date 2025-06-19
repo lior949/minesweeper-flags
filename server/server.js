@@ -89,32 +89,51 @@ try {
 
   console.log("Firebase Admin SDK and FirestoreStore initialized.");
 
+
+  // Configure Socket.IO with CORS
+  const io = new Server(server, {
+    cors: {
+      origin: "https://minesweeper-flags-frontend.onrender.com",
+      methods: ["GET", "POST"],
+      credentials: true, // Allow cookies for Socket.IO handshake
+    },
+  });
+
+  // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
+  // Moved inside try block to ensure sessionMiddleware is defined
+  io.use((socket, next) => {
+      console.log(`[Socket.IO Auth] Socket ${socket.id} connecting.`);
+      socket.request.res = {}; // Dummy response object for session middleware compatibility
+
+      // Apply session middleware
+      sessionMiddleware(socket.request, socket.request.res, () => {
+          console.log(`[Socket.IO Auth] After sessionMiddleware for ${socket.id}. Session ID: ${socket.request.sessionID}`);
+          console.log(`[Socket.IO Auth] Session object exists: ${!!socket.request.session}`);
+          console.log(`[Socket.IO Auth] Session.passport exists: ${!!socket.request.session?.passport}`);
+          console.log(`[Socket.IO Auth] Session.passport.user: ${JSON.stringify(socket.request.session?.passport?.user)}`);
+
+          // Apply passport.initialize
+          passport.initialize()(socket.request, socket.request.res, () => {
+              // Apply passport.session
+              passport.session()(socket.request, socket.request.res, () => {
+                  console.log(`[Socket.IO Auth] After passport.session() for ${socket.id}. req.user: ${JSON.stringify(socket.request.user)}`);
+                  if (socket.request.user) {
+                      console.log(`[Socket.IO Auth] User authenticated via session: ${socket.request.user.displayName || socket.request.user.id}`);
+                  } else {
+                      console.log(`[Socket.IO Auth] User NOT authenticated after passport.session() for ${socket.id}.`);
+                  }
+                  next();
+              });
+          });
+      });
+  });
+  // === END Socket.IO Session Integration ===
+
+
 } catch (error) {
   console.error("Failed to initialize Firebase Admin SDK or FirestoreStore.", error);
   process.exit(1); // Exit process if initialization fails
 }
-
-
-// Configure Socket.IO with CORS
-const io = new Server(server, {
-  cors: {
-    origin: "https://minesweeper-flags-frontend.onrender.com",
-    methods: ["GET", "POST"],
-    credentials: true, // Allow cookies for Socket.IO handshake
-  },
-});
-
-// === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
-io.use((socket, next) => {
-    // This is important for existing sessions to be picked up by Socket.IO
-    socket.request.res = {}; // Dummy response object for session middleware compatibility
-    sessionMiddleware(socket.request, socket.request.res, () => { // Pass req and dummy res
-        passport.initialize()(socket.request, socket.request.res, () => {
-            passport.session()(socket.request, socket.request.res, next);
-        });
-    });
-});
-// === END Socket.IO Session Integration ===
 
 
 const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
