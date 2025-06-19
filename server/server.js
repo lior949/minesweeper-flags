@@ -34,9 +34,11 @@ app.use(
 
 app.set('trust proxy', 1); // Crucial when deployed behind a load balancer (like Render)
 
-// === Initialize Firebase Admin SDK first, so `db` is available ===
+// === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
-let sessionMiddleware; // Declare sessionMiddleware here to make it accessible to io.use
+let sessionMiddleware;
+let io; // Declare io here so it's accessible globally
+
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -91,7 +93,7 @@ try {
 
 
   // Configure Socket.IO with CORS
-  const io = new Server(server, {
+  io = new Server(server, { // Assign to the already declared 'io' variable
     cors: {
       origin: "https://minesweeper-flags-frontend.onrender.com",
       methods: ["GET", "POST"],
@@ -950,7 +952,7 @@ io.on("connection", (socket) => {
                         status: 'completed',
                         lastUpdated: Timestamp.now()
                     });
-                    console.log(`Game ${gameId} status set to 'completed' (last player disconnected).`);
+                    console.log(`Game ${gameId} status set to 'completed' as last player left.`);
                 }
             } catch (error) {
                 console.error("Error updating game status on disconnect:", error);
