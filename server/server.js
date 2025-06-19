@@ -147,6 +147,7 @@ passport.use(new GoogleStrategy({
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
+  console.log(`[Passport Callback] Google Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
   return done(null, profile);
 }));
 
@@ -157,14 +158,17 @@ passport.use(new FacebookStrategy({
     profileFields: ['id', 'displayName', 'photos', 'email']
   },
   function(accessToken, refreshToken, profile, cb) {
+    console.log(`[Passport Callback] Facebook Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
     return cb(null, profile);
   }
 ));
 
 passport.serializeUser((user, done) => {
+  console.log(`[Passport] serializeUser: Serializing user - ID: ${user.id}, Name: ${user.displayName || user.name}`);
   done(null, { id: user.id, displayName: user.displayName || user.name });
 });
 passport.deserializeUser((obj, done) => {
+  console.log(`[Passport] deserializeUser: Deserializing user - ID: ${obj.id}, Name: ${obj.displayName || obj.name}`);
   done(null, obj);
 });
 
@@ -180,8 +184,15 @@ app.get("/auth/facebook",
 app.get("/auth/facebook/callback",
   passport.authenticate("facebook", {
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
-    successRedirect: "https://minesweeper-flags-frontend.onrender.com",
-  })
+  }),
+  (req, res) => { // Add a callback to manually save session
+    req.session.save((err) => {
+      if (err) {
+        console.error("Error saving session after Facebook auth:", err);
+      }
+      res.redirect("https://minesweeper-flags-frontend.onrender.com");
+    });
+  }
 );
 
 app.get("/auth/google",
@@ -191,8 +202,15 @@ app.get("/auth/google",
 app.get("/auth/google/callback",
   passport.authenticate("google", {
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com",
-    successRedirect: "https://minesweeper-flags-frontend.onrender.com",
-  })
+  }),
+  (req, res) => { // Add a callback to manually save session
+    req.session.save((err) => {
+      if (err) {
+        console.error("Error saving session after Google auth:", err);
+      }
+      res.redirect("https://minesweeper-flags-frontend.onrender.com");
+    });
+  }
 );
 
 app.get("/logout", (req, res) => {
