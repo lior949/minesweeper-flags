@@ -11,7 +11,6 @@ function App() {
   const [name, setName] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [playersList, setPlayersList] = useState([]);
-  const [authChecked, setAuthChecked] = useState(false); // New state to track if initial auth check is done
 
   // Game
   const [gameId, setGameId] = useState(null);
@@ -25,64 +24,46 @@ function App() {
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
 
-  // Initial check on component mount and on login/logout
+  // Join lobby (this was the original call, without delayed auth check)
+  const joinLobby = () => {
+    if (!name.trim()) return;
+    socket.emit("join-lobby", name.trim());
+  };
+
   useEffect(() => {
+    // Initial check for authentication status on component mount
     const checkAuthStatus = async () => {
-      try {
-        const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
-          method: "GET",
-          credentials: "include",
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setName(data.user.displayName || `User_${data.user.id.substring(0, 8)}`);
-          setLoggedIn(true);
-        } else {
-          setLoggedIn(false);
-          setName("");
+        try {
+            const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
+                method: "GET",
+                credentials: "include",
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setName(data.user.displayName || `User_${data.user.id.substring(0, 8)}`);
+                setLoggedIn(true);
+                // Immediately attempt to join lobby if authenticated on load
+                // This might cause the "Authentication required" issue if backend session is not ready
+                socket.emit("join-lobby", data.user.displayName || `User_${data.user.id.substring(0, 8)}`);
+            } else {
+                setLoggedIn(false);
+                setName("");
+            }
+        } catch (err) {
+            console.error("Auth check failed:", err);
+            setLoggedIn(false);
+            setName("");
         }
-      } catch (err) {
-        console.error("Auth check failed:", err);
-        setLoggedIn(false);
-        setName("");
-      } finally {
-        setAuthChecked(true); // Mark authentication check as complete
-      }
     };
-
-    checkAuthStatus(); // Run once on component mount
-
-    // Optional: Re-run auth check on socket connect/reconnect to ensure consistency
-    // socket.on('connect', checkAuthStatus);
-    // return () => {
-    //   socket.off('connect', checkAuthStatus);
-    // };
-
-  }, []); // Run only once on component mount
+    checkAuthStatus();
 
 
-  // This useEffect handles joining the lobby once authenticated and name is set
-  useEffect(() => {
-    // Only join lobby if logged in, name is set, and auth check is done
-    if (loggedIn && name.trim() && authChecked) {
-      console.log(`Attempting to join lobby with name: ${name}`);
-      socket.emit("join-lobby", name.trim());
-    }
-  }, [loggedIn, name, authChecked]); // Depend on loggedIn, name, and authChecked states
-
-
-  useEffect(() => {
     socket.on("join-error", (msg) => {
       alert(msg);
-      setLoggedIn(false); // Force logout if lobby join fails due to auth
-      setName("");
-      setAuthChecked(false); // Reset auth check
-      window.location.reload(); // Reload to clear potentially bad state
     });
 
     socket.on("lobby-joined", () => {
-      setLoggedIn(true); // Redundant, but ensures consistency
-      console.log("Frontend: Lobby joined successfully!");
+      setLoggedIn(true);
     });
 
     socket.on("players-list", (players) => {
@@ -107,7 +88,6 @@ function App() {
       setGameOver(data.gameOver);
       setOpponentName(data.opponentName);
       setBombMode(false);
-      console.log("Frontend: Game started! My player number:", data.playerNumber);
     });
 
     socket.on("board-update", (game) => {
@@ -134,26 +114,10 @@ function App() {
       setGameOver(false);
       setOpponentName("");
       setBombMode(false);
+      // Refresh lobby players list will be automatic on server disconnect update
     });
 
-    socket.on("game-restarted", (data) => {
-      console.log("Frontend: Game restarted by server. Received data:", data);
-      setGameId(data.gameId);
-      setPlayerNumber(data.playerNumber);
-      setBoard(data.board);
-      setTurn(data.turn);
-      setScores(data.scores);
-      setBombsUsed(data.bombsUsed);
-      setGameOver(data.gameOver);
-      setOpponentName(data.opponentName);
-      setBombMode(false);
-      alert("Game restarted: Blank tile hit before any flags!");
-      console.log("Frontend: Game state updated. Current gameId:", data.gameId);
-    });
-
-    socket.on("opponent-reconnected", ({ name }) => {
-        alert(`${name} has reconnected!`);
-    });
+    // No game-restarted or opponent-reconnected in this version
 
     return () => {
       socket.off("join-error");
@@ -165,14 +129,11 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
-      socket.off("game-restarted");
-      socket.off("opponent-reconnected");
     };
-  }, []); // No dependencies, as event listeners are stable
-
+  }, []); // Empty dependency array, listeners set once
 
   const invitePlayer = (id) => {
-    if (loggedIn && id !== socket.id) { // Still use socket.id for client-side invite target
+    if (loggedIn && id !== socket.id) {
       socket.emit("invite-player", id);
       alert("Invitation sent.");
     }
@@ -254,11 +215,6 @@ function App() {
     return tile.adjacentMines > 0 ? tile.adjacentMines : "";
   };
 
-  // Show loading/checking auth status
-  if (!authChecked) {
-    return <div className="lobby"><h2>Checking authentication status...</h2></div>;
-  }
-
   if (!loggedIn) {
     return (
       <div className="lobby">
@@ -266,8 +222,9 @@ function App() {
         <GoogleLogin
           onLogin={(googleName) => {
             setName(googleName);
-            // This `socket.emit("join-lobby", googleName);` is now handled by the new useEffect
-            // based on `loggedIn` and `name` state.
+            // This socket.emit("join-lobby", googleName); call is what we originally had
+            // before the refined authChecked logic.
+            socket.emit("join-lobby", googleName);
           }}
         />
       </div>
