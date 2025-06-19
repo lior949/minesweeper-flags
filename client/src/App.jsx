@@ -24,7 +24,7 @@ function App() {
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
 
-  // Join lobby
+  // Join lobby - this might be redundant if GoogleLogin handles name
   const joinLobby = () => {
     if (!name.trim()) return;
     socket.emit("join-lobby", name.trim());
@@ -51,17 +51,18 @@ function App() {
       alert(`${fromName} rejected your invitation.`);
     });
 
+    // --- Critical: game-start fully initializes game state ---
     socket.on("game-start", (data) => {
-      // This is the full game initialization
       setGameId(data.gameId);
-      setPlayerNumber(data.playerNumber);
+      setPlayerNumber(data.playerNumber); // Player's assigned number (1 or 2)
       setBoard(data.board);
       setTurn(data.turn);
       setScores(data.scores);
       setBombsUsed(data.bombsUsed);
       setGameOver(data.gameOver);
       setOpponentName(data.opponentName);
-      setBombMode(false);
+      setBombMode(false); // Ensure bomb mode is off
+      console.log("Frontend: Game started! My player number:", data.playerNumber);
     });
 
     socket.on("board-update", (game) => {
@@ -70,44 +71,48 @@ function App() {
       setScores(game.scores);
       setBombsUsed(game.bombsUsed);
       setGameOver(game.gameOver);
-      setBombMode(false);
+      setBombMode(false); // Always reset bomb mode after an update
     });
 
     socket.on("wait-bomb-center", () => {
       setBombMode(true);
     });
 
+    // --- Crucial: opponent-left explicitly resets game state to lobby ---
     socket.on("opponent-left", () => {
-      // alert("Opponent left the game. Returning to lobby."); // Keep alert for notification
-      // Temporarily comment out these lines to see if it fixes the return to lobby
-      // setGameId(null);
-      // setPlayerNumber(null);
-      // setBoard([]);
-      // setTurn(null);
-      // setScores({ 1: 0, 2: 0 });
-      // setBombsUsed({ 1: false, 2: false });
-      // setGameOver(false);
-      // setOpponentName("");
-      // setBombMode(false);
-      // Refresh lobby players list will be automatic on server disconnect update
+      alert("Opponent left the game. Returning to lobby.");
+      setGameId(null); // This is the key that sends you to the lobby UI
+      setPlayerNumber(null);
+      setBoard([]);
+      setTurn(null);
+      setScores({ 1: 0, 2: 0 });
+      setBombsUsed({ 1: false, 2: false });
+      setGameOver(false);
+      setOpponentName("");
+      setBombMode(false);
     });
 
-    // --- NEW Socket.IO event listener for game restart ---
-    socket.on("game-restarted", (data) => { // 'data' now contains all game state
-      console.log("Game restarted by server!");
-      // Re-initialize all game-related state variables exactly like 'game-start'
+    // --- MODIFIED game-restarted: fully re-initializes game state ---
+    socket.on("game-restarted", (data) => {
+      console.log("Frontend: Game restarted by server. Received data:", data);
       setGameId(data.gameId);
-      setPlayerNumber(data.playerNumber); // This will be 1 or 2, specific to the client
+      setPlayerNumber(data.playerNumber); // Ensure player number is correctly set
       setBoard(data.board);
       setTurn(data.turn);
       setScores(data.scores);
       setBombsUsed(data.bombsUsed);
-      setGameOver(data.gameOver);
-      setOpponentName(data.opponentName); // Ensure opponent name is reset
+      setGameOver(data.gameOver); // Should be false after restart
+      setOpponentName(data.opponentName); // Ensure opponent name is set
       setBombMode(false); // Reset bomb mode
-      // Optionally, add a user alert
       alert("Game restarted: Blank tile hit before any flags!");
+      console.log("Frontend: Game state updated. Current gameId:", data.gameId);
     });
+
+    // --- NEW: Handle opponent reconnected ---
+    socket.on("opponent-reconnected", ({ name }) => {
+        alert(`${name} has reconnected!`);
+    });
+
 
     return () => {
       socket.off("join-error");
@@ -119,7 +124,8 @@ function App() {
       socket.off("board-update");
       socket.off("wait-bomb-center");
       socket.off("opponent-left");
-      socket.off("game-restarted"); // <--- IMPORTANT: Clean up the new listener
+      socket.off("game-restarted");
+      socket.off("opponent-reconnected"); // Clean up new listener
     };
   }, []);
 
@@ -138,10 +144,10 @@ function App() {
   };
 
   const handleClick = (x, y) => {
-    if (!gameId) return;
+    if (!gameId) return; // Must be in a game
     if (bombMode) {
       socket.emit("bomb-center", { gameId, x, y });
-    } else if (playerNumber === turn && !gameOver) {
+    } else if (playerNumber === turn && !gameOver) { // Only click if it's your turn and game is not over
       socket.emit("tile-click", { gameId, x, y });
     }
   };
@@ -151,19 +157,16 @@ function App() {
       // Cancel bomb mode
       setBombMode(false);
     } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+      // Only use bomb if not already used and currently behind in score
       socket.emit("use-bomb", { gameId });
     }
   };
 
-  // --- NEW/MODIFIED FUNCTION ---
   const backToLobby = () => {
-    // Before resetting client-side state, tell the server you're leaving the game.
-    // Only emit if you were actually in a game
     if (gameId) {
-      socket.emit("leave-game", { gameId });
+        socket.emit("leave-game", { gameId });
     }
-
-    // Reset all game-related state on the client
+    // These states are largely reset by opponent-left (if fired) or just going back to lobby view
     setGameId(null);
     setPlayerNumber(null);
     setBoard([]);
@@ -173,17 +176,17 @@ function App() {
     setBombMode(false);
     setGameOver(false);
     setOpponentName("");
-    setInvite(null); // Clear any pending invites in case they were active
+    setInvite(null);
   };
 
   const logout = async () => {
     try {
-      await fetch("https://minesweeper-flags-backend.onrender.com/logout", { // Ensure this is backend URL
+      await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
         method: "GET",
-        credentials: "include", // Important for cookies
+        credentials: "include",
       });
 
-      // Reset all state
+      // Reset all frontend state relevant to being logged in or in a game
       setLoggedIn(false);
       setName("");
       setGameId(null);
@@ -191,18 +194,17 @@ function App() {
       setBoard([]);
       setTurn(null);
       setScores({ 1: 0, 2: 0 });
-      setBombsUsed({ 1: false, 2: 0 });
+      setBombsUsed({ 1: false, 2: false });
       setBombMode(false);
       setGameOver(false);
       setOpponentName("");
       setInvite(null);
-      window.location.reload(); // This will refresh the page and re-check login
+      window.location.reload(); // Force a full page reload to ensure session is cleared
     } catch (err) {
       console.error("Logout failed", err);
       alert("Logout failed. Please try again.");
     }
   };
-
 
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
@@ -221,6 +223,7 @@ function App() {
         <GoogleLogin
           onLogin={(googleName) => {
             setName(googleName);
+            // This 'name' is then sent to join-lobby. The server will use it along with userId.
             socket.emit("join-lobby", googleName);
           }}
         />
@@ -232,12 +235,12 @@ function App() {
     return (
       <div className="lobby">
         <h2>Lobby - Online Players</h2>
-        <button onClick={logout} className="bomb-button">Logout</button>
+		<button onClick={logout} className="bomb-button">Logout</button>
         {playersList.length === 0 && <p>No other players online</p>}
         <ul className="player-list">
           {playersList.map((p) => (
             <li
-              key={p.id}
+              key={p.id} // Use socket.id as key for display, but userId for server logic
               className="player-item"
               onDoubleClick={() => invitePlayer(p.id)}
               title="Double-click to invite"
@@ -269,8 +272,8 @@ function App() {
           scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
           !gameOver && (
             <button className="bomb-button" onClick={useBomb}>
-              {bombMode ? "Cancel Bomb" : "Use Bomb"}
-            </button>
+				{bombMode ? "Cancel Bomb" : "Use Bomb"}
+			</button>
           )}
       </div>
 
@@ -285,8 +288,7 @@ function App() {
         Score 🔴 {scores[1]} | 🔵 {scores[2]}
       </p>
 
-      {/* --- MODIFIED BUTTON RENDERING --- */}
-      {gameOver && ( // Only show "Back to Lobby" if the game is over
+      {gameOver && (
         <button className="bomb-button" onClick={backToLobby}>
           Back to Lobby
         </button>
