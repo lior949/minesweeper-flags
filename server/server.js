@@ -60,7 +60,8 @@ const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`
 
 // Determine cookie domain dynamically for production vs local development
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const COOKIE_DOMAIN = NODE_ENV === 'production' ? '.onrender.com' : undefined; // Set to .onrender.com for cross-subdomain cookies in production
+// Removed explicit COOKIE_DOMAIN to let browser handle it implicitly for Render subdomains
+// const COOKIE_DOMAIN = NODE_ENV === 'production' ? '.onrender.com' : undefined; 
 
 
 try {
@@ -102,7 +103,7 @@ try {
     cookie: {
       sameSite: "none",
       secure: true,
-      domain: COOKIE_DOMAIN, // Explicitly set domain for cross-subdomain cookies
+      // domain: COOKIE_DOMAIN, // REMOVED: Let browser infer for subdomains within .onrender.com
       maxAge: 1000 * 60 * 60 * 24, // 24 hours (example)
       proxy: true, // IMPORTANT: Inform express-session that it's behind a proxy
     },
@@ -269,7 +270,7 @@ app.get("/logout", (req, res, next) => {
           path: '/',
           secure: true,
           sameSite: 'none',
-          domain: COOKIE_DOMAIN, // Ensure domain is cleared as well
+          // domain: COOKIE_DOMAIN, // REMOVED: Let browser infer for subdomains
           proxy: true, // Clear cookie with proxy setting
       }); // Clear the session cookie from the client
       console.log("User logged out and session destroyed.");
