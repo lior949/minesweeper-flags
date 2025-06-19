@@ -293,30 +293,26 @@ const checkGameOver = (scores) => {
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
 
-  // Initialize userId to null for the current connection
-  let currentUserId = null;
-
-  // --- NEW: Safely get userId from session if available ---
+  // We no longer need `let currentUserId = null;` here,
+  // as each event handler will now derive it directly.
+  // The reconnection logic still needs to check session.
   if (socket.request.session && socket.request.session.passport && socket.request.session.passport.user) {
-    currentUserId = socket.request.session.passport.user;
-    console.log(`User ${currentUserId} (re)connected. Socket ID: ${socket.id}`);
+    const userIdOnConnect = socket.request.session.passport.user;
+    console.log(`User ${userIdOnConnect} (re)connected. Socket ID: ${socket.id}`);
 
-    // Update user-to-socket mapping
-    userSocketMap[currentUserId] = socket.id;
+    userSocketMap[userIdOnConnect] = socket.id;
 
-    // Handle rejoining an existing game if user was previously in one
-    if (userGameMap[currentUserId]) {
-        const gameId = userGameMap[currentUserId];
+    if (userGameMap[userIdOnConnect]) {
+        const gameId = userGameMap[userIdOnConnect];
         const game = games[gameId];
 
         if (game) {
-            const playerInGame = game.players.find(p => p.userId === currentUserId);
+            const playerInGame = game.players.find(p => p.userId === userIdOnConnect);
             if (playerInGame) {
-                // Update the player's socketId in the game object
                 playerInGame.socketId = socket.id;
-                console.log(`Re-associated user ${playerInGame.name} (${currentUserId}) in game ${gameId} with new socket ID ${socket.id}`);
+                console.log(`Re-associated user ${playerInGame.name} (${userIdOnConnect}) in game ${gameId} with new socket ID ${socket.id}`);
 
-                const opponentPlayer = game.players.find(op => op.userId !== currentUserId);
+                const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
                 const dataForReconnectedPlayer = {
                     gameId: game.gameId,
                     playerNumber: playerInGame.number,
@@ -335,31 +331,26 @@ io.on("connection", (socket) => {
                 }
             }
         } else {
-            delete userGameMap[currentUserId];
-            console.log(`Game ${gameId} for user ${currentUserId} no longer exists, clearing map.`);
+            delete userGameMap[userIdOnConnect];
+            console.log(`Game ${gameId} for user ${userIdOnConnect} no longer exists, clearing map.`);
         }
     }
   } else {
       console.log(`Unauthenticated or session-less socket ${socket.id} connected.`);
   }
 
+
   // Use currentUserId in subsequent handlers
   socket.on("join-lobby", (name) => {
-    // If currentUserId is null here, it means the user is not authenticated via session.
-    // They would need to go through the OAuth flow first.
-    if (!currentUserId) { // Use the variable populated at connection time
+    // Derive userId directly at the start of the handler
+    const userId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+
+    if (!userId) {
         socket.emit("join-error", "Authentication required to join lobby. Please login.");
         console.warn(`Unauthenticated socket ${socket.id} tried to join lobby. Rejecting.`);
         return;
     }
 
-    // Store display name in session so /me can retrieve it
-    // Ensure this is done once, perhaps after successful authentication
-    // or as part of the join-lobby if the user is explicitly setting their name.
-    // However, if coming from OAuth, req.user will have the ID, not necessarily the name right away.
-    // For Passport, req.user is usually the value passed to done() in the strategy.
-    // If you need the display name to persist, it's better to store it in your DB
-    // or set it explicitly in the session during the initial OAuth callback.
     if (socket.request.session && !socket.request.session.userDisplayName) {
         socket.request.session.userDisplayName = name;
         socket.request.session.save((err) => {
@@ -367,27 +358,24 @@ io.on("connection", (socket) => {
         });
     }
 
+    userSocketMap[userId] = socket.id; // Update user-socket map
 
-    userSocketMap[currentUserId] = socket.id; // Update user-socket map
+    players = players.filter(p => p.userId !== userId); // Filter out old entry if user reconnected
+    players.push({ id: socket.id, userId: userId, name: name });
 
-    // Ensure player isn't duplicated in the lobby list if they reconnected
-    players = players.filter(p => p.userId !== currentUserId);
-
-    players.push({ id: socket.id, userId: currentUserId, name: name }); // Store userId with player
-    console.log(`Player ${name} (${currentUserId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
+    console.log(`Player ${name} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined");
-    // Emit updated player list to all connected clients in the lobby (not in a game)
     io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
   });
 
-  // Invite Player Event
+  // Invite Player Event - No changes needed here, as it fetches from `players` array
   socket.on("invite-player", (targetSocketId) => {
-    const inviterPlayer = players.find((p) => p.id === socket.id);
-    const invitedPlayer = players.find((p) => p.id === targetSocketId);
+    const inviterPlayer = players.find((p) => p.id === socket.id); // inviterPlayer will have userId
+    const invitedPlayer = players.find((p) => p.id === targetSocketId); // invitedPlayer will have userId
 
     if (!inviterPlayer || !invitedPlayer || userGameMap[inviterPlayer.userId] || userGameMap[invitedPlayer.userId]) {
       console.warn(`Invite failed: Inviter or invitee not found or already in game. Inviter: ${inviterPlayer?.name}, Invitee: ${invitedPlayer?.name}`);
-      return; // Invalid invite or already in game
+      return;
     }
 
     io.to(invitedPlayer.id).emit("game-invite", {
@@ -397,7 +385,7 @@ io.on("connection", (socket) => {
     console.log(`Invite sent from ${inviterPlayer.name} to ${invitedPlayer.name}`);
   });
 
-  // Respond to Invite Event
+  // Respond to Invite Event - Logic for setting up game is correct
   socket.on("respond-invite", ({ fromId, accept }) => {
     const respondingPlayer = players.find((p) => p.id === socket.id);
     const inviterPlayer = players.find((p) => p.id === fromId);
@@ -407,7 +395,6 @@ io.on("connection", (socket) => {
         return;
     }
 
-    // Double check if either player is already in a game
     if (userGameMap[respondingPlayer.userId] || userGameMap[inviterPlayer.userId]) {
         console.warn("Respond invite failed: One or both players already in a game.");
         io.to(respondingPlayer.id).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "Already in another game" });
@@ -416,7 +403,7 @@ io.on("connection", (socket) => {
     }
 
     if (accept) {
-      const gameId = uuidv4(); // Generate a unique game ID
+      const gameId = uuidv4();
       const newBoard = generateBoard();
       const scores = { 1: 0, 2: 0 };
       const bombsUsed = { 1: false, 2: false };
@@ -427,7 +414,6 @@ io.on("connection", (socket) => {
         gameId,
         board: newBoard,
         players: [
-          // Store userId and current socketId for players in the game object
           { userId: inviterPlayer.userId, name: inviterPlayer.name, number: 1, socketId: inviterPlayer.id },
           { userId: respondingPlayer.userId, name: respondingPlayer.name, number: 2, socketId: respondingPlayer.id },
         ],
@@ -438,16 +424,13 @@ io.on("connection", (socket) => {
       };
       games[gameId] = game;
 
-      // Update userGameMap for both players
       userGameMap[inviterPlayer.userId] = gameId;
       userGameMap[respondingPlayer.userId] = gameId;
       console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
 
-      // Remove players from the general lobby list as they are now in a game
       players = players.filter(p => p.userId !== inviterPlayer.userId && p.userId !== respondingPlayer.userId);
       io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
 
-      // Emit game-start to both players with their specific player number and opponent name
       io.to(inviterPlayer.id).emit("game-start", {
         gameId: game.gameId, playerNumber: 1, board: game.board, turn: game.turn, scores: game.scores,
         bombsUsed: game.bombsUsed, gameOver: game.gameOver, opponentName: respondingPlayer.name,
@@ -466,26 +449,21 @@ io.on("connection", (socket) => {
 
   // Tile Click Event (main game action)
   socket.on("tile-click", ({ gameId, x, y }) => {
-    const clickedUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
-    if (!clickedUserId) {
+    // Derive userId directly at the start of the handler
+    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    if (!currentUserId) {
         console.warn(`Tile click: Unauthenticated user for socket ${socket.id}.`);
         return;
     }
-    const player = game.players.find((p) => p.userId === clickedUserId);
+
     const game = games[gameId];
     if (!game || game.gameOver) {
         console.warn(`Tile click: Game ${gameId} not found or game over.`);
         return;
     }
 
-    const userId = socket.request.session.passport ? socket.request.session.passport.user : null;
-    if (!userId) {
-        console.warn(`Tile click: Unauthenticated user ${socket.id}.`);
-        return;
-    }
-
     // Find the player within the game object using their userId (more reliable for turn check)
-    //const player = game.players.find((p) => p.userId === userId);
+    const player = game.players.find((p) => p.userId === currentUserId);
     if (!player || player.number !== game.turn) {
         console.warn(`Tile click: Not player's turn or player not found in game. Player: ${player?.name}, Turn: ${game?.turn}`);
         return;
@@ -514,16 +492,14 @@ io.on("connection", (socket) => {
       if (isBlankTile && noFlagsRevealedYet) {
         console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
 
-        // Reset game state properties within the existing game object
-        game.board = generateBoard(); // Generate a brand new board
-        game.scores = { 1: 0, 2: 0 }; // Reset scores
-        game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
-        game.turn = 1; // Reset turn to player 1
-        game.gameOver = false; // Game is no longer over
+        game.board = generateBoard();
+        game.scores = { 1: 0, 2: 0 };
+        game.bombsUsed = { 1: false, 2: false };
+        game.turn = 1;
+        game.gameOver = false;
 
-        // Emit "game-restarted" with full game data for both players, using their current socketId
         game.players.forEach(p => {
-            if (p.socketId) { // Only emit if the player has a currently active socket
+            if (p.socketId) {
                 const opponentPlayer = game.players.find(op => op.userId !== p.userId);
                 io.to(p.socketId).emit("game-restarted", {
                     gameId: game.gameId,
@@ -540,18 +516,16 @@ io.on("connection", (socket) => {
             }
         });
         console.log(`[GAME RESTARTED] Game ${gameId} state after reset. Players: ${game.players.map(p => p.name).join(', ')}`);
-        return; // Stop further processing for this click
+        return;
       }
 
-      revealRecursive(game.board, x, y); // Normal reveal
-      game.turn = game.turn === 1 ? 2 : 1; // Switch turn
+      revealRecursive(game.board, x, y);
+      game.turn = game.turn === 1 ? 2 : 1;
     }
 
-    // Only emit board-update if the game was NOT restarted by this click
-    // If the game was restarted, the 'game-restarted' event handles the update
     if (!isBlankTile || !noFlagsRevealedYet) {
         game.players.forEach(p => {
-            if (p.socketId) { // Only emit if the player has a currently active socket
+            if (p.socketId) {
                 io.to(p.socketId).emit("board-update", game);
             } else {
                  console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send board update.`);
@@ -562,14 +536,19 @@ io.on("connection", (socket) => {
 
   // Use Bomb Event
   socket.on("use-bomb", ({ gameId }) => {
+    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    if (!currentUserId) {
+        console.warn(`Use bomb: Unauthenticated user for socket ${socket.id}.`);
+        return;
+    }
+
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    const userId = socket.request.session.passport ? socket.request.session.passport.user : null;
-    const player = game.players.find((p) => p.userId === userId);
+    const player = game.players.find((p) => p.userId === currentUserId);
     if (!player || game.bombsUsed[player.number]) return;
 
-    player.socketId = socket.id; // Update socket ID on action
+    player.socketId = socket.id;
 
     io.to(player.socketId).emit("wait-bomb-center");
     console.log(`Player ${player.name} is waiting for bomb center selection.`);
@@ -577,14 +556,19 @@ io.on("connection", (socket) => {
 
   // Bomb Center Selected Event
   socket.on("bomb-center", ({ gameId, x, y }) => {
+    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    if (!currentUserId) {
+        console.warn(`Bomb center: Unauthenticated user for socket ${socket.id}.`);
+        return;
+    }
+
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    const userId = socket.request.session.passport ? socket.request.session.passport.user : null;
-    const player = game.players.find((p) => p.userId === userId);
+    const player = game.players.find((p) => p.userId === currentUserId);
     if (!player || game.bombsUsed[player.number]) return;
 
-    player.socketId = socket.id; // Update socket ID on action
+    player.socketId = socket.id;
 
     game.bombsUsed[player.number] = true;
     revealArea(game.board, x, y, player.number, game.scores);
@@ -603,12 +587,19 @@ io.on("connection", (socket) => {
 
   // Restart Game Event (Manual Restart Button)
   socket.on("restart-game", ({ gameId }) => {
+    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    if (!currentUserId) {
+        console.warn(`Manual restart: Unauthenticated user for socket ${socket.id}.`);
+        return;
+    }
+
     const game = games[gameId];
     if (!game) return;
     
-    const userId = socket.request.session.passport ? socket.request.session.passport.user : null;
-    const requestingPlayer = game.players.find(p => p.userId === userId);
+    const requestingPlayer = game.players.find(p => p.userId === currentUserId);
     if (!requestingPlayer) return;
+
+    requestingPlayer.socketId = socket.id; // Update socket ID on action
 
     console.log(`Manual restart requested by ${requestingPlayer.name} for game ${gameId}.`);
 
@@ -637,24 +628,25 @@ io.on("connection", (socket) => {
 
   // Leave Game Event (Player voluntarily leaves)
   socket.on("leave-game", ({ gameId }) => {
+    const currentUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
+    if (!currentUserId) {
+        console.warn(`Leave game: Unauthenticated user for socket ${socket.id}.`);
+        return;
+    }
+
     const game = games[gameId];
-    const userId = socket.request.session.passport ? socket.request.session.passport.user : null;
-
-    if (game && userId) {
-      const playerIndex = game.players.findIndex(p => p.userId === userId);
+    if (game && currentUserId) { // Use currentUserId
+      const playerIndex = game.players.findIndex(p => p.userId === currentUserId);
       if (playerIndex !== -1) {
-        // Remove from userGameMap
-        delete userGameMap[userId];
-        console.log(`User ${userId} (${game.players[playerIndex].name}) left game ${gameId}.`);
+        delete userGameMap[currentUserId];
+        console.log(`User ${currentUserId} (${game.players[playerIndex].name}) left game ${gameId}.`);
 
-        // Remove the player from the game's player list
         game.players.splice(playerIndex, 1);
 
         if (game.players.length === 0) {
           delete games[gameId];
           console.log(`Game ${gameId} deleted as no players remain.`);
         } else {
-          // Notify the remaining player if any (using their current socketId)
           const remainingPlayer = game.players[0];
           if (remainingPlayer && remainingPlayer.socketId) {
              io.to(remainingPlayer.socketId).emit("opponent-left");
@@ -664,14 +656,11 @@ io.on("connection", (socket) => {
       }
     }
     // Attempt to re-add player to lobby list if they were logged in
-    if (userId) {
-        // Filter out any old entries for this user, then add the current one
-        players = players.filter(p => p.userId !== userId);
-        const currentSocketUser = socket.request.user; // Passport populates req.user after deserialize
-        const playerName = currentSocketUser ? currentSocketUser.displayName : `User_${userId.substring(0, 8)}`;
-        players.push({ id: socket.id, userId: userId, name: playerName });
+    if (currentUserId) { // Use currentUserId
+        players = players.filter(p => p.userId !== currentUserId);
+        const userDisplayName = socket.request.session.userDisplayName || `User_${currentUserId.substring(0, 8)}`; // Get name from session
+        players.push({ id: socket.id, userId: currentUserId, name: userDisplayName });
     }
-    // Always update lobby list to reflect changes
     io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
   });
 
@@ -679,40 +668,32 @@ io.on("connection", (socket) => {
   // Socket Disconnect Event (e.g., browser tab closed, network drop)
   socket.on("disconnect", () => {
     console.log(`Socket disconnected: ${socket.id}`);
-    // Use the `currentUserId` if available, otherwise it's an unauthenticated disconnect
-    const disconnectedUserId = currentUserId; // Use the variable from the connection scope
+    const disconnectedUserId = socket.request.session && socket.request.session.passport ? socket.request.session.passport.user : null;
 
     if (disconnectedUserId) {
         delete userSocketMap[disconnectedUserId];
         console.log(`User ${disconnectedUserId} socket removed from map.`);
     }
 
-    // Remove from lobby player list (by socket.id or userId if known)
     players = players.filter(p => p.id !== socket.id && p.userId !== disconnectedUserId);
     io.emit("players-list", players.filter(p => !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
 
-    // Check if the disconnected user was in a game
     for (const gameId in games) {
         const game = games[gameId];
-        // Find player by either socketId (direct match) or userId (more robust)
         const playerIndex = game.players.findIndex(p => p.socketId === socket.id || (disconnectedUserId && p.userId === disconnectedUserId));
         if (playerIndex !== -1) {
             console.log(`Player ${game.players[playerIndex].name} (${game.players[playerIndex].userId}) disconnected from game ${gameId}.`);
             
-            // Remove from userGameMap for this user
             if (game.players[playerIndex].userId) {
                 delete userGameMap[game.players[playerIndex].userId];
             }
 
-            // Remove the player from the game's player list
             game.players.splice(playerIndex, 1);
 
             if (game.players.length === 0) {
-                // If no players left in the game, delete the game
                 delete games[gameId];
                 console.log(`Game ${gameId} deleted as no players remain after disconnect.`);
             } else {
-                // Notify the remaining player if any
                 const remainingPlayer = game.players[0];
                 if (remainingPlayer && remainingPlayer.socketId) {
                     io.to(remainingPlayer.socketId).emit("opponent-left");
@@ -730,5 +711,5 @@ io.on("connection", (socket) => {
 // --- Server Startup ---
 const PORT = process.env.PORT || 3001; // Use Render's PORT env var, or 3001 for local dev
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });
