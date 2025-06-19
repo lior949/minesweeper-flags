@@ -40,6 +40,13 @@ let sessionMiddleware; // Declare sessionMiddleware here to make it accessible t
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+  // Add detailed logging for service account parsing
+  console.log(`[Firebase Init] Service Account Project ID: ${serviceAccount.project_id}`);
+  const privateKeyCleaned = serviceAccount.private_key.replace(/\\n/g, '\n');
+  console.log(`[Firebase Init] Private Key (first 20 chars): ${privateKeyCleaned.substring(0, 20)}...`);
+  console.log(`[Firebase Init] Private Key Length: ${privateKeyCleaned.length}`);
+
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
@@ -52,7 +59,7 @@ try {
     credentials: {
       client_email: serviceAccount.client_email,
       // Ensure private_key handles actual newlines, as required by @google-cloud/firestore client
-      private_key: serviceAccount.private_key.replace(/\\n/g, '\n'),
+      private_key: privateKeyCleaned, // Use the cleaned private key
     },
     // Explicitly target the default database to avoid potential issues
     databaseId: '(default)', 
