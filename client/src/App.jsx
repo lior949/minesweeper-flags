@@ -101,7 +101,8 @@ function App() {
     socket.on("game-start", (data) => {
       setGameId(data.gameId);
       setPlayerNumber(data.playerNumber);
-      setBoard(data.board);
+      // IMPORTANT: Deserialize the board received from the backend
+      setBoard(JSON.parse(data.board));
       setTurn(data.turn);
       setScores(data.scores);
       setBombsUsed(data.bombsUsed);
@@ -114,7 +115,8 @@ function App() {
     });
 
     socket.on("board-update", (game) => {
-      setBoard(game.board);
+      // IMPORTANT: Deserialize the board received from the backend
+      setBoard(JSON.parse(game.board));
       setTurn(game.turn);
       setScores(game.scores);
       setBombsUsed(game.bombsUsed);
@@ -148,13 +150,33 @@ function App() {
     });
 
     socket.on("receive-unfinished-games", (games) => {
-      setUnfinishedGames(games);
-      console.log("Received unfinished games:", games);
+      // Before setting, ensure boards are deserialized
+      const deserializedGames = games.map(game => ({
+          ...game,
+          board: JSON.parse(game.board) // Deserialize board for each unfinished game
+      }));
+      setUnfinishedGames(deserializedGames);
+      console.log("Received unfinished games:", deserializedGames);
     });
 
     socket.on("opponent-reconnected", ({ name }) => {
         showMessage(`${name} has reconnected!`);
     });
+
+    socket.on("game-restarted", (data) => {
+      setGameId(data.gameId);
+      setPlayerNumber(data.playerNumber);
+      setBoard(JSON.parse(data.board)); // Deserialize board for restarted game
+      setTurn(data.turn);
+      setScores(data.scores);
+      setBombsUsed(data.bombsUsed);
+      setGameOver(data.gameOver);
+      setOpponentName(data.opponentName);
+      setBombMode(false);
+      setMessage("Game restarted!");
+      console.log("Frontend: Game restarted!");
+    });
+
 
     // Cleanup function for useEffect
     return () => {
@@ -170,6 +192,7 @@ function App() {
       socket.off("bomb-error");
       socket.off("receive-unfinished-games");
       socket.off("opponent-reconnected");
+      socket.off("game-restarted");
     };
   }, []);
 
@@ -299,10 +322,14 @@ function App() {
     if (!tile.revealed) return "";
     if (tile.isMine) {
       if (tile.owner === 1) return <span style={{ color: "red" }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴</span>;
+      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴‍</span>;
       return "";
     }
-    return tile.adjacentMines > 0 ? tile.adjacentMines : "";
+    // Apply number-specific class for coloring
+    if (tile.adjacentMines > 0) {
+      return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
+    }
+    return "";
   };
 
   // --- NEW: Resume Game Function ---
