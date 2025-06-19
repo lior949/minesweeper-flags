@@ -56,9 +56,20 @@ const io = new Server(server, {
 // This block ensures that `socket.request.session` AND `socket.request.user`
 // are correctly populated for every Socket.IO connection.
 io.use((socket, next) => {
+    console.log(`[Socket.IO Middleware] Processing socket ${socket.id}`);
     sessionMiddleware(socket.request, {}, () => {
+        console.log(`[Socket.IO Middleware] Session processed for socket ${socket.id}. Session ID: ${socket.request.sessionID}`);
+        if (socket.request.session && socket.request.session.passport) {
+            console.log(`[Socket.IO Middleware] Session has Passport object for socket ${socket.id}. UserID in session: ${socket.request.session.passport.user ? socket.request.session.passport.user.id : 'N/A'}`);
+        } else {
+            console.log(`[Socket.IO Middleware] Session does NOT have Passport object for socket ${socket.id}.`);
+        }
+
         passport.initialize()(socket.request, {}, () => {
-            passport.session()(socket.request, {}, next);
+            passport.session()(socket.request, {}, () => {
+                console.log(`[Socket.IO Middleware] Passport session processed for socket ${socket.id}. User on request: ${socket.request.user ? socket.request.user.id : 'N/A'}`);
+                next(); // Proceed to the next middleware or event handler
+            });
         });
     });
 });
@@ -69,7 +80,6 @@ const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Passport config ===
-// (Passport configuration remains the same as previously provided)
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -90,9 +100,11 @@ passport.use(new FacebookStrategy({
 ));
 
 passport.serializeUser((user, done) => {
-  done(null, { id: user.id, displayName: user.displayName || user.name }); // Ensure displayName is captured if present
+  // Store minimal user info that can be used to re-populate req.user
+  done(null, { id: user.id, displayName: user.displayName || user.name });
 });
 passport.deserializeUser((obj, done) => {
+  // `obj` is what was stored in serializeUser
   done(null, obj);
 });
 
@@ -265,15 +277,24 @@ const checkGameOver = (scores) => {
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
 
+  // currentUserId and currentUserName will now be populated due to io.use middleware
   const currentUserId = socket.request.user ? socket.request.user.id : null;
   const currentUserName = socket.request.user ? socket.request.user.displayName : null;
 
   if (!currentUserId) {
-    console.log(`Unauthenticated socket ${socket.id} connected. (No req.user)`);
+    console.log(`Unauthenticated socket ${socket.id} connected. (No req.user after middleware)`);
+    // Consider emitting an event to the client to inform them they are not authenticated
+    // socket.emit("auth-status", { authenticated: false }); // Removed for now to simplify
   } else {
     console.log(`User ${currentUserName} (${currentUserId}) connected via socket: ${socket.id}`);
-    players = players.filter(p => p.userId !== currentUserId);
-    players.push({ id: socket.id, userId: currentUserId, name: currentUserName, number: null, inGame: false });
+    // Update or add the player in the global 'players' list with their current socket ID
+    let playerEntry = players.find(p => p.userId === currentUserId);
+    if (playerEntry) {
+        playerEntry.id = socket.id; // Update socket ID on reconnect
+        playerEntry.name = currentUserName; // Update name in case it changed
+    } else {
+        players.push({ id: socket.id, userId: currentUserId, name: currentUserName, number: null, inGame: false });
+    }
   }
 
 
@@ -418,12 +439,12 @@ io.on("connection", (socket) => {
             } else if (existingGame.players.some(p => p.userId === userId && p.id !== socket.id)) {
                 const playerToUpdate = existingGame.players.find(p => p.userId === userId);
                 if(playerToUpdate) playerToUpdate.id = socket.id;
-                // Update player's socketId in the global players list for this userId as well
                 const globalPlayerEntry = players.find(p => p.userId === userId);
                 if (globalPlayerEntry) globalPlayerEntry.id = socket.id;
 
                  const opponentPlayer = existingGame.players.find(op => op.userId !== userId);
-                 socket.emit("game-start", {
+                 socket.emit("opponent-reconnected", { name: userName }); // Notify opponent of re-connection
+                 socket.emit("game-start", { // Re-send game state to the reconnected player
                     gameId: existingGame.gameId,
                     playerNumber: playerToUpdate.number,
                     board: existingGame.board,
@@ -433,9 +454,6 @@ io.on("connection", (socket) => {
                     gameOver: existingGame.gameOver,
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
-                 if (opponentPlayer && opponentPlayer.id) {
-                    io.to(opponentPlayer.id).emit("opponent-reconnected", { name: userName });
-                 }
                  console.log(`User ${userName} re-associated socket ID for active game ${gameId}.`);
                  return;
             } else {
@@ -455,11 +473,10 @@ io.on("connection", (socket) => {
             players: []
         };
 
-        // Reconstruct player objects for in-memory game, updating socket IDs
         let player1 = players.find(p => p.userId === gameData.player1_userId);
         if (!player1) {
             player1 = {
-                id: (gameData.player1_userId === userId) ? socket.id : null, // If current user, use their socket.id, else null for now
+                id: (gameData.player1_userId === userId) ? socket.id : null,
                 userId: gameData.player1_userId,
                 name: gameData.player1_name,
                 number: 1,
@@ -867,7 +884,6 @@ io.on("connection", (socket) => {
 
     const disconnectedPlayer = players.find((p) => p.id === socket.id);
     if (disconnectedPlayer) {
-        // Remove from players list, but handle game persistence separately
         players = players.filter(p => p.id !== socket.id);
     }
 
