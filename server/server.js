@@ -528,25 +528,16 @@ io.on("connection", (socket) => {
             const isPlayer2 = gameData.player2_userId === userId;
 
             if (isPlayer1 || isPlayer2) {
-                // Determine opponent's name
-                const opponentName = isPlayer1 ? gameData.player2_name : gameData.player1_name;
-                const myPlayerNumber = isPlayer1 ? 1 : 2;
-
-                // Ensure the game is NOT already active in the current server's in-memory `games` object
-                // AND the user's current socket is NOT already playing it.
-                const isCurrentlyActiveInMemoryForThisSocket = games[gameData.gameId] && 
-                                                               games[gameData.gameId].players.some(p => p.userId === userId && p.socketId === socket.id);
-
-                if (!isCurrentlyActiveInMemoryForThisSocket) {
-                    unfinishedGames.push({
-                        gameId: gameData.gameId,
-                        board: gameData.board, // Send serialized board for potential client-side preview
-                        opponentName: opponentName,
-                        myPlayerNumber: myPlayerNumber,
-                        status: gameData.status,
-                        lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
-                    });
-                }
+                // Always add the game to the unfinishedGames list if the current user is a participant
+                // and the game is active or waiting for resume, regardless of current socket activity.
+                unfinishedGames.push({
+                    gameId: gameData.gameId,
+                    board: gameData.board, // Send serialized board for potential client-side preview
+                    opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
+                    myPlayerNumber: isPlayer1 ? 1 : 2,
+                    status: gameData.status,
+                    lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
+                });
             }
         });
 
