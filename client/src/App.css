@@ -107,7 +107,7 @@ body {
   vertical-align: middle;
   border-radius: 4px;
   cursor: pointer;
-  color: white;
+  color: white; /* Default text color for tiles */
   user-select: none;
 }
 
@@ -123,7 +123,7 @@ body {
 }
 
 .tile.mine {
-  color: inherit;
+  color: inherit; /* Mines will use the parent tile's text color */
   font-size: 26px;
 }
 
@@ -131,3 +131,40 @@ body {
   cursor: default;
 }
 
+/* --- Number Colors --- */
+.number-1 {
+  color: #0000FF; /* Blue */
+}
+
+.number-2 {
+  color: #008000; /* Green */
+}
+
+.number-3 {
+  color: #FF0000; /* Red */
+}
+
+.number-4 {
+  color: #800080; /* Purple */
+}
+
+.number-5 {
+  color: #A52A2A; /* Light Brown (using a common brown shade) */
+}
+
+.number-6 {
+  color: #40E0D0; /* Turquoise */
+}
+
+.number-7 {
+  color: #000000; /* Black */
+}
+
+.number-8 {
+  color: #5A2C00; /* Dark Brown (a darker shade of brown) */
+}
+
+/* Ensure flags are visible */
+.tile.mine span {
+    font-size: 26px; /* Larger font for flags */
+}
