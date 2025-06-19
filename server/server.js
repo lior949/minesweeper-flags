@@ -485,7 +485,7 @@ io.on("connection", (socket) => {
     }
 
     // Find the player within the game object using their userId (more reliable for turn check)
-    const player = game.players.find((p) => p.userId === userId);
+    //const player = game.players.find((p) => p.userId === userId);
     if (!player || player.number !== game.turn) {
         console.warn(`Tile click: Not player's turn or player not found in game. Player: ${player?.name}, Turn: ${game?.turn}`);
         return;
