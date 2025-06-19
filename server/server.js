@@ -541,9 +541,12 @@ io.on("connection", (socket) => {
             }
         }
 
+        // Deserialize the board from JSON string to array
+        const deserializedBoard = JSON.parse(gameData.board);
+
         const game = {
             gameId: gameData.gameId,
-            board: gameData.board,
+            board: deserializedBoard, // Use the deserialized board
             scores: gameData.scores,
             bombsUsed: gameData.bombsUsed,
             turn: gameData.turn,
@@ -736,9 +739,11 @@ io.on("connection", (socket) => {
 
       try {
           console.log(`[Firestore] Attempting to save new game ${game.gameId} to Firestore.`);
+          // Serialize the board before saving
+          const serializedBoard = JSON.stringify(game.board);
           console.log(`[Firestore] Game data to save: ${JSON.stringify({
               gameId: game.gameId,
-              board: game.board,
+              board: serializedBoard, // Save serialized board
               player1_userId: inviter.userId,
               player2_userId: responder.userId,
               player1_name: inviter.name,
@@ -755,7 +760,7 @@ io.on("connection", (socket) => {
 
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
               gameId: game.gameId,
-              board: game.board,
+              board: serializedBoard, // Save serialized board
               player1_userId: inviter.userId,
               player2_userId: responder.userId,
               player1_name: inviter.name,
@@ -829,8 +834,10 @@ io.on("connection", (socket) => {
 
     try {
         console.log(`[Firestore] Attempting to update game ${gameId} (tile-click).`);
+        // Serialize the board before updating
+        const serializedBoard = JSON.stringify(game.board);
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: game.board,
+            board: serializedBoard, // Update with serialized board
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -914,8 +921,10 @@ io.on("connection", (socket) => {
 
     try {
         console.log(`[Firestore] Attempting to update game ${gameId} (bomb-center).`);
+        // Serialize the board before updating
+        const serializedBoard = JSON.stringify(game.board);
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: game.board,
+            board: serializedBoard, // Update with serialized board
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -954,8 +963,10 @@ io.on("connection", (socket) => {
 
     try {
         console.log(`[Firestore] Attempting to restart game ${gameId}.`);
+        // Serialize the board before updating
+        const serializedBoard = JSON.stringify(game.board);
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: game.board,
+            board: serializedBoard, // Update with serialized board
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             turn: game.turn,
