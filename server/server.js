@@ -41,8 +41,9 @@ app.use(
 // These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
-const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
+// Removed duplicate declaration of FACEBOOK_CLIENT_ID and FACEBOOK_CLIENT_SECRET
+// const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
+// const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
@@ -153,8 +154,9 @@ try {
 }
 
 
-const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
-const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
+// These variables are already declared near the top. Removed duplicate declaration.
+// const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
+// const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Passport config ===
 passport.use(new GoogleStrategy({
