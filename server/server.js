@@ -13,9 +13,10 @@ const { v4: uuidv4 } = require("uuid");
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
+const { Firestore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
 
-// --- NEW: Firestore Session Store Imports ---
-const FirestoreStore = require('connect-firestore-session')(session); // Pass session to it
+// --- NEW: Corrected Firestore Session Store Imports ---
+const FirestoreStore = require('@google-cloud/connect-firestore')(session);
 
 
 const app = express();
@@ -38,34 +39,46 @@ try {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
-  db = getFirestore(); // Initialize db only after app is initialized
-  console.log("Firebase Admin SDK initialized.");
+  db = getFirestore(); // Initialize db for Admin SDK operations
+
+  // Create a separate Firestore client instance for the session store.
+  // This is how @google-cloud/connect-firestore expects it.
+  const firestoreClient = new Firestore({
+    projectId: serviceAccount.project_id, // Use project_id from service account
+    credentials: {
+      client_email: serviceAccount.client_email,
+      private_key: serviceAccount.private_key.replace(/\\n/g, '\n'), // Replace escaped newlines with actual ones
+    },
+  });
+
+  // === Define the session middleware instance with FirestoreStore ===
+  const sessionMiddleware = session({
+    secret: process.env.SESSION_SECRET, // Make sure SESSION_SECRET is set in Render env vars
+    resave: false,
+    saveUninitialized: false,
+    store: new FirestoreStore({ // Use FirestoreStore for persistent sessions
+      dataset: firestoreClient, // Pass the Firestore client instance
+      kind: 'express-sessions', // Optional: collection name for sessions, defaults to 'express-sessions'
+    }),
+    cookie: {
+      sameSite: "none",
+      secure: true,	
+      domain: '.onrender.com', // Explicitly set domain for cross-subdomain cookies
+      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days (example)
+    },
+  });
+
+  // === Apply session middleware to Express ===
+  app.use(sessionMiddleware);
+  app.use(passport.initialize());
+  app.use(passport.session());
+
+  console.log("Firebase Admin SDK and FirestoreStore initialized.");
+
 } catch (error) {
-  console.error("Failed to initialize Firebase Admin SDK. Ensure FIREBASE_SERVICE_ACCOUNT_KEY env var is set and valid JSON.", error);
-  process.exit(1); // Exit process if Firebase fails to initialize
+  console.error("Failed to initialize Firebase Admin SDK or FirestoreStore.", error);
+  process.exit(1); // Exit process if initialization fails
 }
-
-// === Define the session middleware instance with FirestoreStore ===
-const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET, // Make sure SESSION_SECRET is set in Render env vars
-  resave: false,
-  saveUninitialized: false,
-  store: new FirestoreStore({ // Use FirestoreStore for persistent sessions
-    database: db, // Pass the initialized Firestore instance
-    collection: 'sessions', // Optional: specify your session collection name
-  }),
-  cookie: {
-    sameSite: "none",
-    secure: true,	
-    domain: '.onrender.com', // Explicitly set domain for cross-subdomain cookies
-    maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days (example)
-  },
-});
-
-// === Apply session middleware to Express ===
-app.use(sessionMiddleware);
-app.use(passport.initialize());
-app.use(passport.session());
 
 
 // Configure Socket.IO with CORS
@@ -79,19 +92,11 @@ const io = new Server(server, {
 
 // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
 io.use((socket, next) => {
-    sessionMiddleware(socket.request, {}, () => {
-        // console.log(`[Socket.IO Middleware] Session processed for socket ${socket.id}. Session ID: ${socket.request.sessionID}`);
-        // if (socket.request.session && socket.request.session.passport) {
-        //     console.log(`[Socket.IO Middleware] Session has Passport object for socket ${socket.id}. UserID in session: ${socket.request.session.passport.user ? socket.request.session.passport.user.id : 'N/A'}`);
-        // } else {
-        //     console.log(`[Socket.IO Middleware] Session does NOT have Passport object for socket ${socket.id}.`);
-        // }
-
-        passport.initialize()(socket.request, {}, () => {
-            passport.session()(socket.request, {}, () => {
-                // console.log(`[Socket.IO Middleware] Passport session processed for socket ${socket.id}. User on request: ${socket.request.user ? socket.request.user.id : 'N/A'}`);
-                next();
-            });
+    // This is important for existing sessions to be picked up by Socket.IO
+    socket.request.res = {}; // Dummy response object for session middleware compatibility
+    sessionMiddleware(socket.request, socket.request.res, () => { // Pass req and dummy res
+        passport.initialize()(socket.request, socket.request.res, () => {
+            passport.session()(socket.request, socket.request.res, next);
         });
     });
 });
@@ -908,7 +913,10 @@ io.on("connection", (socket) => {
                     await gameDocRef.update({ status: 'waiting_for_resume', lastUpdated: Timestamp.now() });
                     console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to disconnect.`);
                 } else {
-                    await gameDocRef.update({ status: 'completed', lastUpdated: Timestamp.now() });
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+                        status: 'completed',
+                        lastUpdated: Timestamp.now()
+                    });
                     console.log(`Game ${gameId} status set to 'completed' (last player disconnected).`);
                 }
             } catch (error) {
