@@ -79,7 +79,7 @@ try {
     cookie: {
       sameSite: "none",
       secure: true,
-      // Removed 'domain' here. Let the browser determine the domain for greater compatibility
+      // 'domain' property removed for better compatibility with Render deployments
       maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days (example)
     },
   });
@@ -243,7 +243,7 @@ app.get("/logout", (req, res) => {
       }
       res.clearCookie("connect.sid", {
           path: '/',
-          // Removed 'domain' here as well
+          // 'domain' property removed here as well
           secure: true,
           sameSite: 'none'
       });
