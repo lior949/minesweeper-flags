@@ -22,6 +22,8 @@ const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
 const app = express();
+// IMPORTANT: Add this line to trust proxy headers when deployed to Render
+app.set('trust proxy', 1); 
 const server = http.createServer(app);
 
 // New global data structures for robust player tracking across reconnections
@@ -829,7 +831,7 @@ io.on("connection", (socket) => {
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
-        gameOver: game.gameOver, // Corrected from _gameOver
+        gameOver: game.gameOver,
         opponentName: inviterPlayer.name,
       });
 
