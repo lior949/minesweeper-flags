@@ -615,7 +615,7 @@ io.on("connection", (socket) => {
                     playerNumber: playerInExistingGame.number,
                     board: JSON.stringify(existingGame.board), // Send serialized board
                     turn: existingGame.turn,
-                    scores: existingGame.scores,
+                    scores: existinggGame.scores,
                     bombsUsed: existingGame.bombsUsed,
                     gameOver: existingGame.gameOver,
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
@@ -877,10 +877,19 @@ io.on("connection", (socket) => {
         return;
     }
 
-    // Check for game restart condition (first click on blank tile)
+    // Add debug logs for restart condition
     const isBlankTile = tile.adjacentMines === 0;
     const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0; // Check initial state
 
+    console.log(`[Tile Click Debug] Tile at (${x},${y}).`);
+    console.log(`[Tile Click Debug] tile.isMine: ${tile.isMine}, tile.adjacentMines: ${tile.adjacentMines}, tile.revealed: ${tile.revealed}`);
+    console.log(`[Tile Click Debug] Current scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+    console.log(`[Tile Click Debug] isBlankTile (calculated from adjacentMines): ${isBlankTile}`);
+    console.log(`[Tile Click Debug] noFlagsRevealedYet (calculated from scores): ${noFlagsRevealedYet}`);
+    console.log(`[Tile Click Debug] Combined restart condition (isBlankTile && noFlagsRevealedYet): ${isBlankTile && noFlagsRevealedYet}`);
+
+
+    // Check for game restart condition (first click on blank tile)
     if (isBlankTile && noFlagsRevealedYet) {
       console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
 
