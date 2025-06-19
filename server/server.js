@@ -33,6 +33,8 @@ const sessionMiddleware = session({
   cookie: {
     sameSite: "none",
     secure: true,	
+    domain: '.onrender.com', // Explicitly set domain for cross-subdomain cookies
+    maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days (example)
   },
 });
 
@@ -56,18 +58,18 @@ const io = new Server(server, {
 // This block ensures that `socket.request.session` AND `socket.request.user`
 // are correctly populated for every Socket.IO connection.
 io.use((socket, next) => {
-    console.log(`[Socket.IO Middleware] Processing socket ${socket.id}`);
+    // console.log(`[Socket.IO Middleware] Processing socket ${socket.id}`); // Keep for debugging
     sessionMiddleware(socket.request, {}, () => {
-        console.log(`[Socket.IO Middleware] Session processed for socket ${socket.id}. Session ID: ${socket.request.sessionID}`);
+        // console.log(`[Socket.IO Middleware] Session processed for socket ${socket.id}. Session ID: ${socket.request.sessionID}`); // Keep for debugging
         if (socket.request.session && socket.request.session.passport) {
-            console.log(`[Socket.IO Middleware] Session has Passport object for socket ${socket.id}. UserID in session: ${socket.request.session.passport.user ? socket.request.session.passport.user.id : 'N/A'}`);
+            // console.log(`[Socket.IO Middleware] Session has Passport object for socket ${socket.id}. UserID in session: ${socket.request.session.passport.user ? socket.request.session.passport.user.id : 'N/A'}`); // Keep for debugging
         } else {
-            console.log(`[Socket.IO Middleware] Session does NOT have Passport object for socket ${socket.id}.`);
+            // console.log(`[Socket.IO Middleware] Session does NOT have Passport object for socket ${socket.id}.`); // Keep for debugging
         }
 
         passport.initialize()(socket.request, {}, () => {
             passport.session()(socket.request, {}, () => {
-                console.log(`[Socket.IO Middleware] Passport session processed for socket ${socket.id}. User on request: ${socket.request.user ? socket.request.user.id : 'N/A'}`);
+                // console.log(`[Socket.IO Middleware] Passport session processed for socket ${socket.id}. User on request: ${socket.request.user ? socket.request.user.id : 'N/A'}`); // Keep for debugging
                 next(); // Proceed to the next middleware or event handler
             });
         });
@@ -100,11 +102,9 @@ passport.use(new FacebookStrategy({
 ));
 
 passport.serializeUser((user, done) => {
-  // Store minimal user info that can be used to re-populate req.user
   done(null, { id: user.id, displayName: user.displayName || user.name });
 });
 passport.deserializeUser((obj, done) => {
-  // `obj` is what was stored in serializeUser
   done(null, obj);
 });
 
@@ -161,7 +161,7 @@ app.get("/logout", (req, res) => {
       }
       res.clearCookie("connect.sid", {
           path: '/',
-          domain: '.onrender.com',
+          domain: '.onrender.com', // Crucial for clearing cross-subdomain cookies
           secure: true,
           sameSite: 'none'
       });
@@ -277,21 +277,17 @@ const checkGameOver = (scores) => {
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
 
-  // currentUserId and currentUserName will now be populated due to io.use middleware
   const currentUserId = socket.request.user ? socket.request.user.id : null;
   const currentUserName = socket.request.user ? socket.request.user.displayName : null;
 
   if (!currentUserId) {
     console.log(`Unauthenticated socket ${socket.id} connected. (No req.user after middleware)`);
-    // Consider emitting an event to the client to inform them they are not authenticated
-    // socket.emit("auth-status", { authenticated: false }); // Removed for now to simplify
   } else {
     console.log(`User ${currentUserName} (${currentUserId}) connected via socket: ${socket.id}`);
-    // Update or add the player in the global 'players' list with their current socket ID
     let playerEntry = players.find(p => p.userId === currentUserId);
     if (playerEntry) {
-        playerEntry.id = socket.id; // Update socket ID on reconnect
-        playerEntry.name = currentUserName; // Update name in case it changed
+        playerEntry.id = socket.id;
+        playerEntry.name = currentUserName;
     } else {
         players.push({ id: socket.id, userId: currentUserId, name: currentUserName, number: null, inGame: false });
     }
@@ -443,8 +439,8 @@ io.on("connection", (socket) => {
                 if (globalPlayerEntry) globalPlayerEntry.id = socket.id;
 
                  const opponentPlayer = existingGame.players.find(op => op.userId !== userId);
-                 socket.emit("opponent-reconnected", { name: userName }); // Notify opponent of re-connection
-                 socket.emit("game-start", { // Re-send game state to the reconnected player
+                 socket.emit("opponent-reconnected", { name: userName });
+                 socket.emit("game-start", {
                     gameId: existingGame.gameId,
                     playerNumber: playerToUpdate.number,
                     board: existingGame.board,
@@ -561,7 +557,7 @@ io.on("connection", (socket) => {
         if (opponent) {
             if (opponent.id) {
                 io.to(opponent.id).emit("opponent-left");
-                console.log(`Notified opponent ${opponent.name} that ${leavingPlayer.name} left.`);
+                console.log(`Notified opponent ${opponent.name} of ${leavingPlayer.name}'s disconnection.`);
             }
             const opponentGlobalEntry = players.find(p => p.userId === opponent.userId);
             if(opponentGlobalEntry) {
