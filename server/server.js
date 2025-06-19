@@ -54,6 +54,8 @@ try {
       // Ensure private_key handles actual newlines, as required by @google-cloud/firestore client
       private_key: serviceAccount.private_key.replace(/\\n/g, '\n'),
     },
+    // Explicitly target the default database to avoid potential issues
+    databaseId: '(default)', 
   });
 
   // === Define the session middleware instance with FirestoreStore ===
