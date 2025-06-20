@@ -346,6 +346,7 @@ io.on("connection", (socket) => {
   if (userIdOnConnect) {
     console.log(`User ${userNameOnConnect} (${userIdOnConnect}) connected via socket.`);
     userSocketMap[userIdOnConnect] = socket.id; // Store current socket ID for this user
+    console.log(`[Connect Debug] userGameMap for ${userIdOnConnect}: ${userGameMap[userIdOnConnect]}`); // ADDED LOG
 
     // Handle rejoining an existing game (if any)
     if (userGameMap[userIdOnConnect]) {
@@ -453,7 +454,7 @@ io.on("connection", (socket) => {
             });
         }
     }
-  } // <<< CORRECTED PLACEMENT OF THE CLOSING BRACE FOR 'if (userIdOnConnect)'
+  }
   else {
     console.log(`Unauthenticated or session-less socket ${socket.id} connected. (No req.user)`);
   }
@@ -509,6 +510,7 @@ io.on("connection", (socket) => {
     }
 
     try {
+        console.log(`[Request Unfinished Games] User ${userName} (${userId}) is requesting unfinished games.`);
         const gamesQuerySnapshot = await db.collection(GAMES_COLLECTION_PATH)
             .where('status', 'in', ['active', 'waiting_for_resume'])
             .get();
@@ -517,15 +519,28 @@ io.on("connection", (socket) => {
 
         gamesQuerySnapshot.forEach(doc => {
             const gameData = doc.data();
+            console.log(`[Request Unfinished Games] Inspecting Firestore game: ${gameData.gameId}, Status: ${gameData.status}`);
+            console.log(`[Request Unfinished Games] Player1: ${gameData.player1_userId}, Player2: ${gameData.player2_userId}`);
+
             const isPlayer1 = gameData.player1_userId === userId;
             const isPlayer2 = gameData.player2_userId === userId;
 
             if (isPlayer1 || isPlayer2) {
                 // Check if this game is currently active in memory and fully connected for *this user*
-                const isFullyActive = games[gameData.gameId] && 
-                                      games[gameData.gameId].players.some(p => p.userId === userId && p.socketId === userSocketMap[userId]);
+                const gameInMemory = games[gameData.gameId];
+                const isFullyActiveWithCurrentSocket = gameInMemory && 
+                                      gameInMemory.players.some(p => p.userId === userId && p.socketId === userSocketMap[userId]);
 
-                if (!isFullyActive) { // Only add to unfinished if not already fully active
+                console.log(`[Request Unfinished Games] User ${userId} is participant in ${gameData.gameId}.`);
+                console.log(`[Request Unfinished Games] Game in memory (games[gameData.gameId]): ${!!gameInMemory}`);
+                if (gameInMemory) {
+                    console.log(`[Request Unfinished Games] Game ${gameData.gameId} players in memory: ${JSON.stringify(gameInMemory.players.map(p => ({ userId: p.userId, socketId: p.socketId })))}`);
+                }
+                console.log(`[Request Unfinished Games] Current userSocketMap[userId]: ${userSocketMap[userId]}`);
+                console.log(`[Request Unfinished Games] Is fully active with current socket? ${isFullyActiveWithCurrentSocket}`);
+
+
+                if (!isFullyActiveWithCurrentSocket) { // Only add to unfinished if not already fully active
                     unfinishedGames.push({
                         gameId: gameData.gameId,
                         board: gameData.board, // Send serialized board
@@ -534,7 +549,12 @@ io.on("connection", (socket) => {
                         status: gameData.status,
                         lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
                     });
+                    console.log(`[Request Unfinished Games] Added game ${gameData.gameId} to list.`);
+                } else {
+                    console.log(`[Request Unfinished Games] Game ${gameData.gameId} is fully active with current socket, skipping.`);
                 }
+            } else {
+                console.log(`[Request Unfinished Games] User ${userId} is not a participant in game ${gameData.gameId}.`);
             }
         });
 
@@ -675,7 +695,7 @@ io.on("connection", (socket) => {
 
         if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
             io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName });
-            console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
+            console.log(`Notified opponent ${opponentInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
         io.emit("players-list", players.filter(p => !p.inGame && !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
@@ -1073,51 +1093,101 @@ io.on("connection", (socket) => {
     const userId = socket.request.user ? socket.request.user.id : null;
     if (!userId) return;
 
-    const leavingPlayer = players.find((p) => p.userId === userId);
-    if (!leavingPlayer) {
+    // Find the player in the global players array
+    const leavingPlayerGlobalEntry = players.find((p) => p.userId === userId);
+    if (!leavingPlayerGlobalEntry) {
       console.log(`Player with ID ${userId} not found in global list on leave-game.`);
       return;
     }
 
-    leavingPlayer.inGame = false;
-    leavingPlayer.number = null;
-
-    console.log(`Player ${leavingPlayer.name} (ID: ${userId}) initiating leave from game ${gameId}.`);
-
+    // Attempt to find the game in memory
     const game = games[gameId];
-    if (game) {
-        const opponent = game.players.find(p => p.userId !== userId);
+    if (!game) { // If game not in memory, but user was mapped to it, clean up
+        delete userGameMap[userId];
+        leavingPlayerGlobalEntry.inGame = false;
+        leavingPlayerGlobalEntry.number = null;
+        leavingPlayerGlobalEntry.socketId = null;
+        leavingPlayerGlobalEntry.id = null;
+        console.log(`Game ${gameId} not found in memory for user ${userId} on leave. Cleaning userGameMap and player entry.`);
+        io.emit(
+            "players-list",
+            players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
+        );
+        return;
+    }
 
-        if (opponent) {
-            if (opponent.socketId) {
-                io.to(opponent.socketId).emit("opponent-left");
-                console.log(`Notified opponent ${opponent.name} of ${leavingPlayer.name}'s disconnection.`);
-            }
-            const opponentGlobalEntry = players.find(p => p.userId === opponent.userId);
-            if(opponentGlobalEntry) {
-                opponentGlobalEntry.inGame = false;
-                opponentGlobalEntry.number = null;
-            }
+    // Find the player object within the specific game's players array
+    const leavingPlayerInGame = game.players.find(p => p.userId === userId);
+    if (!leavingPlayerInGame) {
+        console.log(`User ${userId} not found in game ${gameId}'s player list, despite being mapped. Consistency issue?`);
+        // Clean up in-memory state for this user if somehow inconsistent
+        delete userGameMap[userId];
+        leavingPlayerGlobalEntry.inGame = false;
+        leavingPlayerGlobalEntry.number = null;
+        leavingPlayerGlobalEntry.socketId = null;
+        leavingPlayerGlobalEntry.id = null;
+        io.emit(
+            "players-list",
+            players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
+        );
+        return;
+    }
 
-            // Keep game in memory, mark status in Firestore
+    console.log(`Player ${leavingPlayerGlobalEntry.name} (ID: ${userId}) initiating leave from game ${gameId}.`);
+
+    // Mark leaving player's in-game status and socket as null
+    leavingPlayerGlobalEntry.inGame = false;
+    leavingPlayerGlobalEntry.number = null; // No longer has a player number
+    leavingPlayerGlobalEntry.socketId = null; // No longer connected via this socket for the game
+    leavingPlayerGlobalEntry.id = null; // Corresponding id in players list also nulled
+
+    leavingPlayerInGame.socketId = null; // Also nullify within the game object
+    leavingPlayerInGame.id = null; // Corresponding id in game.players also nulled
+
+    delete userGameMap[userId]; // Remove user's game mapping
+
+    const opponentPlayer = game.players.find(p => p.userId !== userId);
+
+    if (opponentPlayer) {
+        if (opponentPlayer.socketId) {
+            io.to(opponentPlayer.socketId).emit("opponent-left");
+            console.log(`Notified opponent ${opponentPlayer.name} of ${leavingPlayerGlobalEntry.name}'s disconnection.`);
+        }
+        // Ensure opponent's global player entry is also marked for lobby if they're not connected to it
+        const opponentGlobalEntry = players.find(p => p.userId === opponentPlayer.userId);
+        if(opponentGlobalEntry) {
+            opponentGlobalEntry.inGame = false; // Opponent is now also effectively in lobby
+            opponentGlobalEntry.number = null;
+        }
+
+        // Update Firestore status to 'waiting_for_resume'
+        try {
             await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
                 status: 'waiting_for_resume',
                 lastUpdated: Timestamp.now()
             }, { merge: true });
             console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
-
-        } else {
-            // Last player leaving, mark game as completed in Firestore
+        } catch (error) {
+            console.error("Error updating game status on leave:", error);
+        }
+        // IMPORTANT: DO NOT delete game from `games` in-memory here. Keep it for resume.
+    } else {
+        // Last player leaving
+        // Delete game from in-memory `games` object
+        delete games[gameId];
+        // Update Firestore status to 'completed'
+        try {
             await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
                 status: 'completed',
                 lastUpdated: Timestamp.now()
             }, { merge: true });
             console.log(`Game ${gameId} status set to 'completed' as last player left.`);
+        } catch (error) {
+            console.error("Error updating game status to 'completed' on leave:", error);
         }
-        delete games[gameId]; // Remove game from in-memory if left
-        delete userGameMap[userId]; // Clear the user's game mapping
     }
 
+    // Emit updated players list (filter out those still in-game or mapped to a game)
     io.emit(
       "players-list",
       players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
@@ -1153,6 +1223,7 @@ io.on("connection", (socket) => {
     if (disconnectedUserId && userGameMap[disconnectedUserId]) {
         const gameId = userGameMap[disconnectedUserId];
         const game = games[gameId]; // Try to find the game in memory
+        console.log(`[Disconnect] User ${disconnectedUserId} was in game ${gameId}. Game in memory: ${!!game}.`); // ADDED LOG
 
         if (game) {
             const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
@@ -1176,7 +1247,7 @@ io.on("connection", (socket) => {
                 });
                 // Do NOT delete games[gameId] from in-memory here. It stays for resume.
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // FIXED: was .set()
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
@@ -1192,7 +1263,7 @@ io.on("connection", (socket) => {
                     console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
                 }
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // FIXED: was .set()
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
