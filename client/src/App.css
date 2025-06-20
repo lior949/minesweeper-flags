@@ -116,7 +116,7 @@ body {
   font-weight: bold;
   cursor: pointer;
   border-radius: 4px; /* Slightly rounded corners for tiles */
-  transition: background-color 0.2s, border-color 0.2s;
+  /* Removed general transition from here */
   box-sizing: border-box; /* Include padding and border in the element's total width and height */
 }
 
@@ -124,6 +124,8 @@ body {
   background-color: #4a4a4a;
   border: 2px solid #666;
   color: transparent; /* Hide text until revealed */
+  /* Added transition specifically for the hidden state */
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
 .tile.hidden:hover {
@@ -135,11 +137,8 @@ body {
   background-color: #333;
   border: 1px solid #555;
   color: #eee;
-}
-
-.tile.mine.revealed {
-  background-color: #880000;
-  color: white;
+  /* Ensure no transition applies when it becomes revealed, for instant change */
+  transition: none;
 }
 
 /* Colors for adjacent mine numbers */
