@@ -32,4 +32,3 @@ const LoginScreen = ({ onGoogleLogin, onFacebookLogin, message }) => {
 };
 
 export default LoginScreen;
-
