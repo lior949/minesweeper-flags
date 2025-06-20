@@ -345,6 +345,7 @@ const isGameActiveInMemory = (game) => {
     const player1 = game.players.find(p => p.number === 1);
     const player2 = game.players.find(p => p.number === 2);
 
+    // Ensure player objects exist before checking properties
     const player1ConnectedAndActive = player1 && player1.socketId && userSocketMap[player1.userId] === player1.socketId;
     const player2ConnectedAndActive = player2 && player2.socketId && userSocketMap[player2.userId] === player2.socketId;
 
@@ -388,18 +389,20 @@ io.on("connection", (socket) => {
 
                     let player1 = players.find(p => p.userId === gameData.player1_userId);
                     if (!player1) {
-                        player1 = { userId: gameData.player1_userId, name: gameData.player1_name, number: 1, inGame: true };
+                        player1 = { userId: gameData.player1_userId, name: gameData.player1_name, inGame: true }; // Removed number from initial creation
                         players.push(player1);
                     }
+                    player1.number = 1; // FIX: Ensure number is set regardless of new or existing player object
                     player1.socketId = userSocketMap[player1.userId] || null;
                     player1.id = player1.socketId; // Use socketId as id for consistency
                     player1.inGame = true;
 
                     let player2 = players.find(p => p.userId === gameData.player2_userId);
                     if (!player2) {
-                        player2 = { userId: gameData.player2_userId, name: gameData.player2_name, number: 2, inGame: true };
+                        player2 = { userId: gameData.player2_userId, name: gameData.player2_name, inGame: true }; // Removed number from initial creation
                         players.push(player2);
                     }
+                    player2.number = 2; // FIX: Ensure number is set regardless of new or existing player object
                     player2.socketId = userSocketMap[player2.userId] || null;
                     player2.id = player2.socketId; // Use socketId as id for consistency
                     player2.inGame = true;
@@ -449,6 +452,10 @@ io.on("connection", (socket) => {
         } else { // Game found in memory
             const playerInGame = game.players.find(p => p.userId === userIdOnConnect);
             if (playerInGame) {
+                // Ensure the player number is consistent even if re-using an in-memory object
+                // The playerInGame object should already have the 'number' from its initial setup
+                // but if it somehow got corrupted, this ensures it's correct.
+                // However, the resume-game flow below handles this more robustly.
                 playerInGame.socketId = socket.id;
                 playerInGame.id = socket.id; // Use socketId as id for consistency
                 playerInGame.inGame = true; // Ensure marked as inGame
@@ -629,7 +636,8 @@ io.on("connection", (socket) => {
             const playerInExistingGame = existingGame.players.find(p => p.userId === userId);
             
             if (playerInExistingGame) {
-                // Update socketId in existing in-memory game object
+                // Ensure player number is correctly assigned to the existing in-memory player object
+                playerInExistingGame.number = (gameData.player1_userId === userId) ? 1 : 2; // FIX: Assign correct player number
                 playerInExistingGame.socketId = socket.id;
                 playerInExistingGame.id = socket.id; // Use socketId as id for consistency
                 playerInExistingGame.inGame = true; // Ensure marked as inGame
@@ -654,6 +662,7 @@ io.on("connection", (socket) => {
                     lastClickedTile: existingGame.lastClickedTile // Send last clicked tile
                 });
                 console.log(`User ${userName} reconnected and re-sent active game state for game ${gameId}.`);
+                console.log(`[Resume Game Emit Debug] Player ${userName} assigned number: ${playerInExistingGame.number}`); // Added debug log
 
                 if (opponentPlayer && opponentPlayer.socketId) {
                     io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: userName });
@@ -681,18 +690,20 @@ io.on("connection", (socket) => {
         // Reconstruct player objects for the game and update global players list
         let player1 = players.find(p => p.userId === gameData.player1_userId);
         if (!player1) {
-            player1 = { userId: gameData.player1_userId, name: gameData.player1_name, number: 1 };
+            player1 = { userId: gameData.player1_userId, name: gameData.player1_name };
             players.push(player1);
         }
+        player1.number = 1; // FIX: Ensure number is always set for player1
         player1.socketId = userSocketMap[player1.userId] || null;
         player1.id = player1.socketId; // Use socketId as id for consistency
         player1.inGame = true; // Mark as in game
 
         let player2 = players.find(p => p.userId === gameData.player2_userId);
         if (!player2) {
-            player2 = { userId: gameData.player2_userId, name: gameData.player2_name, number: 2 };
+            player2 = { userId: gameData.player2_userId, name: gameData.player2_name };
             players.push(player2);
         }
+        player2.number = 2; // FIX: Ensure number is always set for player2
         player2.socketId = userSocketMap[player2.userId] || null;
         player2.id = player2.socketId; // Use socketId as id for consistency
         player2.inGame = true; // Mark as in game
@@ -729,7 +740,7 @@ io.on("connection", (socket) => {
 
         if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
             io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName });
-            console.log(`Notified opponent ${opponentInGame.name} that ${userName} reconnected to game ${gameId}.`);
+            console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
         io.emit("players-list", players.filter(p => !p.inGame && !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
