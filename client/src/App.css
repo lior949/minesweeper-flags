@@ -106,7 +106,7 @@ body {
   text-align: center;
   vertical-align: middle;
   border-radius: 4px;
-  /* Default text color for numbers will be set below */
+  color: white; /* Default text color for tiles */
   user-select: none;
 }
 
@@ -125,7 +125,7 @@ body {
   background-color: #ccc; /* Changed to a lighter background for revealed tiles */
   border: none;
   cursor: default; /* Default cursor for revealed tiles */
-  color: #333; /* Default text color for numbers on a light background */
+  /* Removed: color: #333; */ /* This was causing numbers to be black */
 }
 
 .tile.mine {
