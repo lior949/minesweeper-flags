@@ -109,7 +109,14 @@ redisClient.connect()
     // This middleware will run for every incoming Socket.IO connection.
     io.use(async (socket, next) => {
         const req = socket.request;
-        const res = socket.request.res || {}; // Provide a mock 'res' object for sessionMiddleware, though it might not be fully used.
+        // Provide a more robust mock 'res' object for session and passport middleware compatibility
+        const res = socket.request.res || {
+            writeHead: () => {},
+            setHeader: () => {},
+            end: () => {}
+        };
+        socket.request.res = res; // Ensure the mocked res is attached if not already present.
+
 
         try {
             // Step 1: Ensure the session is loaded from the store and attached to req.session.
