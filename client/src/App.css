@@ -177,6 +177,31 @@ body {
   margin-right: 10px;
 }
 
+/* Base styles for Google Login component (if any specific styling is needed) */
+.facebook-login-button {
+  background-color: #4285f4;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease;
+}
+
+.facebook-login-button:hover {
+  background-color: #357ae8;
+}
+
+.facebook-icon {
+  margin-right: 10px;
+}
+
 /* New CSS for bomb target area */
 .bomb-target-area {
   outline: 2px dashed #ffff00; /* Yellow dashed border */
