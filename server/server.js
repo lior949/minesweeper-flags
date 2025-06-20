@@ -452,8 +452,10 @@ io.on("connection", (socket) => {
                 lastClickedTile: game.lastClickedTile
             });
         }
-    } else {
-      console.log(`Unauthenticated or session-less socket ${socket.id} connected. (No req.user)`);
+    }
+  } // <<< CORRECTED PLACEMENT OF THE CLOSING BRACE FOR 'if (userIdOnConnect)'
+  else {
+    console.log(`Unauthenticated or session-less socket ${socket.id} connected. (No req.user)`);
   }
 
 
@@ -672,7 +674,7 @@ io.on("connection", (socket) => {
         }
 
         if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
-            io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName }); // Corrected typo here
+            io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName });
             console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
