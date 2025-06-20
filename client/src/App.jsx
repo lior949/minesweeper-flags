@@ -1,4 +1,4 @@
-// App.jsxMore actions
+// App.jsx
 import React, { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
@@ -22,6 +22,7 @@ function App() {
   // === Lobby & Authentication State ===
   const [name, setName] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
+  const [isGuest, setIsGuest] = useState(false); // NEW: Track if logged in as guest
   const [playersList, setPlayersList] = useState([]);
   const [message, setMessage] = useState(""); // General message/error display
 
@@ -73,7 +74,9 @@ function App() {
           const data = await response.json();
           setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
           setLoggedIn(true);
-          console.log("App.jsx: Initial auth check successful for:", data.user.displayName || data.user.name);
+          // Check if the user ID indicates a guest (e.g., starts with 'guest_')
+          setIsGuest(data.user.id.startsWith('guest_')); 
+          console.log("App.jsx: Initial auth check successful for:", data.user.displayName || data.user.name, "Is Guest:", data.user.id.startsWith('guest_'));
 
           // NEW: Initialize Socket.IO connection ONLY once per component mount
           // and manage connection status
@@ -127,6 +130,7 @@ function App() {
               if (msg.includes("Authentication required")) {
                 setLoggedIn(false);
                 setName("");
+                setIsGuest(false); // Reset guest status on auth error
                 // window.location.reload(); // Hard reload for unauthenticated state - consider removing
               }
             });
@@ -242,6 +246,7 @@ function App() {
         } else {
           setLoggedIn(false);
           setName("");
+          setIsGuest(false); // Ensure guest status is reset on failed auth check
           console.log("Frontend: Auth check failed (response not ok).");
           // If auth fails, ensure no socket is connected from a previous attempt
           if (socketRef.current) {
@@ -254,6 +259,7 @@ function App() {
         console.error("Frontend: Error during auth check or socket setup:", err);
         setLoggedIn(false);
         setName("");
+        setIsGuest(false); // Reset guest status on error
         setMessage(`An error occurred: ${err.message}. Please refresh.`, true);
         if (socketRef.current) {
           socketRef.current.disconnect();
@@ -279,6 +285,7 @@ function App() {
         console.log("App.jsx: Received AUTH_SUCCESS from pop-up:", user);
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
         setLoggedIn(true);
+        setIsGuest(user.id.startsWith('guest_')); // Set guest status based on received user ID
         // At this point, the initial useEffect will re-run due to loggedIn/name state change
         // and trigger the socket connection/join-lobby if conditions are met.
         showMessage("Login successful!");
@@ -288,6 +295,7 @@ function App() {
         showMessage(`Login failed: ${event.data.message}`, true);
         setLoggedIn(false);
         setName("");
+        setIsGuest(false); // Reset guest status on failure
         window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
       }
     };
@@ -324,6 +332,49 @@ function App() {
       window.removeEventListener('message', handleAuthMessage); // Clean up message listener
     };
   }, [loggedIn, name]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
+
+  // NEW: Function to handle Guest Login
+  const loginAsGuest = async () => {
+    let guestId = localStorage.getItem('guestId');
+    if (!guestId) {
+      guestId = `guest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+      localStorage.setItem('guestId', guestId);
+    }
+
+    try {
+      // Call your backend guest login endpoint
+      const response = await fetch("https://minesweeper-flags-backend.onrender.com/auth/guest", {
+        method: "POST", // Use POST for login actions
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ guestId }),
+        credentials: "include",
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setName(data.user.displayName); // Backend will provide a guest name
+        setLoggedIn(true);
+        setIsGuest(true);
+        showMessage("Logged in as guest!");
+        // The useEffect for socket connection will handle joining the lobby
+      } else {
+        const errorData = await response.json();
+        showMessage(`Guest login failed: ${errorData.message || response.statusText}`, true);
+        setLoggedIn(false);
+        setIsGuest(false);
+        localStorage.removeItem('guestId'); // Clear invalid guest ID
+      }
+    } catch (error) {
+      console.error("Guest login fetch error:", error);
+      showMessage(`Guest login failed: ${error.message}`, true);
+      setLoggedIn(false);
+      setIsGuest(false);
+      localStorage.removeItem('guestId');
+    }
+  };
+
 
   // --- User Interaction Functions (using socketRef.current for emits) ---
 
@@ -447,6 +498,8 @@ function App() {
 
     setLoggedIn(false);
     setName("");
+    setIsGuest(false); // Reset guest status on logout
+    localStorage.removeItem('guestId'); // Clear persistent guest ID
     setGameId(null);
     setPlayerNumber(null);
     setBoard([]);
@@ -493,7 +546,7 @@ function App() {
     return (
       <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
-        <h2>Login with Google to join the lobby</h2>
+        <h2>Login or Play as Guest</h2>
         <GoogleLogin
           onLogin={(googleName) => {
             // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
@@ -502,26 +555,28 @@ function App() {
             console.log("Google Login completed via pop-up callback. State will update.");
           }}
         />
-		<h2>Login with Facebook to join the lobby</h2>
-		<FacebookLogin
+		    <FacebookLogin
           onLogin={(facebookName) => {
             // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
             // No direct socket.emit("join-lobby") here anymore.
             // The state update (setName, setLoggedIn) will trigger the socket useEffect.
-            console.log("Google Login completed via pop-up callback. State will update.");
+            console.log("Facebook Login completed via pop-up callback. State will update.");
           }}
         />
+        <button className="guest-login-button" onClick={loginAsGuest}>
+          Play as Guest
+        </button>
       </div>
     );
   }
 
-  if (!gameId) {
-    return (
-      <div className="lobby">
+  return (
+    <div className="lobby">
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
         <h2>Lobby - Online Players</h2>
+        <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
 		<button onClick={logout} className="bomb-button">Logout</button>
         {playersList.length === 0 && <p>No other players online</p>}
         <ul className="player-list">
@@ -561,71 +616,70 @@ function App() {
                 </ul>
             )}
         </div>
-      </div>
-    );
-  }
 
-  return (
-    <div className="app">
-      <div className="header">
-        <h1>Minesweeper Flags</h1>
-        {playerNumber &&
-          !bombsUsed[playerNumber] &&
-          scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
-          !gameOver && (
-            <button className="bomb-button" onClick={useBomb}>
-				{bombMode ? "Cancel Bomb" : "Use Bomb"}
-			</button>
-          )}
-      </div>
+        {gameId && (
+            <div className="app-game-container">
+                <div className="header">
+                    <h1>Minesweeper Flags</h1>
+                    {playerNumber &&
+                      !bombsUsed[playerNumber] &&
+                      scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
+                      !gameOver && (
+                        <button className="bomb-button" onClick={useBomb}>
+                            {bombMode ? "Cancel Bomb" : "Use Bomb"}
+                        </button>
+                      )}
+                </div>
 
-      <h2>
-        You are Player {playerNumber} (vs. {opponentName})
-      </h2>
-      <p>
-        {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
-        {bombMode && " – Select 5x5 bomb center"}
-      </p>
-      {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
-      <p>
-        Score 🔴 {scores[1]} | 🔵 {scores[2]}
-      </p>
+                <h2>
+                    You are Player {playerNumber} (vs. {opponentName})
+                </h2>
+                <p>
+                    {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
+                    {bombMode && " – Select 5x5 bomb center"}
+                </p>
+                {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
+                <p>
+                    Score � {scores[1]} | 🔵 {scores[2]}
+                </p>
 
-      {gameOver && (
-        <>
-            <button className="bomb-button" onClick={backToLobby}>
-              Back to Lobby
-            </button>
-            <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })}> {/* Use socketRef.current */}
-              Restart Game
-            </button>
-        </>
-      )}
+                {gameOver && (
+                    <>
+                        <button className="bomb-button" onClick={backToLobby}>
+                          Back to Lobby
+                        </button>
+                        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })}> {/* Use socketRef.current */}
+                          Restart Game
+                        </button>
+                    </>
+                )}
 
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
-        }}
-      >
-        {board.flatMap((row, y) =>
-          row.map((tile, x) => (
-            <div
-              key={`${x}-${y}`}
-              className={`tile ${
-                tile.revealed ? "revealed" : "hidden"
-              } ${tile.isMine && tile.revealed ? "mine" : ""} ${
-                lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
-              } ${
-                lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
-              }`}
-              onClick={() => handleClick(x, y)}
-            >
-              {renderTile(tile)}
+                <div
+                    className="grid"
+                    style={{
+                      gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
+                    }}
+                >
+                    {board.flatMap((row, y) =>
+                      row.map((tile, x) => (
+                        <div
+                          key={`${x}-${y}`}
+                          className={`tile ${
+                            tile.revealed ? "revealed" : "hidden"
+                          } ${tile.isMine && tile.revealed ? "mine" : ""} ${
+                            lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
+                          } ${
+                            lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                          }`}
+                          onClick={() => handleClick(x, y)}
+                        >
+                          {renderTile(tile)}
+                        </div>
+                      ))
+                    )}
+                </div>
             </div>
-          ))
         )}
-      </div>
     </div>
   );
 }
