@@ -9,16 +9,13 @@ const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
-const util = require('util'); // Import util for promisify
-const cookieParser = require('cookie-parser'); // Import cookie-parser
-
 
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
 const { Firestore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
 
-// --- Corrected Firestore Session Store Imports ---
+// --- NEW: Corrected Firestore Session Store Imports ---
 // The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
 // It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
 const { FirestoreStore } = require('@google-cloud/connect-firestore');
@@ -54,12 +51,15 @@ let db;
 let sessionMiddleware;
 let io; // Declare io here so it's accessible globally
 
-// --- Game Constants (Moved to a more global scope for clarity) ---
+// --- Game Constants (Moved to a more global scope) ---
 const WIDTH = 16;
 const HEIGHT = 16;
 const MINES = 51;
 const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
 const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
+
+// Determine cookie domain dynamically for production vs local development
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 
 try {
@@ -92,18 +92,16 @@ try {
   // === Define the session middleware instance with FirestoreStore ===
   sessionMiddleware = session({ // Assign to the already declared variable
     secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev", // Use env var, fallback for local dev
-    // DEBUGGING: Setting resave and saveUninitialized to true for troubleshooting session issues.
-    // Consider reverting to 'false' if stability is achieved and performance is a concern.
-    resave: true, // Forces the session to be saved back to the session store, even if not modified
-    saveUninitialized: true, // Saves new sessions that have not yet been modified
+    resave: false, // Changed to false: generally recommended to only resave modified sessions
+    saveUninitialized: false, // Prevents storing empty sessions in Firestore
     store: new FirestoreStore({ // Instantiate FirestoreStore with 'new'
       dataset: firestoreClient, // Pass the Firestore client instance
       kind: 'express-sessions', // Optional: collection name for sessions, defaults to 'express-sessions'
     }),
     cookie: {
       sameSite: "none",
-      secure: true, // `secure: true` is crucial for cross-site cookies in production (HTTPS)
-      maxAge: 1000 * 60 * 60 * 24, // 24 hours
+      secure: true,
+      maxAge: 1000 * 60 * 60 * 24, // 24 hours (example)
       proxy: true, // IMPORTANT: Inform express-session that it's behind a proxy
       // REMOVED `domain` property as it can cause issues with different subdomains on Render
     },
@@ -129,7 +127,6 @@ try {
   // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
   // Moved inside try block to ensure sessionMiddleware is defined
   io.use((socket, next) => {
-      console.log(`[Socket.IO Auth Middleware] Socket ${socket.id} connecting.`);
       // Mock a 'res' object for session and passport middleware compatibility
       const dummyRes = {
           writeHead: () => {}, // Add no-op writeHead
@@ -139,21 +136,10 @@ try {
 
       // Apply session middleware
       sessionMiddleware(socket.request, socket.request.res, () => {
-          console.log(`[Socket.IO Auth Middleware] After sessionMiddleware for ${socket.id}. Session ID: ${socket.request.sessionID}`);
-          console.log(`[Socket.IO Auth Middleware] Session object exists: ${!!socket.request.session}`);
-          console.log(`[Socket.IO Auth Middleware] Session.passport exists: ${!!socket.request.session?.passport}`);
-          console.log(`[Socket.IO Auth Middleware] Session.passport.user: ${JSON.stringify(socket.request.session?.passport?.user)}`);
-
           // Apply passport.initialize
           passport.initialize()(socket.request, socket.request.res, () => {
               // Apply passport.session
               passport.session()(socket.request, socket.request.res, () => {
-                  console.log(`[Socket.IO Auth Middleware] After passport.session() for ${socket.id}. req.user: ${JSON.stringify(socket.request.user)}`);
-                  if (socket.request.user) {
-                      console.log(`[Socket.IO Auth Middleware] User authenticated via session for socket: ${socket.request.user.displayName || socket.request.user.id}`);
-                  } else {
-                      console.log(`[Socket.IO Auth Middleware] User NOT authenticated after passport.session() for socket ${socket.id}.`);
-                  }
                   next();
               });
           });
@@ -174,7 +160,6 @@ passport.use(new GoogleStrategy({
   clientSecret: GOOGLE_CLIENT_SECRET,
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
-  console.log(`[Passport Callback] Google Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
   done(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
 }));
 
@@ -185,26 +170,17 @@ passport.use(new FacebookStrategy({
   profileFields: ['id', 'displayName', 'photos', 'email']
 },
 function(accessToken, refreshToken, profile, cb) {
-  console.log(`[Passport Callback] Facebook Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
   cb(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
 }));
 
 
 // Passport Serialization/Deserialization
 passport.serializeUser((user, done) => {
-  console.log(`[Passport] serializeUser: Serializing user - ID: ${user.id}, Name: ${user.displayName || user.name}`);
   done(null, user); // Store the entire user object in the session
 });
 
-// IMPORTANT: Updated deserializeUser to handle the object stored by serializeUser
-passport.deserializeUser((obj, done) => {
-  console.log(`[Passport] deserializeUser: Deserializing user - ID: ${obj?.id}, Name: ${obj?.displayName || obj?.name}. Object: ${JSON.stringify(obj)}`);
-  if (obj && obj.id) {
-    done(null, { id: obj.id, displayName: obj.displayName || `User_${obj.id.substring(0, 8)}` });
-  } else {
-    console.warn("deserializeUser: Invalid object received, or obj.id is missing. Returning false for authentication.");
-    done(null, false); // Authentication failed
-  }
+passport.deserializeUser((user, done) => {
+  done(null, user); // Pass the user object back to req.user
 });
 
 
@@ -221,41 +197,20 @@ app.get("/auth/google/callback",
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
   (req, res) => { // Add a callback to manually save session
-    console.log(`[Session Save] Attempting to save session after Google auth.`);
-    console.log(`[Session Save] Session before save (Google): ${JSON.stringify(req.session)}`);
-    console.log(`[Session Save] req.session.passport before save (Google): ${JSON.stringify(req.session?.passport)}`);
-
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
-        // If session save fails, send failure message via postMessage
-        return res.send(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Authentication Error</title>
-            <script>
-              window.onload = function() {
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'AUTH_FAILURE', message: '${encodeURIComponent(err.message || 'Authentication failed due to session error.')}' }, 'https://minesweeper-flags-frontend.onrender.com');
-                }
-                window.close();
-              };
-            </script>
-          </head>
-          <body>
-            <p>Authentication failed. Closing window...</p>
-          </body>
-          </html>
-        `);
+        // Redirect to a failure page with an error message
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
-      console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}. User: ${JSON.stringify(req.user)}`);
+      console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
       
-      // Redirect the pop-up window itself back to the frontend with data via postMessage
+      // NEW: Redirect the pop-up window itself back to the frontend with data in hash fragment
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
       };
+      // Encode user data as JSON and put it in the hash fragment
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -263,10 +218,8 @@ app.get("/auth/google/callback",
           <title>Authentication Complete</title>
           <script>
             window.onload = function() {
-              if (window.opener) {
-                window.opener.postMessage({ type: 'AUTH_SUCCESS', user: ${JSON.stringify(userData)} }, 'https://minesweeper-flags-frontend.onrender.com');
-              }
-              window.close();
+              const userData = ${JSON.stringify(userData)};
+              window.location.href = 'https://minesweeper-flags-frontend.onrender.com/auth/callback#' + encodeURIComponent(JSON.stringify(userData));
             };
           </script>
         </head>
@@ -290,41 +243,20 @@ app.get("/auth/facebook/callback",
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
   (req, res) => { // Add a callback to manually save session
-    console.log(`[Session Save] Attempting to save session after Facebook auth.`);
-    console.log(`[Session Save] Session before save (Facebook): ${JSON.stringify(req.session)}`);
-    console.log(`[Session Save] req.session.passport before save (Facebook): ${JSON.stringify(req.session?.passport)}`);
-
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
-        // If session save fails, send failure message via postMessage
-        return res.send(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Authentication Error</title>
-            <script>
-              window.onload = function() {
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'AUTH_FAILURE', message: '${encodeURIComponent(err.message || 'Authentication failed due to session error.')}' }, 'https://minesweeper-flags-frontend.onrender.com');
-                }
-                window.close();
-              };
-            </script>
-          </head>
-          <body>
-            <p>Authentication failed. Closing window...</p>
-          </body>
-          </html>
-        `);
+        // Redirect to a failure page with an error message
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
-      console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}. User: ${JSON.stringify(req.user)}`);
+      console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
       
-      // Redirect the pop-up window itself back to the frontend with data via postMessage
+      // NEW: Redirect the pop-up window itself back to the frontend with data in hash fragment
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
       };
+      // Encode user data as JSON and put it in the hash fragment
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -332,10 +264,8 @@ app.get("/auth/facebook/callback",
           <title>Authentication Complete</title>
           <script>
             window.onload = function() {
-              if (window.opener) {
-                window.opener.postMessage({ type: 'AUTH_SUCCESS', user: ${JSON.stringify(userData)} }, 'https://minesweeper-flags-frontend.onrender.com');
-              }
-              window.close();
+              const userData = ${JSON.stringify(userData)};
+              window.location.href = 'https://minesweeper-flags-frontend.onrender.com/auth/callback#' + encodeURIComponent(JSON.stringify(userData));
             };
           </script>
         </head>
@@ -352,21 +282,15 @@ app.get("/auth/facebook/callback",
 // Logout Route
 app.get("/logout", (req, res, next) => {
   req.logout((err) => { // Passport's logout method
-    if (err) { 
-        console.error("Logout error:", err);
-        return next(err); // Pass error to Express error handler
-    }
+    if (err) { return next(err); }
     req.session.destroy((destroyErr) => { // Destroy the session on the server
-      if (destroyErr) { 
-          console.error("Session destroy error:", destroyErr);
-          return next(destroyErr); // Pass error to Express error handler
-      }
+      if (destroyErr) { return next(destroyErr); }
       res.clearCookie("connect.sid", {
           path: '/',
           secure: true,
           sameSite: 'none',
           proxy: true, // Clear cookie with proxy setting
-          // REMOVED `domain` property as it can cause issues with different subdomains on Render
+          // REMOVED `domain` property
       }); // Clear the session cookie from the client
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
@@ -374,27 +298,28 @@ app.get("/logout", (req, res, next) => {
   });
 });
 
-// Login Check Route (/me)
+// Login Check Route
 app.get("/me", (req, res) => {
   console.log("------------------- /me Request Received -------------------");
   console.log("Is Authenticated (req.isAuthenticated()):", req.isAuthenticated());
   console.log("User in session (req.user):", req.user);
   console.log("Session ID (req.sessionID):", req.sessionID);
-  console.log("Session object (req.session):", JSON.stringify(req.session)); // Stringify for full view
-  console.log("Passport data in session (req.session.passport):", JSON.stringify(req.session?.passport));
+  console.log("Session object (req.session):", req.session);
+  console.log("Passport data in session:", req.session?.passport);
+
 
   if (req.isAuthenticated() && req.user) {
     res.json({ user: req.user }); // req.user now contains id and displayName
   } else {
-    res.status(401).json({ error: "Not authenticated", details: "User not found in session or session is invalid." });
+    res.status(401).json({ error: "Not authenticated" });
   }
   console.log("------------------------------------------------------------");
 });
 
-// A route to explicitly handle login failures (for redirects)
 app.get("/login-failed", (req, res) => {
-  res.status(401).send("Login failed. Please try again.");
+  res.send("Login failed");
 });
+
 
 // Global Game Data Structures
 let players = []; // Lobby players: [{ id: socket.id, userId, name }]
@@ -498,7 +423,7 @@ const emitLobbyPlayersList = () => {
     // Filter players to show only those NOT currently in an active game
     const lobbyPlayers = players.filter(p => {
         const isInGame = !!userGameMap[p.userId]; // Ensure boolean conversion
-        // console.log(`[emitLobbyPlayersList Filter] Player ${p.name} (userId: ${p.userId}, socketId: ${p.id}). Is In Game: ${isInGame}`); // Too verbose
+        console.log(`[emitLobbyPlayersList Filter] Player ${p.name} (userId: ${p.userId}, socketId: ${p.id}). Is In Game: ${isInGame}`);
         return !isInGame;
     });
     io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
@@ -552,7 +477,6 @@ io.on("connection", (socket) => {
                         players.push(player1); // Add to global players list
                     }
                     player1.socketId = userSocketMap[player1.userId] || null; // Update socketId from userSocketMap
-                    player1.inGame = true; // Mark as in game
 
                     let player2 = players.find(p => p.userId === gameData.player2_userId);
                     if (!player2) {
@@ -560,12 +484,9 @@ io.on("connection", (socket) => {
                         players.push(player2); // Add to global players list
                     }
                     player2.socketId = userSocketMap[player2.userId] || null; // Update socketId from userSocketMap
-                    player2.inGame = true; // Mark as in game
 
                     game.players = [player1, player2];
                     games[gameId] = game; // Add game to in-memory active games
-                    userGameMap[player1.userId] = gameId; // Ensure userGameMap is set for both
-                    userGameMap[player2.userId] = gameId;
 
                     // Set game status to active if it was waiting for resume
                     if (gameData.status === 'waiting_for_resume') {
@@ -929,29 +850,25 @@ io.on("connection", (socket) => {
       const turn = 1;
       const gameOver = false;
 
-      // Ensure players are marked as in game and have their current socketId
-      inviterPlayer.number = 1;
-      inviterPlayer.inGame = true;
-      inviterPlayer.socketId = inviterPlayer.id; // It should already be this, but confirm
-      respondingPlayer.number = 2;
-      respondingPlayer.inGame = true;
-      respondingPlayer.socketId = respondingPlayer.id; // It should already be this, but confirm
-
       const game = {
         gameId,
         board: newBoard,
+        players: [
+          // Store userId and current socketId for players in the game object
+          { userId: inviterPlayer.userId, name: inviterPlayer.name, number: 1, socketId: inviterPlayer.id },
+          { userId: respondingPlayer.userId, name: respondingPlayer.name, number: 2, socketId: respondingPlayer.id },
+        ],
+        turn,
         scores,
         bombsUsed,
-        turn,
         gameOver,
-        players: [inviterPlayer, respondingPlayer],
       };
       games[gameId] = game;
 
       // Update userGameMap for both players
       userGameMap[inviterPlayer.userId] = gameId;
       userGameMap[respondingPlayer.userId] = gameId;
-      console.log(`Game ${gameId} started between ${inviterPlayer.name} (ID: ${inviterPlayer.userId}) and ${respondingPlayer.name} (ID: ${respondingPlayer.userId}).`);
+      console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
 
       // Save game state to Firestore (with serialized board)
       try {
@@ -960,9 +877,9 @@ io.on("connection", (socket) => {
               gameId: game.gameId,
               board: serializedBoard, // Save serialized board
               player1_userId: inviterPlayer.userId,
-              player2_userId: respondingPlayer.userId,
+              player2_userId: respondingPlayer.userId, // Corrected variable name from responderPlayer to respondingPlayer
               player1_name: inviterPlayer.name,
-              player2_name: respondingPlayer.name,
+              player2_name: respondingPlayer.name,   // Corrected variable name from responderPlayer to respondingPlayer
               turn: game.turn,
               scores: game.scores,
               bombsUsed: game.bombsUsed,
@@ -980,7 +897,7 @@ io.on("connection", (socket) => {
           delete games[gameId]; // Clean up in-memory game if DB save fails
           delete userGameMap[inviterPlayer.userId];
           delete userGameMap[respondingPlayer.userId];
-          emitLobbyPlayersList(); // Re-emit if game creation failed and players should be available
+          emitLobbyPlayersList(); // Re-emit lobby list if game creation failed and players should be available
           return;
       }
 
@@ -1049,6 +966,7 @@ io.on("connection", (socket) => {
         return;
     }
 
+    // --- Start of Re-ordered and Corrected Logic ---
     if (tile.isMine) {
       tile.revealed = true;
       tile.owner = player.number; // Assign owner to the mine
@@ -1069,6 +987,14 @@ io.on("connection", (socket) => {
     } else { // This block handles non-mine tiles
       const isBlankTile = tile.adjacentMines === 0;
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
+
+      // Debug logs removed as requested in previous turn after confirmation
+      // console.log(`[Tile Click Debug] Tile at (${x},${y}).`);
+      // console.log(`[Tile Click Debug] tile.isMine: ${tile.isMine}, tile.adjacentMines: ${tile.adjacentMines}, tile.revealed: ${tile.revealed}`);
+      // console.log(`[Tile Click Debug] Current scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+      // console.log(`[Tile Click Debug] isBlankTile (calculated from adjacentMines): ${isBlankTile}`);
+      // console.log(`[Tile Click Debug] noFlagsRevealedYet (calculated from scores): ${noFlagsRevealedYet}`);
+      // console.log(`[Tile Click Debug] Combined restart condition (isBlankTile && noFlagsRevealedYet): ${isBlankTile && noFlagsRevealedYet}`);
 
       if (isBlankTile && noFlagsRevealedYet) {
         console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
@@ -1127,6 +1053,8 @@ io.on("connection", (socket) => {
       revealRecursive(game.board, x, y);
       game.turn = game.turn === 1 ? 2 : 1; // Turn switches only for non-mine reveals
     }
+    // --- End of Re-ordered and Corrected Logic ---
+
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board);
@@ -1177,9 +1105,6 @@ io.on("connection", (socket) => {
             console.warn(`Player ${player.name} tried to use bomb out of turn. Current turn: ${game.turn}`);
             // Optionally, send an error message back to the client
             io.to(socket.id).emit("bomb-error", "It's not your turn to use the bomb.");
-        } else if (player && game.bombsUsed[player.number]) {
-            console.warn(`Player ${player.name} tried to use bomb but already used it.`);
-            io.to(socket.id).emit("bomb-error", "You have already used your bomb!");
         }
         return;
     }
@@ -1204,9 +1129,6 @@ io.on("connection", (socket) => {
             console.warn(`Player ${player.name} tried to place bomb out of turn. Current turn: ${game.turn}`);
             // This might happen if 'wait-bomb-center' was emitted, but turn changed before selection.
             io.to(socket.id).emit("bomb-error", "It's not your turn to place the bomb.");
-        } else if (player && game.bombsUsed[player.number]) {
-            console.warn(`Player ${player.name} tried to place bomb but already used it.`);
-            io.to(socket.id).emit("bomb-error", "You have already used your bomb!");
         }
         return;
     }
@@ -1385,10 +1307,10 @@ io.on("connection", (socket) => {
           console.log(`Game ${gameId} deleted from memory.`);
         } else {
           // Notify the remaining player if any (using their current socketId)
-          const remainingPlayer = game.players.find(p => p.userId !== userId);
+          const remainingPlayer = game.players[0];
           if (remainingPlayer && remainingPlayer.socketId) {
              io.to(remainingPlayer.socketId).emit("opponent-left");
-             console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
+             console.log(`Notified opponent ${remainingPlayer.name} that their partner left.`);
           }
           // Update game status in Firestore to 'waiting_for_resume'
           try {
