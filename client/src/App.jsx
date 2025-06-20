@@ -1,13 +1,14 @@
 // App.jsx
-import React, { useEffect, useState, useRef } from "react"; // Added useRef
+import React, { useEffect, useState } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin";
 import "./App.css";
 
-// IMPORTANT: No longer initialize socket here. It will be managed in useEffect.
-// const socket = io("https://minesweeper-flags-backend.onrender.com", {
-//   withCredentials: true,
-// });
+// Initialize Socket.IO connection with credentials
+// This is CRUCIAL for the backend to recognize the authenticated session.
+const socket = io("https://minesweeper-flags-backend.onrender.com", {
+  withCredentials: true, // Tell Socket.IO to send cookies with the handshake
+});
 
 function App() {
   // === Lobby & Authentication State ===
@@ -15,9 +16,6 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [playersList, setPlayersList] = useState([]);
   const [message, setMessage] = useState(""); // General message/error display
-
-  // NEW: State and ref for Socket.IO instance
-  const socketRef = useRef(null); // Use useRef to hold the mutable socket object
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
@@ -30,7 +28,8 @@ function App() {
   const [gameOver, setGameOver] = useState(false);
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
-  const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
+  const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // NEW: Track last clicked tile for each player
 
   // --- Helper to display messages (replaces alert) ---
   const showMessage = (msg, isError = false) => {
@@ -44,9 +43,9 @@ function App() {
     setTimeout(() => setMessage(""), 5000);
   };
 
-  // --- Initial Authentication Check and Socket.IO Connection ---
+  // --- Initial Authentication Check on Component Mount ---
   useEffect(() => {
-    const checkAuthStatusAndConnectSocket = async () => {
+    const checkAuthStatus = async () => {
       try {
         const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
           method: "GET",
@@ -58,129 +57,7 @@ function App() {
           setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
           setLoggedIn(true);
           console.log("Frontend: Auth check successful, user:", data.user.displayName || data.user.name);
-
-          // NEW: Initialize Socket.IO connection ONLY after successful authentication
-          if (!socketRef.current) {
-            console.log("Frontend: Initializing Socket.IO connection...");
-            socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
-              withCredentials: true, // Tell Socket.IO to send cookies with the handshake
-              // Add a small delay for the cookie to be fully set in the browser
-              // before the websocket handshake if needed, but 'withCredentials' handles most cases.
-              // For robustness, consider adding `transportOptions: { polling: { extraHeaders: { 'Cookie': document.cookie } } }`
-              // but it's generally not needed if withCredentials and session setup are correct.
-            });
-
-            // --- Attach Socket.IO Event Listeners after connection ---
-            socketRef.current.on("join-error", (msg) => {
-              showMessage(msg, true);
-              setLoggedIn(false);
-              setName("");
-              // Force reload only if it's an authentication-related join error
-              if (msg.includes("Authentication required")) {
-                window.location.reload();
-              }
-            });
-
-            socketRef.current.on("lobby-joined", (userName) => {
-              setLoggedIn(true);
-              setName(userName);
-              showMessage(`Lobby joined successfully as ${userName}!`);
-              socketRef.current.emit("request-unfinished-games");
-            });
-
-            socketRef.current.on("players-list", (players) => {
-              setPlayersList(players);
-            });
-
-            socketRef.current.on("game-invite", (inviteData) => {
-              setInvite(inviteData);
-              showMessage(`Invitation from ${inviteData.fromName}!`);
-            });
-
-            socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
-              showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
-            });
-
-            socketRef.current.on("game-start", (data) => {
-              setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber);
-              setBoard(JSON.parse(data.board));
-              setTurn(data.turn);
-              setScores(data.scores);
-              setBombsUsed(data.bombsUsed);
-              setGameOver(data.gameOver);
-              setOpponentName(data.opponentName);
-              setBombMode(false);
-              setMessage("");
-              console.log("Frontend: Game started! My player number:", data.playerNumber);
-              setUnfinishedGames([]);
-            });
-
-            socketRef.current.on("board-update", (game) => {
-              setBoard(JSON.parse(game.board));
-              setTurn(game.turn);
-              setScores(game.scores);
-              setBombsUsed(game.bombsUsed);
-              setGameOver(game.gameOver);
-              setBombMode(false);
-              setMessage("");
-            });
-
-            socketRef.current.on("wait-bomb-center", () => {
-              setBombMode(true);
-              setMessage("Select 5x5 bomb center.");
-            });
-
-            socketRef.current.on("opponent-left", () => {
-              showMessage("Opponent left the game. Returning to lobby.", true);
-              setGameId(null);
-              setPlayerNumber(null);
-              setBoard([]);
-              setTurn(null);
-              setScores({ 1: 0, 2: 0 });
-              setBombsUsed({ 1: false, 2: false });
-              setGameOver(false);
-              setOpponentName("");
-              setBombMode(false);
-              socketRef.current.emit("request-unfinished-games");
-            });
-
-            socketRef.current.on("bomb-error", (msg) => {
-              showMessage(msg, true);
-              setBombMode(false);
-            });
-
-            socketRef.current.on("receive-unfinished-games", (games) => {
-              const deserializedGames = games.map(game => ({
-                  ...game,
-                  board: JSON.parse(game.board)
-              }));
-              setUnfinishedGames(deserializedGames);
-              console.log("Received unfinished games:", deserializedGames);
-            });
-
-            socketRef.current.on("opponent-reconnected", ({ name }) => {
-                showMessage(`${name} has reconnected!`);
-            });
-
-            socketRef.current.on("game-restarted", (data) => {
-              setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber);
-              setBoard(JSON.parse(data.board));
-              setTurn(data.turn);
-              setScores(data.scores);
-              setBombsUsed(data.bombsUsed);
-              setGameOver(data.gameOver);
-              setOpponentName(data.opponentName);
-              setBombMode(false);
-              setMessage("Game restarted!");
-              console.log("Frontend: Game restarted!");
-            });
-
-            // Emit join-lobby after socket is connected and listeners are set up
-            socketRef.current.emit("join-lobby", data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
-          }
-
+          socket.emit("join-lobby", data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
         } else {
           setLoggedIn(false);
           setName("");
@@ -192,54 +69,154 @@ function App() {
         setName("");
       }
     };
-    
-    checkAuthStatusAndConnectSocket();
+    checkAuthStatus();
 
-    // Cleanup function for useEffect: disconnect socket and remove listeners
+    // --- Socket.IO Event Listeners ---
+    socket.on("join-error", (msg) => {
+      showMessage(msg, true); // Use showMessage for errors
+      setLoggedIn(false);
+      setName("");
+      window.location.reload();
+    });
+
+    socket.on("lobby-joined", (userName) => {
+      setLoggedIn(true);
+      setName(userName);
+      showMessage(`Lobby joined successfully as ${userName}!`);
+      socket.emit("request-unfinished-games");
+    });
+
+    socket.on("players-list", (players) => {
+      setPlayersList(players);
+    });
+
+    socket.on("game-invite", (inviteData) => {
+      setInvite(inviteData);
+      showMessage(`Invitation from ${inviteData.fromName}!`);
+    });
+
+    socket.on("invite-rejected", ({ fromName, reason }) => {
+      showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
+    });
+
+    socket.on("game-start", (data) => {
+      setGameId(data.gameId);
+      setPlayerNumber(data.playerNumber);
+      setBoard(JSON.parse(data.board)); // Parse board string
+      setTurn(data.turn);
+      setScores(data.scores);
+      setBombsUsed(data.bombsUsed);
+      setGameOver(data.gameOver);
+      setOpponentName(data.opponentName);
+      setBombMode(false);
+      setLastClickedTile(data.lastClickedTile || { 1: null, 2: null }); // NEW: Set last clicked tile
+      setMessage(""); // Clear message when game starts
+      console.log("Frontend: Game started! My player number:", data.playerNumber);
+      setUnfinishedGames([]); // Clear unfinished games list as a game has started/resumed
+    });
+
+    socket.on("board-update", (game) => {
+      setBoard(JSON.parse(game.board)); // Parse board string
+      setTurn(game.turn);
+      setScores(game.scores);
+      setBombsUsed(game.bombsUsed);
+      setGameOver(game.gameOver);
+      setBombMode(false);
+      setLastClickedTile(game.lastClickedTile || { 1: null, 2: null }); // NEW: Update last clicked tile
+      setMessage(""); // Clear message on board update
+    });
+
+    socket.on("wait-bomb-center", () => {
+      setBombMode(true);
+      setMessage("Select 5x5 bomb center.");
+    });
+
+    socket.on("opponent-left", () => {
+      showMessage("Opponent left the game. Returning to lobby.", true);
+      setGameId(null);
+      setPlayerNumber(null);
+      setBoard([]);
+      setTurn(null);
+      setScores({ 1: 0, 2: 0 });
+      setBombsUsed({ 1: false, 2: false });
+      setGameOver(false);
+      setOpponentName("");
+      setBombMode(false);
+      setLastClickedTile({ 1: null, 2: null }); // NEW: Reset last clicked tile
+      socket.emit("request-unfinished-games"); // Request updated unfinished games list after returning to lobby
+    });
+
+    socket.on("bomb-error", (msg) => {
+      showMessage(msg, true);
+      setBombMode(false); // Exit bomb mode on error
+    });
+
+    socket.on("receive-unfinished-games", (games) => {
+      setUnfinishedGames(games);
+      console.log("Received unfinished games:", games);
+    });
+
+    socket.on("opponent-reconnected", ({ name }) => {
+        showMessage(`${name} has reconnected!`);
+    });
+
+    socket.on("game-restarted", (data) => {
+      // This event is specifically for the blank tile logic, where the game restarts
+      showMessage("Game restarted due to first click on blank tile!", false);
+      setGameId(data.gameId);
+      setPlayerNumber(data.playerNumber);
+      setBoard(JSON.parse(data.board)); // Parse board string
+      setTurn(data.turn);
+      setScores(data.scores);
+      setBombsUsed(data.bombsUsed);
+      setGameOver(data.gameOver);
+      setOpponentName(data.opponentName);
+      setBombMode(false);
+      setLastClickedTile(data.lastClickedTile || { 1: null, 2: null }); // NEW: Set last clicked tile on restart
+    });
+
+
+    // Cleanup function for useEffect
     return () => {
-      if (socketRef.current) {
-        socketRef.current.off("join-error");
-        socketRef.current.off("lobby-joined");
-        socketRef.current.off("players-list");
-        socketRef.current.off("game-invite");
-        socketRef.current.off("invite-rejected");
-        socketRef.current.off("game-start");
-        socketRef.current.off("board-update");
-        socketRef.current.off("wait-bomb-center");
-        socketRef.current.off("opponent-left");
-        socketRef.current.off("bomb-error");
-        socketRef.current.off("receive-unfinished-games");
-        socketRef.current.off("opponent-reconnected");
-        socketRef.current.off("game-restarted");
-        
-        socketRef.current.disconnect(); // Disconnect the socket
-        socketRef.current = null; // Clear the ref
-      }
+      socket.off("join-error");
+      socket.off("lobby-joined");
+      socket.off("players-list");
+      socket.off("game-invite");
+      socket.off("invite-rejected");
+      socket.off("game-start");
+      socket.off("board-update");
+      socket.off("wait-bomb-center");
+      socket.off("opponent-left");
+      socket.off("bomb-error");
+      socket.off("receive-unfinished-games");
+      socket.off("opponent-reconnected");
+      socket.off("game-restarted"); // NEW: Clean up game-restarted listener
     };
-  }, []); // Empty dependency array means this useEffect runs once on mount
+  }, []);
 
   // --- User Interaction Functions ---
 
   const invitePlayer = (id) => {
-    if (loggedIn && socketRef.current && id !== socketRef.current.id) { // Check socketRef.current
-      socketRef.current.emit("invite-player", id);
+    if (loggedIn && id !== socket.id) {
+      socket.emit("invite-player", id);
       showMessage("Invitation sent.");
     }
   };
 
   const respondInvite = (accept) => {
-    if (invite && socketRef.current) { // Check socketRef.current
-      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept });
-      setInvite(null);
+    if (invite) {
+      socket.emit("respond-invite", { fromId: invite.fromId, accept });
+      setInvite(null); // Clear the invitation after responding.
     }
   };
 
   const handleClick = (x, y) => {
-    if (!gameId || !socketRef.current) return; // Check socketRef.current
+    if (!gameId) return;
     if (bombMode) {
-      const MIN_COORD = 2;
-      const MAX_COORD_X = 13;
-      const MAX_COORD_Y = 13;
+      // --- Client-side validation before emitting bomb-center ---
+      const MIN_COORD = 2; // For 3rd line/column (0-indexed)
+      const MAX_COORD_X = 13; // For 14th column (16-1 - 2)
+      const MAX_COORD_Y = 13; // For 14th line (16-1 - 2)
 
       if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
         showMessage("Bomb center must be within the 12x12 area.", true);
@@ -268,22 +245,22 @@ function App() {
         showMessage("All tiles in the bomb's blast area are already revealed.", true);
         return;
       }
+      // --- END CLIENT-SIDE VALIDATION ---
 
-      setMessage("");
-      socketRef.current.emit("bomb-center", { gameId, x, y }); // Use socketRef.current
+      setMessage(""); // Clear message if validation passes
+      socket.emit("bomb-center", { gameId, x, y });
     } else if (playerNumber === turn && !gameOver) {
-      setMessage("");
-      socketRef.current.emit("tile-click", { gameId, x, y }); // Use socketRef.current
+      setMessage(""); // Clear message when clicking a regular tile
+      socket.emit("tile-click", { gameId, x, y });
     }
   };
 
   const useBomb = () => {
-    if (!socketRef.current) return; // Check socketRef.current
     if (bombMode) {
       setBombMode(false);
-      setMessage("");
+      setMessage(""); // Clear message when cancelling
     } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
-      socketRef.current.emit("use-bomb", { gameId }); // Use socketRef.current
+      socket.emit("use-bomb", { gameId });
     } else {
         if (bombsUsed[playerNumber]) {
             showMessage("You have already used your bomb!", true);
@@ -294,8 +271,8 @@ function App() {
   };
 
   const backToLobby = () => {
-    if (gameId && socketRef.current) { // Check socketRef.current
-        socketRef.current.emit("leave-game", { gameId }); // Use socketRef.current
+    if (gameId) {
+        socket.emit("leave-game", { gameId });
     }
 
     setGameId(null);
@@ -308,8 +285,9 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setMessage("");
-    setUnfinishedGames([]);
+    setMessage(""); // Clear message
+    setUnfinishedGames([]); // Clear for re-fetch
+    setLastClickedTile({ 1: null, 2: null }); // NEW: Reset last clicked tile
 };
 
   const logout = async () => {
@@ -318,12 +296,6 @@ function App() {
       method: "GET",
       credentials: "include",
     });
-
-    // Disconnect Socket.IO gracefully before reloading
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
 
     setLoggedIn(false);
     setName("");
@@ -337,7 +309,8 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setMessage("");
+    setMessage(""); // Clear message
+    setLastClickedTile({ 1: null, 2: null }); // NEW: Reset last clicked tile
 	window.location.reload();
   } catch (err) {
     console.error("Logout failed", err);
@@ -349,18 +322,16 @@ function App() {
     if (!tile.revealed) return "";
     if (tile.isMine) {
       if (tile.owner === 1) return <span style={{ color: "red" }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴‍</span>;
+      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴</span>;
       return "";
     }
-    if (tile.adjacentMines > 0) {
-      return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
-    }
-    return "";
+    return tile.adjacentMines > 0 ? tile.adjacentMines : "";
   };
 
+  // --- NEW: Resume Game Function ---
   const resumeGame = (gameIdToResume) => {
-    if (gameIdToResume && socketRef.current) { // Check socketRef.current
-        socketRef.current.emit("resume-game", { gameId: gameIdToResume }); // Use socketRef.current
+    if (gameIdToResume) {
+        socket.emit("resume-game", { gameId: gameIdToResume });
         showMessage("Attempting to resume game...");
     }
   };
@@ -375,10 +346,8 @@ function App() {
         <h2>Login with Google to join the lobby</h2>
         <GoogleLogin
           onLogin={(googleName) => {
-            // After successful Google login, the page will redirect and re-mount App.jsx,
-            // triggering the auth check and socket connection as intended.
-            // No direct socket.emit("join-lobby") here anymore.
-            console.log("Google Login completed. Page will now redirect and re-authenticate.");
+            setName(googleName);
+            socket.emit("join-lobby", googleName);
           }}
         />
       </div>
@@ -388,7 +357,8 @@ function App() {
   if (!gameId) {
     return (
       <div className="lobby">
-        {message && <p className="app-message" style={{color: message.includes("Error") ? 'red' : 'green'}}>{message}</p>}
+        {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>} {/* Show general success messages */}
+        {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>} {/* Show errors in red */}
 
         <h2>Lobby - Online Players</h2>
 		<button onClick={logout} className="bomb-button">Logout</button>
@@ -415,6 +385,7 @@ function App() {
           </div>
         )}
 
+        {/* Unfinished Games List in Lobby */}
         <div className="unfinished-games-section">
             <h3>Your Unfinished Games</h3>
             {unfinishedGames.length === 0 ? (
@@ -434,6 +405,7 @@ function App() {
     );
   }
 
+  // In game UI
   return (
     <div className="app">
       <div className="header">
@@ -457,7 +429,7 @@ function App() {
       </p>
       {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
       <p>
-        Score 🔴 {scores[1]} | � {scores[2]}
+        Score 🔴 {scores[1]} | 🔵 {scores[2]}
       </p>
 
       {gameOver && (
@@ -475,10 +447,15 @@ function App() {
         {board.flatMap((row, y) =>
           row.map((tile, x) => (
             <div
-              key={`${x}-${y}`}
+              key={`${x}-${y}`} // Unique key for each tile
               className={`tile ${
                 tile.revealed ? "revealed" : "hidden"
-              } ${tile.isMine && tile.revealed ? "mine" : ""}`}
+              } ${tile.isMine && tile.revealed ? "mine" : ""} ${
+                // NEW: Add classes for last clicked tile
+                lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
+              } ${
+                lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+              }`}
               onClick={() => handleClick(x, y)}
             >
               {renderTile(tile)}
