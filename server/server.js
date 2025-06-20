@@ -580,7 +580,7 @@ io.on("connection", (socket) => {
             if (playerInExistingGame) {
                 // Update socketId in existing in-memory game object
                 playerInExistingGame.socketId = socket.id;
-                playerInExistingGame.id = socket.id; // Update 'id' property if used for socket.id
+                playerInExistingGame.id = socket.id; // Use socketId as id for consistency
                 playerInExistingGame.inGame = true; // Ensure marked as inGame
                 userSocketMap[userId] = socket.id; // Update global map
 
@@ -672,7 +672,7 @@ io.on("connection", (socket) => {
         }
 
         if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
-            io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName });
+            io.to(opponentInGame.socketId).emit("opponent-reconnected", { name: userName });
             console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
