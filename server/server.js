@@ -435,6 +435,15 @@ io.on("connection", (socket) => {
             if (playerInGame) {
                 playerInGame.socketId = socket.id;
                 playerInGame.id = socket.id; // Use socketId as id for consistency
+                playerInGame.inGame = true; // Ensure marked as inGame
+
+                // NEW: Update opponent's socketId in memory from userSocketMap
+                const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
+                if (opponentPlayer) {
+                    opponentPlayer.socketId = userSocketMap[opponentPlayer.userId] || null; // Will be null if opponent not connected
+                    opponentPlayer.id = opponentPlayer.socketId; // Update id as well
+                }
+
                 console.log(`Re-sent active game state for game ${gameId} to ${playerInGame.name}.`);
             }
             const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
@@ -607,6 +616,11 @@ io.on("connection", (socket) => {
                 userSocketMap[userId] = socket.id; // Update global map
 
                 const opponentPlayer = existingGame.players.find(op => op.userId !== userId);
+                // NEW: Update opponent's socketId in memory from userSocketMap
+                if (opponentPlayer) {
+                    opponentPlayer.socketId = userSocketMap[opponentPlayer.userId] || null; // Will be null if opponent not connected
+                    opponentPlayer.id = opponentPlayer.socketId; // Update id as well
+                }
                 
                 io.to(socket.id).emit("game-start", {
                     gameId: existingGame.gameId,
