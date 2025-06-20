@@ -502,11 +502,8 @@ function App() {
             console.log("Google Login completed via pop-up callback. State will update.");
           }}
         />
-      </div>
-	  <div className="lobby">
-        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
-        <h2>Login with Facebook to join the lobby</h2>
-        <FacebookLogin
+		<h2>Login with Facebook to join the lobby</h2>
+		<FacebookLogin
           onLogin={(facebookName) => {
             // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
             // No direct socket.emit("join-lobby") here anymore.
