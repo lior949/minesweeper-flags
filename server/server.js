@@ -1,6 +1,8 @@
 // server.js
 
 const express = require("express");
+const fetch = require('node-fetch'); // You might need to import fetch if not already available globally in your Node.js version
+const router = express.Router(); // Assuming you're using express.Router or directly app.get
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
@@ -39,6 +41,60 @@ app.use(
     credentials: true, // Allow cookies to be sent cross-origin
   })
 );
+
+// Add this route to your existing Express app
+router.get('/api/get-client-ip', async (req, res) => {
+    try {
+        // Option 1: Get IP from request headers (most common when proxied)
+        // This attempts to get the IP from common proxy headers like X-Forwarded-For
+        // If your server is directly exposed, req.ip or req.connection.remoteAddress might work.
+        // For Render.com, 'x-forwarded-for' is usually reliable.
+        let clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+        // If clientIp is an array (e.g., from X-Forwarded-For with multiple IPs), take the first one
+        if (Array.isArray(clientIp)) {
+            clientIp = clientIp[0];
+        }
+
+        // Clean up clientIp if it includes port (e.g., '::1' or '::ffff:127.0.0.1')
+        if (clientIp && clientIp.includes(':') && !clientIp.startsWith('::')) { // IPv6 with port
+            clientIp = clientIp.split(':').slice(0, -1).join(':');
+        }
+        if (clientIp === '::1' || clientIp === '127.0.0.1' || clientIp === '::ffff:127.0.0.1') {
+            // This means the request came from localhost or a direct local connection to your backend
+            // In a production environment behind a proxy (like Render.com), this is usually not the case.
+            // If it is, you might still need to call ipify.org from the backend.
+            console.warn("Client IP is localhost. Attempting to fetch public IP via ipify.org from backend.");
+            const response = await fetch('https://api.ipify.org?format=json');
+            if (!response.ok) {
+                throw new Error(`Failed to fetch public IP from ipify.org: ${response.status}`);
+            }
+            const data = await response.json();
+            clientIp = data.ip;
+        }
+
+        // If for some reason clientIp is still not resolved, fall back to ipify.org directly from backend
+        if (!clientIp || clientIp.includes('::ffff:')) { // Common pattern for IPv4 mapped IPv6 or if still local
+             console.warn("Client IP not resolved from headers or is IPv6 mapped IPv4. Falling back to ipify.org from backend.");
+             const response = await fetch('https://api.ipify.org?format=json');
+             if (!response.ok) {
+                 throw new Error(`Failed to fetch public IP from ipify.org: ${response.status}`);
+             }
+             const data = await response.json();
+             clientIp = data.ip;
+        }
+
+        if (!clientIp) {
+            throw new Error("Could not determine client IP.");
+        }
+
+        res.json({ ip: clientIp });
+
+    } catch (error) {
+        console.error('Backend IP fetch error:', error);
+        res.status(500).json({ error: 'Failed to retrieve client IP address', details: error.message });
+    }
+});
 
 // === Environment Variables for OAuth (DO NOT HARDCODE IN PRODUCTION) ===
 // These should be set on Render as environment variables.
