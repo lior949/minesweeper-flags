@@ -434,10 +434,17 @@ const checkGameOver = (scores) => {
 
 // Helper to emit the filtered list of players in the lobby
 const emitLobbyPlayersList = () => {
+    console.log(`[emitLobbyPlayersList] Full 'players' array before filtering: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+    console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
+
     // Filter players to show only those NOT currently in an active game
-    const lobbyPlayers = players.filter(p => !userGameMap[p.userId]);
+    const lobbyPlayers = players.filter(p => {
+        const isInGame = !!userGameMap[p.userId]; // Ensure boolean conversion
+        console.log(`[emitLobbyPlayersList Filter] Player ${p.name} (userId: ${p.userId}, socketId: ${p.id}). Is In Game: ${isInGame}`);
+        return !isInGame;
+    });
     io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
-    console.log(`Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}`);
+    console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}. Visible players: ${JSON.stringify(lobbyPlayers.map(p => p.name))}`);
 };
 
 
@@ -451,7 +458,7 @@ io.on("connection", (socket) => {
   const userName = user ? user.displayName : null;
 
   if (userId) {
-    console.log(`User ${userName} (${userId}) (re)connected. Socket ID: ${socket.id}`);
+    console.log(`[Connect] User ${userName} (${userId}) connected. Socket: ${socket.id}. Currently in game map? ${userGameMap[userId] ? 'Yes' : 'No'}.`);
 
     // Always update user-to-socket mapping with the latest socket ID
     userSocketMap[userId] = socket.id;
@@ -533,6 +540,7 @@ io.on("connection", (socket) => {
                 } else {
                     delete userGameMap[userId]; // Game not found or invalid status, clear map
                     console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore, clearing map.`);
+                    emitLobbyPlayersList(); // Re-emit if userGameMap changed
                 }
             }).catch(e => console.error("Error fetching game from Firestore on reconnect:", e));
         } else { // Game found in memory
@@ -578,16 +586,24 @@ io.on("connection", (socket) => {
         return;
     }
 
+    console.log(`[Join Lobby] Player ${userName} (${userId}) attempting to join lobby with socket ID ${socket.id}.`);
+    console.log(`[Join Lobby] Players before filter: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+    
     // Ensure userSocketMap is updated
     userSocketMap[userId] = socket.id;
 
     // Ensure only one entry per userId in the players list, update socket.id if rejoining
     players = players.filter(p => p.userId !== userId);
+    console.log(`[Join Lobby] Players after filter for existing userId: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+
     players.push({ id: socket.id, userId: userId, name: userName }); // Store userId and current socket.id
+    console.log(`[Join Lobby] Players after push: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+
 
     console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined", userName); // Send back the name used
     // Emit updated player list to all connected clients in the lobby (all players now)
+    console.log(`[Join Lobby] Calling emitLobbyPlayersList. Current userGameMap: ${JSON.stringify(userGameMap)}`);
     emitLobbyPlayersList(); // Use the helper
   });
 
@@ -898,6 +914,7 @@ io.on("connection", (socket) => {
           delete games[gameId]; // Clean up in-memory game if DB save fails
           delete userGameMap[inviterPlayer.userId];
           delete userGameMap[respondingPlayer.userId];
+          emitLobbyPlayersList(); // Re-emit lobby list if game creation failed and players should be available
           return;
       }
 
@@ -929,6 +946,7 @@ io.on("connection", (socket) => {
     } else {
       io.to(fromId).emit("invite-rejected", { fromName: respondingPlayer.name });
       console.log(`Invite from ${inviterPlayer.name} rejected by ${respondingPlayer.name}.`);
+      emitLobbyPlayersList(); // Re-emit if invite rejected, to ensure lobby list is accurate
     }
   });
 
@@ -976,6 +994,9 @@ io.on("connection", (socket) => {
       if (checkGameOver(game.scores)) {
           game.gameOver = true;
           console.log(`[Game Over] Game ${gameId} ended. Final Scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+          // Clear userGameMap for both players when game is over
+          game.players.forEach(p => delete userGameMap[p.userId]); // <--- ADDED THIS LINE
+          emitLobbyPlayersList(); // Update lobby list
       }
       // Turn does NOT switch if a mine is revealed.
       // The turn will only switch after a non-mine tile is revealed.
@@ -1001,6 +1022,10 @@ io.on("connection", (socket) => {
         game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
         game.turn = 1; // Reset turn to player 1
         game.gameOver = false; // Game is no longer over
+
+        // Ensure userGameMap is still set for both players if game restarts but isn't completed
+        game.players.forEach(p => userGameMap[p.userId] = gameId); // <--- ADDED THIS LINE
+        emitLobbyPlayersList(); // Update lobby list to ensure players stay 'in game'
 
         try {
           const serializedBoard = JSON.stringify(game.board);
@@ -1149,7 +1174,12 @@ io.on("connection", (socket) => {
     game.bombsUsed[player.number] = true;
     revealArea(game.board, x, y, player.number, game.scores);
 
-    if (checkGameOver(game.scores)) game.gameOver = true;
+    if (checkGameOver(game.scores)) {
+        game.gameOver = true;
+        // Clear userGameMap for both players when game is over
+        game.players.forEach(p => delete userGameMap[p.userId]); // <--- ADDED THIS LINE
+        emitLobbyPlayersList(); // Update lobby list
+    }
     else game.turn = game.turn === 1 ? 2 : 1;
 
     console.log(`Player ${player.name} used bomb at ${x},${y}. New scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
@@ -1205,6 +1235,10 @@ io.on("connection", (socket) => {
     game.bombsUsed = { 1: false, 2: false };
     game.turn = 1;
     game.gameOver = false;
+
+    // Ensure userGameMap entries are still there for both players since the game is restarting, not ending
+    game.players.forEach(p => userGameMap[p.userId] = gameId); // <--- ADDED THIS LINE
+    emitLobbyPlayersList(); // Update lobby list
 
     // Update game state in Firestore
     try {
@@ -1310,60 +1344,63 @@ io.on("connection", (socket) => {
 
   // Socket Disconnect Event (e.g., browser tab closed, network drop)
   socket.on("disconnect", async () => {
-    console.log(`Socket disconnected: ${socket.id}`);
+    console.log(`[Disconnect] Socket disconnected: ${socket.id}`);
     const user = socket.request.session?.passport?.user || null;
     const disconnectedUserId = user ? user.id : null;
+    console.log(`[Disconnect] Disconnected user ID: ${disconnectedUserId}.`);
+
 
     if (disconnectedUserId) {
         // Remove from userSocketMap as this socket is no longer active for this user
         delete userSocketMap[disconnectedUserId];
-        console.log(`User ${disconnectedUserId} socket removed from map.`);
+        console.log(`[Disconnect] User ${disconnectedUserId} socket removed from userSocketMap.`);
     }
 
-    // Remove from lobby player list (by socket.id or userId if known)
-    // Filter out players whose current socket matches the disconnected one, or if they are the disconnected user and not in a game
+    // Remove player from the global 'players' list based on socket.id if they were in the lobby
+    // or if they were a disconnected user not associated with a game
     players = players.filter(p => !(p.id === socket.id || (disconnectedUserId && p.userId === disconnectedUserId && !userGameMap[disconnectedUserId])));
-    emitLobbyPlayersList(); // Use the helper
+    console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+    emitLobbyPlayersList(); // Use the helper to update lobby list
 
 
     // Check if the disconnected user was in a game
     if (disconnectedUserId && userGameMap[disconnectedUserId]) {
         const gameId = userGameMap[disconnectedUserId];
         const game = games[gameId];
+        console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId}.`);
 
         if (game) {
             // Find and update the disconnected player's socketId within the game object
             const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
             if (disconnectedPlayerInGame) {
                 disconnectedPlayerInGame.socketId = null; // Mark their socket as null
-                console.log(`Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
+                console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
             }
 
             // Check if both players are now disconnected (i.e., both have null socketIds)
             const allPlayersDisconnected = game.players.every(p => p.socketId === null);
+            console.log(`[Disconnect] All players in game ${gameId} disconnected: ${allPlayersDisconnected}`);
 
             if (allPlayersDisconnected) {
                 // If both players are disconnected, set status to 'waiting_for_resume'
-                // and do NOT delete the game from memory, as it might be resumed later.
-                // The game will only be truly deleted from memory if the server restarts.
                 game.players.forEach(p => delete userGameMap[p.userId]); // Clear userGameMap for both
-                // Do NOT delete from `games[gameId]` here.
+                console.log(`[Disconnect] userGameMap after clearing for game ${gameId}: ${JSON.stringify(userGameMap)}`);
                 try {
                     await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
-                        status: 'waiting_for_resume', // Change from 'completed' to 'waiting_for_resume'
+                        status: 'waiting_for_resume', 
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
-                    console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore as all players disconnected.`);
+                    console.log(`[Disconnect] Game ${gameId} status set to 'waiting_for_resume' in Firestore as all players disconnected.`);
                 } catch (error) {
-                    console.error("Error updating game status to 'waiting_for_resume' on total disconnect:", error);
+                    console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on total disconnect:", error);
                 }
-                // No `delete games[gameId]` here
+                emitLobbyPlayersList(); // Re-emit lobby list as players might now be available
             } else {
                 // One player disconnected, but the other might still be connected or might reconnect
                 const remainingPlayer = game.players.find(p => p.userId !== disconnectedUserId);
                 if (remainingPlayer && remainingPlayer.socketId) {
                     io.to(remainingPlayer.socketId).emit("opponent-left");
-                    console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
+                    console.log(`[Disconnect] Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
                 }
                 // Update game status in Firestore to 'waiting_for_resume'
                 try {
@@ -1371,14 +1408,15 @@ io.on("connection", (socket) => {
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
-                    console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to disconnect.`);
+                    console.log(`[Disconnect] Game ${gameId} status set to 'waiting_for_resume' in Firestore due to disconnect.`);
                 } catch (error) {
-                    console.error("Error updating game status to 'waiting_for_resume' on disconnect:", error);
+                    console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on disconnect:", error);
                 }
             }
         } else {
             delete userGameMap[disconnectedUserId]; // Game wasn't in memory, just clear the userGameMap entry
-            console.log(`User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
+            console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
+            emitLobbyPlayersList(); // Re-emit if userGameMap changed
         }
     }
   });
