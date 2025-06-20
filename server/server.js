@@ -9,6 +9,9 @@ const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
+const util = require('util'); // Import util for promisify
+const cookieParser = require('cookie-parser'); // Import cookie-parser
+
 
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
@@ -204,9 +207,6 @@ passport.deserializeUser((obj, done) => {
   }
 });
 
-const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
-const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
-
 
 // === Authentication Routes ===
 
@@ -395,7 +395,6 @@ app.get("/me", (req, res) => {
 app.get("/login-failed", (req, res) => {
   res.status(401).send("Login failed. Please try again.");
 });
-
 
 // Global Game Data Structures
 let players = []; // Lobby players: [{ id: socket.id, userId, name }]
@@ -981,7 +980,7 @@ io.on("connection", (socket) => {
           delete games[gameId]; // Clean up in-memory game if DB save fails
           delete userGameMap[inviterPlayer.userId];
           delete userGameMap[respondingPlayer.userId];
-          emitLobbyPlayersList(); // Re-emit lobby list if game creation failed and players should be available
+          emitLobbyPlayersList(); // Re-emit if game creation failed and players should be available
           return;
       }
 
@@ -1389,7 +1388,7 @@ io.on("connection", (socket) => {
           const remainingPlayer = game.players.find(p => p.userId !== userId);
           if (remainingPlayer && remainingPlayer.socketId) {
              io.to(remainingPlayer.socketId).emit("opponent-left");
-             console.log(`Notified opponent ${remainingPlayer.name} that their partner left.`);
+             console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
           }
           // Update game status in Firestore to 'waiting_for_resume'
           try {
