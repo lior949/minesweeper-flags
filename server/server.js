@@ -204,6 +204,9 @@ passport.deserializeUser((obj, done) => {
   }
 });
 
+const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
+const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
+
 
 // === Authentication Routes ===
 
@@ -225,17 +228,34 @@ app.get("/auth/google/callback",
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
-        // If session save fails, redirect to a failure page on frontend
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback?type=AUTH_FAILURE&message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+        // If session save fails, send failure message via postMessage
+        return res.send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Authentication Error</title>
+            <script>
+              window.onload = function() {
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'AUTH_FAILURE', message: '${encodeURIComponent(err.message || 'Authentication failed due to session error.')}' }, 'https://minesweeper-flags-frontend.onrender.com');
+                }
+                window.close();
+              };
+            </script>
+          </head>
+          <body>
+            <p>Authentication failed. Closing window...</p>
+          </body>
+          </html>
+        `);
       }
       console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}. User: ${JSON.stringify(req.user)}`);
       
-      // Redirect the pop-up window itself back to the frontend with data in hash fragment
+      // Redirect the pop-up window itself back to the frontend with data via postMessage
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
       };
-      // Encode user data as JSON and put it in the hash fragment for the frontend AuthCallback component
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -243,9 +263,10 @@ app.get("/auth/google/callback",
           <title>Authentication Complete</title>
           <script>
             window.onload = function() {
-              // Construct the URL with the hash fragment for AuthCallback.jsx
-              const userData = ${JSON.stringify(userData)};
-              window.location.href = 'https://minesweeper-flags-frontend.onrender.com/auth/callback#' + encodeURIComponent(JSON.stringify(userData));
+              if (window.opener) {
+                window.opener.postMessage({ type: 'AUTH_SUCCESS', user: ${JSON.stringify(userData)} }, 'https://minesweeper-flags-frontend.onrender.com');
+              }
+              window.close();
             };
           </script>
         </head>
@@ -276,17 +297,34 @@ app.get("/auth/facebook/callback",
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
-        // If session save fails, redirect to a failure page on frontend
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback?type=AUTH_FAILURE&message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+        // If session save fails, send failure message via postMessage
+        return res.send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Authentication Error</title>
+            <script>
+              window.onload = function() {
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'AUTH_FAILURE', message: '${encodeURIComponent(err.message || 'Authentication failed due to session error.')}' }, 'https://minesweeper-flags-frontend.onrender.com');
+                }
+                window.close();
+              };
+            </script>
+          </head>
+          <body>
+            <p>Authentication failed. Closing window...</p>
+          </body>
+          </html>
+        `);
       }
       console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}. User: ${JSON.stringify(req.user)}`);
       
-      // Redirect the pop-up window itself back to the frontend with data in hash fragment
+      // Redirect the pop-up window itself back to the frontend with data via postMessage
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
       };
-      // Encode user data as JSON and put it in the hash fragment for the frontend AuthCallback component
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -294,8 +332,10 @@ app.get("/auth/facebook/callback",
           <title>Authentication Complete</title>
           <script>
             window.onload = function() {
-              const userData = ${JSON.stringify(userData)};
-              window.location.href = 'https://minesweeper-flags-frontend.onrender.com/auth/callback#' + encodeURIComponent(JSON.stringify(userData));
+              if (window.opener) {
+                window.opener.postMessage({ type: 'AUTH_SUCCESS', user: ${JSON.stringify(userData)} }, 'https://minesweeper-flags-frontend.onrender.com');
+              }
+              window.close();
             };
           </script>
         </head>
