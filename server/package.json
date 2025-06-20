@@ -17,6 +17,6 @@
     "passport-google-oauth20": "^2.0.0",
     "socket.io": "^4.8.1",
     "uuid": "^11.1.0",
-    "connect-redis": "^7.1.1", // Add this line
+    "connect-redis": "^7.1.1"
   }
 }
