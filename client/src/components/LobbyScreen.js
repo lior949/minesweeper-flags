@@ -17,6 +17,7 @@ const LobbyScreen = ({
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
       <div className="bg-gray-800 p-8 rounded-lg shadow-xl text-center w-full max-w-md">
         <div className="header"> {/* Using existing header style */}
+          {/* Debugging parse error: Adding a comment here */}
           <h2 className="text-3xl font-bold text-green-400">Lobby</h2>
           {onLogout && (
             <button onClick={onLogout} className="bomb-button">Logout</button>
