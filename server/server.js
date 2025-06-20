@@ -9,6 +9,7 @@ const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy;
 const { v4: uuidv4 } = require("uuid"); // Ensure you have 'uuid' installed: npm install uuid
+const util = require('util'); // Import util for promisify
 
 // --- Redis Session Store Imports ---
 const RedisStore = require("connect-redis").default;
@@ -100,14 +101,46 @@ redisClient.connect()
     app.use(passport.initialize());
     app.use(passport.session());
 
+    // Promisify deserializeUser for async/await usage in Socket.IO middleware
+    // This allows us to treat deserializeUser as an awaitable function.
+    const deserializeUserPromise = util.promisify(passport.deserializeUser);
 
     // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
-    io.use((socket, next) => {
-        sessionMiddleware(socket.request, {}, () => {
-            passport.initialize()(socket.request, {}, () => {
-                passport.session()(socket.request, {}, next);
+    // This middleware will run for every incoming Socket.IO connection.
+    io.use(async (socket, next) => {
+        const req = socket.request;
+        const res = socket.request.res || {}; // Provide a mock 'res' object for sessionMiddleware, though it might not be fully used.
+
+        try {
+            // Step 1: Ensure the session is loaded from the store and attached to req.session.
+            // We wrap sessionMiddleware in a Promise to await its completion.
+            await new Promise((resolve, reject) => {
+                sessionMiddleware(req, res, (err) => {
+                    if (err) return reject(err); // If session middleware encounters an error, reject.
+                    resolve(); // Resolve when session middleware is done.
+                });
             });
-        });
+
+            // Step 2: After req.session is populated, attempt to deserialize the user.
+            // Check if req.session.passport and req.session.passport.user exist.
+            if (req.session && req.session.passport && req.session.passport.user) {
+                // Call the promisified deserializeUser to get the user object.
+                const user = await deserializeUserPromise(req.session.passport.user);
+                req.user = user; // Attach the deserialized user object to req.user for subsequent handlers.
+                console.log(`Socket.IO middleware: User deserialized and attached: ${user ? user.id : 'N/A'}`);
+            } else {
+                req.user = null; // If no user in session or session data is incomplete, ensure req.user is null.
+                console.log("Socket.IO middleware: No passport user found in session.");
+            }
+
+            // Step 3: Call next() to allow the Socket.IO connection to proceed to io.on('connection').
+            next();
+        } catch (err) {
+            // Catch any errors during session loading or user deserialization.
+            console.error("Socket.IO session/passport middleware error:", err);
+            // Pass the error to Socket.IO, which can optionally send it to the client.
+            next(new Error("Authentication failed during Socket.IO handshake."));
+        }
     });
     // === END Socket.IO Session Integration ===
 
