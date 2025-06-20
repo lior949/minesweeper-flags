@@ -616,7 +616,7 @@ io.on("connection", (socket) => {
                 userSocketMap[userId] = socket.id; // Update global map
 
                 const opponentPlayer = existingGame.players.find(op => op.userId !== userId);
-                // NEW: Update opponent's socketId in memory from userSocketMap
+                // Update opponent's socketId in memory from userSocketMap
                 if (opponentPlayer) {
                     opponentPlayer.socketId = userSocketMap[opponentPlayer.userId] || null; // Will be null if opponent not connected
                     opponentPlayer.id = opponentPlayer.socketId; // Update id as well
@@ -860,7 +860,7 @@ io.on("connection", (socket) => {
 
     const currentUserId = socket.request.user ? socket.request.user.id : null;
     const player = game.players.find((p) => p.userId === currentUserId);
-    if (!player || player.number !== game.turn) return;
+    if (!player || player.number !== game.turn) return; // Turn check
 
     player.socketId = socket.id;
     player.id = socket.id; // Use socketId as id for consistency
@@ -969,6 +969,13 @@ io.on("connection", (socket) => {
     const player = game.players.find((p) => p.userId === currentUserId);
     if (!player || game.bombsUsed[player.number]) return;
 
+    // FIX: Add turn check for "use-bomb"
+    if (player.number !== game.turn) {
+        console.warn(`Player ${player.name} (${player.userId}) attempted to use bomb out of turn in game ${gameId}.`);
+        io.to(player.socketId).emit("bomb-error", "It's not your turn to use a bomb.");
+        return;
+    }
+
     player.socketId = socket.id;
     player.id = socket.id; // Use socketId as id for consistency
 
@@ -988,6 +995,13 @@ io.on("connection", (socket) => {
 
     const player = game.players.find((p) => p.userId === currentUserId);
     if (!player || game.bombsUsed[player.number]) return;
+
+    // FIX: Add turn check for "bomb-center"
+    if (player.number !== game.turn) {
+        console.warn(`Player ${player.name} (${player.userId}) attempted to set bomb center out of turn in game ${gameId}.`);
+        io.to(player.socketId).emit("bomb-error", "It's not your turn to set the bomb center.");
+        return;
+    }
 
     player.socketId = socket.id;
     player.id = socket.id; // Use socketId as id for consistency
@@ -1261,7 +1275,7 @@ io.on("connection", (socket) => {
                 });
                 // Do NOT delete games[gameId] from in-memory here. It stays for resume.
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // FIXED: was .set()
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
@@ -1277,7 +1291,7 @@ io.on("connection", (socket) => {
                     console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
                 }
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // FIXED: was .set()
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
