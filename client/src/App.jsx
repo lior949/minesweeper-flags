@@ -12,6 +12,9 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(false); // Authentication status
   const [playersList, setPlayersList] = useState([]); // List of other players in the lobby
   const [authChecked, setAuthChecked] = useState(false); // State to track if initial auth check is done
+  const [message, setMessage] = useState(""); // General message/error display for UI
+  const [socketConnected, setSocketConnected] = useState(false); // Track raw socket connection
+  const [socketReady, setSocketReady] = useState(false); // Track if socket has full session context
 
   // === Game State ===
   const [gameId, setGameId] = useState(null); // ID of the current game
@@ -73,34 +76,77 @@ function App() {
   // This useEffect will emit "join-lobby" once authentication is confirmed and name is set
   // This is the SOLE place `join-lobby` should be emitted after initial auth.
   useEffect(() => {
-    if (loggedIn && name.trim() && authChecked) {
-      console.log(`Frontend: User authenticated, attempting to join lobby with name: ${name}`);
+    // Only emit join-lobby if logged in, name is set, auth check is done, AND socket is ready (authenticated session available)
+    if (loggedIn && name.trim() && authChecked && socketReady) {
+      console.log(`Frontend: User authenticated and socket ready, attempting to join lobby with name: ${name}`);
       socket.emit("join-lobby", name.trim());
-      // Request unfinished games only after joining the lobby successfully
-      socket.emit("request-unfinished-games");
+      // Request unfinished games only after joining the lobby successfully (handled in lobby-joined)
     } else if (authChecked && !loggedIn) {
         console.log("Frontend: Auth check complete, but not logged in. Waiting for user action.");
     }
-  }, [loggedIn, name, authChecked]); // Dependencies: runs when these states change
+  }, [loggedIn, name, authChecked, socketReady]); // Dependencies: runs when these states change
 
 
+  // --- Socket.IO Connection and Event Listeners ---
   useEffect(() => {
+    socket.on('connect', () => {
+        console.log("Socket.IO connected!");
+        setSocketConnected(true);
+        // Important: You would ideally send a signal from the server
+        // after socket.request.user is populated. For now, we set socketReady here
+        // as well if authChecked and loggedIn, but a server event is more robust.
+        if (loggedIn && authChecked) {
+             // If already logged in and auth checked, assume socket is ready or will be shortly.
+             // A server-emitted 'authenticated-socket-ready' event is best practice.
+            setSocketReady(true); // Tentative: assuming session is linked on connect if already logged in
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log("Socket.IO disconnected!");
+        setSocketConnected(false);
+        setSocketReady(false); // Reset socket readiness on disconnect
+        setMessage("Disconnected from server. Please refresh or try again.");
+    });
+
+    // NEW: Listen for a server-side confirmation that the socket session is ready
+    // You MUST add `socket.emit('authenticated-socket-ready');` in your server.js
+    // after `socket.request.user` is known to be populated.
+    socket.on('authenticated-socket-ready', () => {
+        console.log("Frontend: Authenticated socket ready for game events!");
+        setSocketReady(true);
+        // Clear potential 'authentication required' message after confirmation
+        setMessage("");
+    });
+
+
     socket.on("join-error", (msg) => {
-      alert(msg); // Display error messages from the server.
-      // If join-lobby fails due to auth, force logout on client (ensure it's a hard refresh)
-      setLoggedIn(false);
-      setName("");
-      setAuthChecked(false); // Reset auth check so it runs again
-      // Using window.location.reload() can sometimes hide real issues or create a loop if not careful.
-      // For now, let's keep it if it helps clear client state in tough situations.
-      window.location.reload(); 
+      setMessage(msg); // Display error messages in UI, not alert
+      // Do NOT force reload here to prevent loops. Guide user to re-login if needed.
+      console.error("Join Error:", msg);
+      // If the error is "Authentication required", and we are loggedIn, it's a server sync issue.
+      // We might need to consider forcing a relogin or just retry join-lobby
+      if (msg.includes("Authentication required") && loggedIn) {
+          console.warn("Client is logged in but server says authentication required for join. Retrying lobby join.");
+          // A brief delay before retrying can help.
+          setTimeout(() => {
+            if (loggedIn && name.trim() && authChecked && socketConnected) { // Check all flags again
+                socket.emit("join-lobby", name.trim());
+            }
+          }, 1000); // Wait 1 second before attempting to re-join
+      } else {
+        // Not logged in or different error, suggest manual logout/login
+        setMessage(msg + " Please try logging out and logging back in.");
+      }
     });
 
     socket.on("lobby-joined", (userName) => {
       setLoggedIn(true); // Confirm successful lobby join.
       setName(userName); // Update name, potentially with the server-validated name.
+      setMessage(""); // Clear any previous messages
+      setSocketReady(true); // Confirm socket is ready after successful lobby join
       console.log(`Frontend: Lobby joined successfully as ${userName}!`);
-      // Request unfinished games here again, to ensure it's fetched after a successful lobby join event
+      // Request unfinished games here to ensure it's fetched after a successful lobby join event
       socket.emit("request-unfinished-games");
     });
 
@@ -110,10 +156,11 @@ function App() {
 
     socket.on("game-invite", (inviteData) => {
       setInvite(inviteData); // Store incoming invite data.
+      setMessage(`Invitation from ${inviteData.fromName}`); // Show invite in message area
     });
 
     socket.on("invite-rejected", ({ fromName, reason }) => {
-      alert(`${fromName} rejected your invitation. Reason: ${reason || "N/A"}`); // Notify if invite is rejected.
+      setMessage(`${fromName} rejected your invitation. Reason: ${reason || "N/A"}`); // Notify if invite is rejected.
     });
 
     socket.on("game-start", (data) => {
@@ -130,6 +177,7 @@ function App() {
       setBombMode(false); // Ensure bomb mode is off at game start.
       setBombError(""); // Clear any previous bomb errors
       setUnfinishedGames([]); // Clear unfinished games list when a game starts/resumes
+      setMessage(""); // Clear general messages
       console.log("Frontend: Game started! My player number:", data.playerNumber);
     });
 
@@ -143,11 +191,13 @@ function App() {
       setGameOver(game.gameOver);
       setBombMode(false); // Always reset bomb mode after a board update.
       setBombError(""); // Clear bomb error on board update
+      setMessage(""); // Clear general messages
     });
 
     socket.on("wait-bomb-center", () => {
       setBombMode(true); // Activate bomb selection mode.
       setBombError(""); // Clear previous errors when entering bomb mode
+      setMessage("Select 5x5 bomb center"); // Inform user in message area
     });
 
     socket.on("bomb-error", (msg) => {
@@ -157,7 +207,7 @@ function App() {
     });
 
     socket.on("opponent-left", () => {
-      alert("Opponent left the game. Returning to lobby.");
+      setMessage("Opponent left the game. Returning to lobby."); // Display message in UI
       // Reset all game-related states to return to the lobby view.
       setGameId(null);
       setPlayerNumber(null);
@@ -183,12 +233,13 @@ function App() {
         setOpponentName(data.opponentName);
         setBombMode(false);
         setBombError("");
+        setMessage("Game restarted!"); // Inform user
         console.log("Frontend: Game restarted!");
     });
 
     socket.on("opponent-reconnected", ({ name }) => {
+        setMessage(`${name} reconnected to the game.`);
         console.log(`${name} reconnected to the game.`);
-        // Optionally, display a small message in the UI for a few seconds
     });
 
     socket.on("receive-unfinished-games", (games) => {
@@ -204,6 +255,9 @@ function App() {
 
     // Cleanup function for useEffect: unsubscribe from socket events when component unmounts.
     return () => {
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("authenticated-socket-ready");
       socket.off("join-error");
       socket.off("lobby-joined");
       socket.off("players-list");
@@ -218,7 +272,7 @@ function App() {
       socket.off("opponent-reconnected");
       socket.off("receive-unfinished-games");
     };
-  }, []); // Empty dependency array means this useEffect runs once on mount and cleanup on unmount.
+  }, [loggedIn, authChecked, name]); // Dependencies: re-run if auth states change to re-attach/re-evaluate connect listeners
 
   // --- User Interaction Functions ---
 
@@ -226,7 +280,7 @@ function App() {
     // Only allow inviting if logged in and not inviting self.
     if (loggedIn && id !== socket.id) {
       socket.emit("invite-player", id);
-      alert("Invitation sent.");
+      setMessage("Invitation sent."); // Use setMessage
     }
   };
 
@@ -235,6 +289,7 @@ function App() {
     if (invite) {
       socket.emit("respond-invite", { fromId: invite.fromId, accept });
       setInvite(null); // Clear the invitation after responding.
+      setMessage(""); // Clear invite message
     }
   };
 
@@ -283,6 +338,7 @@ function App() {
       socket.emit("bomb-center", { gameId, x, y });
     } else if (playerNumber === turn && !gameOver) {
       setBombError(""); // Clear error when clicking a regular tile
+      setMessage(""); // Clear any general messages
       socket.emit("tile-click", { gameId, x, y });
     }
   };
@@ -291,6 +347,7 @@ function App() {
     if (bombMode) {
       setBombMode(false); // Cancel bomb mode
       setBombError(""); // Clear error when cancelling
+      setMessage(""); // Clear general messages
     } else if (!bombsUsed[playerNumber] && scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
       socket.emit("use-bomb", { gameId });
     }
@@ -313,12 +370,14 @@ function App() {
     setInvite(null);
     setBombError(""); // Clear bomb error
     setUnfinishedGames([]); // Clear unfinished games list
+    setMessage(""); // Clear general messages
     socket.emit("request-unfinished-games"); // Request updated list for lobby
 };
 
 const resumeGame = (gameToResume) => {
     socket.emit("resume-game", { gameId: gameToResume.gameId });
     setUnfinishedGames([]); // Clear list once attempting to resume
+    setMessage(""); // Clear any messages
 };
 
   const logout = async () => {
@@ -342,10 +401,11 @@ const resumeGame = (gameToResume) => {
     setInvite(null);
     setBombError(""); // Clear bomb error
     setUnfinishedGames([]); // Clear unfinished games list
-	window.location.reload();
+    setMessage("Logged out successfully."); // Use setMessage
+	// window.location.reload(); // Removed to prevent reload loop on auth issues
   } catch (err) {
     console.error("Logout failed", err);
-    alert("Logout failed. Please try again.");
+    setMessage("Logout failed. Please try again."); // Use setMessage
   }
 };
 
@@ -374,6 +434,7 @@ const resumeGame = (gameToResume) => {
     return (
       <div className="lobby">
         <h2>Login with Google to join the lobby</h2>
+        {message && <p className="app-message">{message}</p>} {/* Display general messages here */}
         <GoogleLogin
           onLogin={(googleName) => {
             setName(googleName);
@@ -391,6 +452,8 @@ const resumeGame = (gameToResume) => {
       <div className="lobby">
         <h2>Lobby - Online Players</h2>
         <button onClick={logout} className="bomb-button">Logout</button>
+
+        {message && <p className="app-message">{message}</p>} {/* Display general messages here */}
 
         <h3>Unfinished Games</h3>
         {unfinishedGames.length === 0 ? (
@@ -464,6 +527,7 @@ const resumeGame = (gameToResume) => {
       </p>
       {/* Display bomb error if any */}
       {bombError && <p className="app-message">{bombError}</p>}
+      {message && <p className="app-message">{message}</p>} {/* Display general messages here */}
       <p>
         Score 🔴 {scores[1]} | 🔵 {scores[2]}
       </p>
