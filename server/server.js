@@ -414,7 +414,7 @@ io.on("connection", (socket) => {
 
                     // Set game status to active if it was waiting for resume
                     if (gameData.status === 'waiting_for_resume') {
-                        doc.ref.update({ status: 'active', lastUpdated: Timestamp.now() }).then(() => {
+                        doc.ref.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true }).then(() => {
                             console.log(`Game ${gameId} status updated to 'active' in Firestore on resume.`);
                         }).catch(e => console.error("Error updating game status on resume:", e));
                     }
@@ -669,7 +669,7 @@ io.on("connection", (socket) => {
 
         // Update Firestore status if it was waiting for resume
         if (gameData.status === 'waiting_for_resume') {
-            await gameDocRef.update({ status: 'active', lastUpdated: Timestamp.now() });
+            await gameDocRef.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true });
             console.log(`Game ${gameId} status updated to 'active' in Firestore.`);
         }
 
@@ -784,6 +784,36 @@ io.on("connection", (socket) => {
       userGameMap[respondingPlayer.userId] = gameId;
       console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
 
+      // Save game state to Firestore (with serialized board)
+      try {
+          const serializedBoard = JSON.stringify(game.board); // Serialize board for Firestore
+          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+              gameId: game.gameId,
+              board: serializedBoard, // Save serialized board
+              player1_userId: inviterPlayer.userId,
+              player2_userId: respondingPlayer.userId,
+              player1_name: inviterPlayer.name,
+              player2_name: respondingPlayer.name,
+              turn: game.turn,
+              scores: game.scores,
+              bombsUsed: game.bombsUsed,
+              gameOver: game.gameOver,
+              status: 'active', // Mark as active
+              lastUpdated: Timestamp.now(),
+              winnerId: null,
+              loserId: null
+          }, { merge: true }); // Use merge: true for robustness
+          console.log(`Game ${gameId} saved to Firestore.`);
+      } catch (error) {
+          console.error("Error saving new game to Firestore:", error); // Log the full error object
+          io.to(inviterPlayer.id).emit("join-error", "Failed to start game (DB error).");
+          io.to(respondingPlayer.id).emit("join-error", "Failed to start game (DB error).");
+          delete games[gameId]; // Clean up in-memory game if DB save fails
+          delete userGameMap[inviterPlayer.userId];
+          delete userGameMap[respondingPlayer.userId];
+          return;
+      }
+
       // Remove players from the general lobby list as they are now in a game
       io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
@@ -887,7 +917,7 @@ io.on("connection", (socket) => {
 
         try {
           const serializedBoard = JSON.stringify(game.board);
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
               board: serializedBoard,
               scores: game.scores,
               bombsUsed: game.bombsUsed,
@@ -897,7 +927,7 @@ io.on("connection", (socket) => {
               lastUpdated: Timestamp.now(),
               winnerId: null,
               loserId: null
-          });
+          }, { merge: true });
           console.log(`Game ${gameId} restarted and updated in Firestore.`);
         } catch (error) {
             console.error("Error restarting game in Firestore:", error);
@@ -933,7 +963,7 @@ io.on("connection", (socket) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board);
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
@@ -942,7 +972,7 @@ io.on("connection", (socket) => {
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
             loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null
-        });
+        }, { merge: true });
         console.log(`Game ${gameId} updated in Firestore (tile-click).`);
     } catch (error) {
         console.error("Error updating game in Firestore (tile-click):", error);
@@ -1040,8 +1070,8 @@ io.on("connection", (socket) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: serializedBoard, // Update with serialized board
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
+            board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -1049,7 +1079,7 @@ io.on("connection", (socket) => {
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
             loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null
-        });
+        }, { merge: true });
         console.log(`Game ${gameId} updated in Firestore (bomb-center).`);
     } catch (error) {
         console.error("Error updating game in Firestore (bomb-center):", error); // Log the full error object
@@ -1092,8 +1122,8 @@ io.on("connection", (socket) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-            board: serializedBoard, // Update with serialized board
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
+            board: serializedBoard,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             turn: game.turn,
@@ -1102,7 +1132,7 @@ io.on("connection", (socket) => {
             lastUpdated: Timestamp.now(),
             winnerId: null,
             loserId: null
-        });
+        }, { merge: true });
         console.log(`Game ${gameId} restarted and updated in Firestore.`);
     } catch (error) {
         console.error("Error restarting game in Firestore:", error); // Log the full error object
@@ -1114,7 +1144,7 @@ io.on("connection", (socket) => {
             io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
                 gameId: game.gameId,
                 playerNumber: p.number,
-                board: JSON.stringify(game.board), // Send serialized board to client
+                board: JSON.stringify(game.board),
                 turn: game.turn,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
@@ -1145,10 +1175,10 @@ io.on("connection", (socket) => {
           // If no players left in the game, delete the game from memory and Firestore
           delete games[gameId];
           try {
-              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
                   status: 'completed', // Mark as completed if all players left
                   lastUpdated: Timestamp.now()
-              });
+              }, { merge: true });
               console.log(`Game ${gameId} status set to 'completed' in Firestore as all players left.`);
           }
            catch (error) {
@@ -1164,10 +1194,10 @@ io.on("connection", (socket) => {
           }
           // Update game status in Firestore to 'waiting_for_resume'
           try {
-              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
                   status: 'waiting_for_resume',
                   lastUpdated: Timestamp.now()
-              });
+              }, { merge: true });
               console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to leave.`);
           } catch (error) {
               console.error("Error updating game status to 'waiting_for_resume' on leave:", error);
@@ -1230,10 +1260,10 @@ io.on("connection", (socket) => {
                 game.players.forEach(p => delete userGameMap[p.userId]); // Clear userGameMap for both
                 delete games[gameId];
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
                         status: 'completed',
                         lastUpdated: Timestamp.now()
-                    });
+                    }, { merge: true });
                     console.log(`Game ${gameId} status set to 'completed' in Firestore as all players disconnected.`);
                 } catch (error) {
                     console.error("Error updating game status to 'completed' on total disconnect:", error);
@@ -1248,10 +1278,10 @@ io.on("connection", (socket) => {
                 }
                 // Update game status in Firestore to 'waiting_for_resume'
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
-                    });
+                    }, { merge: true });
                     console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to disconnect.`);
                 } catch (error) {
                     console.error("Error updating game status to 'waiting_for_resume' on disconnect:", error);
