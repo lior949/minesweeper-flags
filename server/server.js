@@ -205,7 +205,12 @@ app.get("/auth/google/callback",
       }
       console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
       
-      // Directly send HTML to the popup that sends a message to opener and closes itself
+      // NEW: Redirect the pop-up window itself back to the frontend with data in hash fragment
+      const userData = {
+        id: req.user.id,
+        displayName: req.user.displayName
+      };
+      // Encode user data as JSON and put it in the hash fragment
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -213,27 +218,13 @@ app.get("/auth/google/callback",
           <title>Authentication Complete</title>
           <script>
             window.onload = function() {
-              if (window.opener) {
-                // Send message to the opener window
-                window.opener.postMessage(
-                  { 
-                    type: 'authSuccess', 
-                    payload: { 
-                      user: { 
-                        id: '${req.user.id}', 
-                        displayName: '${encodeURIComponent(req.user.displayName)}' 
-                      } 
-                    } 
-                  },
-                  'https://minesweeper-flags-frontend.onrender.com' // Specify the exact origin of your main frontend
-                );
-              }
-              window.close(); // Close the pop-up window
+              const userData = ${JSON.stringify(userData)};
+              window.location.href = 'https://minesweeper-flags-frontend.onrender.com/auth/callback#' + encodeURIComponent(JSON.stringify(userData));
             };
           </script>
         </head>
         <body>
-          <p>Authentication successful. Please close this window or it will close automatically.</p>
+          <p>Authentication successful. Redirecting...</p>
         </body>
         </html>
       `);
@@ -260,7 +251,12 @@ app.get("/auth/facebook/callback",
       }
       console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
       
-      // Directly send HTML to the popup that sends a message to opener and closes itself
+      // NEW: Redirect the pop-up window itself back to the frontend with data in hash fragment
+      const userData = {
+        id: req.user.id,
+        displayName: req.user.displayName
+      };
+      // Encode user data as JSON and put it in the hash fragment
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -268,26 +264,13 @@ app.get("/auth/facebook/callback",
           <title>Authentication Complete</title>
           <script>
             window.onload = function() {
-              if (window.opener) {
-                window.opener.postMessage(
-                  { 
-                    type: 'authSuccess', 
-                    payload: { 
-                      user: { 
-                        id: '${req.user.id}', 
-                        displayName: '${encodeURIComponent(req.user.displayName)}' 
-                      } 
-                    } 
-                  },
-                  'https://minesweeper-flags-frontend.onrender.com' 
-                );
-              }
-              window.close();
+              const userData = ${JSON.stringify(userData)};
+              window.location.href = 'https://minesweeper-flags-frontend.onrender.com/auth/callback#' + encodeURIComponent(JSON.stringify(userData));
             };
           </script>
         </head>
         <body>
-          <p>Authentication successful. Please close this window or it will close automatically.</p>
+          <p>Authentication successful. Redirecting...</p>
         </body>
         </html>
       `);
@@ -1149,10 +1132,11 @@ io.on("connection", (socket) => {
     let allTilesRevealed = true;
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
-        const checkX = x + dx;
-        const checkY = y + dy;
-        if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) {
-          if (!game.board[checkY][checkX].revealed) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+          const tile = board[y][x];
+          if (!tile.revealed) {
             allTilesRevealed = false;
             break;
           }
@@ -1400,7 +1384,7 @@ io.on("connection", (socket) => {
                 const remainingPlayer = game.players.find(p => p.userId !== disconnectedUserId);
                 if (remainingPlayer && remainingPlayer.socketId) {
                     io.to(remainingPlayer.socketId).emit("opponent-left");
-                    console.log(`[Disconnect] Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
+                    console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
                 }
                 // Update game status in Firestore to 'waiting_for_resume'
                 try {
