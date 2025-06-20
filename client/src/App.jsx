@@ -6,15 +6,10 @@ import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component e
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css";
 
-function App() {
-  // NEW: Determine if this is the OAuth callback window
-  const isAuthCallback = window.location.pathname === '/auth/callback';
-
-  // If this is the AuthCallback window, render only the AuthCallback component
-  // and prevent the main App logic from running
-  if (isAuthCallback) {
-    return <AuthCallback />;
-  }
+// Helper function: Converts an ArrayBuffer to a hexadecimal string.
+const bufferToHex = (buffer) => {
+    return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
+};
 
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 // This function takes a portion of the SHA-256 hash, converts it to a decimal number,
@@ -40,27 +35,33 @@ const generate5DigitGuestId = async (message) => {
 
     } catch (err) {
         console.error("Error generating 5-digit guest ID:", err);
-        throw new Error("Failed to generate 5-digit guest ID from IP address.");
+        throw new Error("Failed to generate 5-digit guest ID from UUID.");
     }
 };
 
-// Helper function: Fetches the user's public IP address from ipify.org.
-const getPublicIpAddress = async () => {
-    try {
-        const response = await fetch('https://minesweeper-flags-backend.onrender.com/api/get-client-ip', {
-            method: 'GET',
-            credentials: 'include', // Important for session cookies if your backend needs them
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        return data.ip; // Return the IP address from the response
-    } catch (err) {
-        console.error("Error fetching IP address:", err);
-        throw new Error("Could not retrieve IP address for guest ID generation. Please check your network connection.");
+// Helper function: Generates or retrieves a persistent UUID for the device/browser.
+const getDeviceUuid = () => {
+    let deviceUuid = localStorage.getItem('guestDeviceId');
+    if (!deviceUuid) {
+        // Generate a new UUID if one doesn't exist
+        deviceUuid = crypto.randomUUID(); 
+        localStorage.setItem('guestDeviceId', deviceUuid); // Store it for future use
+        console.log("Generated new guestDeviceId:", deviceUuid);
+    } else {
+        console.log("Using existing guestDeviceId:", deviceUuid);
     }
+    return deviceUuid;
 };
+
+function App() {
+  // NEW: Determine if this is the OAuth callback window
+  const isAuthCallback = window.location.pathname === '/auth/callback';
+
+  // If this is the AuthCallback window, render only the AuthCallback component
+  // and prevent the main App logic from running
+  if (isAuthCallback) {
+    return <AuthCallback />;
+  }
 
   // If not the AuthCallback window, proceed with the main App logic
   console.log("App component rendered (main application).");
@@ -384,19 +385,19 @@ const getPublicIpAddress = async () => {
     let guestId;
 try {
       // Attempt to get a 5-digit guest ID based on IP
-      const userIp = await getPublicIpAddress();
-      guestId = await generate5DigitGuestId(userIp);
+      const deviceUuid = getDeviceUuid();
+      guestId = await generate5DigitGuestId(deviceUuid);
       // Prepend 'guest_' to distinguish from other user IDs on the backend if needed
-      guestId = `guest_${guestId}`; 
+      guestId = `guest_${guestId}`;
       
       // Store the generated guest ID in localStorage for persistence across sessions
-      localStorage.setItem('guestId', guestId);
+      //localStorage.setItem('guestId', guestId);
 
     } catch (error) {
       console.error("Error generating guest ID based on IP:", error);
       // Fallback: If IP-based ID generation fails, use a simple timestamp-based ID
       guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
-      localStorage.setItem('guestId', guestId);
+      //localStorage.setItem('guestId', guestId);
 showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}`, true);
     }
 
