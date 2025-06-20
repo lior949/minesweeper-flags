@@ -16,6 +16,49 @@ function App() {
     return <AuthCallback />;
   }
 
+// Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
+// This function takes a portion of the SHA-256 hash, converts it to a decimal number,
+// and then takes the modulo 100,000 to get a 5-digit number, padded with leading zeros.
+const generate5DigitGuestId = async (message) => {
+    try {
+        const msgBuffer = new TextEncoder().encode(message); // Encode message as UTF-8
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer); // Hash the message
+        const fullHashHex = bufferToHex(hashBuffer); // Convert full hash to hex string
+
+        // Take a portion of the hash (e.g., first 8 characters) to convert to a number
+        // Using a slice helps ensure enough entropy for the conversion
+        const hashPortion = fullHashHex.substring(0, 8); // e.g., "a1b2c3d4"
+        
+        // Convert the hexadecimal portion to an integer
+        const decimalValue = parseInt(hashPortion, 16); // e.g., 2712845268
+
+        // Take modulo 100,000 to get a 5-digit number (0-99999)
+        const fiveDigitNumber = decimalValue % 100000;
+
+        // Pad with leading zeros to ensure it's always 5 digits
+        return String(fiveDigitNumber).padStart(5, '0');
+
+    } catch (err) {
+        console.error("Error generating 5-digit guest ID:", err);
+        throw new Error("Failed to generate 5-digit guest ID from IP address.");
+    }
+};
+
+// Helper function: Fetches the user's public IP address from ipify.org.
+const getPublicIpAddress = async () => {
+    try {
+        const response = await fetch('https://api.ipify.org?format=json');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.ip; // Return the IP address from the response
+    } catch (err) {
+        console.error("Error fetching IP address:", err);
+        throw new Error("Could not retrieve IP address for guest ID generation. Please check your network connection.");
+    }
+};
+
   // If not the AuthCallback window, proceed with the main App logic
   console.log("App component rendered (main application).");
 
@@ -335,10 +378,23 @@ function App() {
 
   // NEW: Function to handle Guest Login
   const loginAsGuest = async () => {
-    let guestId = localStorage.getItem('guestId');
-    if (!guestId) {
-      guestId = `guest_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+    let guestId;
+try {
+      // Attempt to get a 5-digit guest ID based on IP
+      const userIp = await getPublicIpAddress();
+      guestId = await generate5DigitGuestId(userIp);
+      // Prepend 'guest_' to distinguish from other user IDs on the backend if needed
+      guestId = `guest_${guestId}`; 
+      
+      // Store the generated guest ID in localStorage for persistence across sessions
       localStorage.setItem('guestId', guestId);
+
+    } catch (error) {
+      console.error("Error generating guest ID based on IP:", error);
+      // Fallback: If IP-based ID generation fails, use a simple timestamp-based ID
+      guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+      localStorage.setItem('guestId', guestId);
+showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}`, true);
     }
 
     try {
