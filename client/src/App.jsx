@@ -47,7 +47,10 @@ const generate5DigitGuestId = async (message) => {
 // Helper function: Fetches the user's public IP address from ipify.org.
 const getPublicIpAddress = async () => {
     try {
-        const response = await fetch('https://api.ipify.org?format=json');
+        const response = await fetch('https://minesweeper-flags-backend.onrender.com/api/get-client-ip', {
+            method: 'GET',
+            credentials: 'include', // Important for session cookies if your backend needs them
+        });
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
