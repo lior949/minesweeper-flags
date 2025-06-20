@@ -201,11 +201,42 @@ app.get("/auth/google/callback",
       if (err) {
         console.error("Error saving session after Google auth:", err);
         // Redirect to a failure page with an error message
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/login-failed?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
       console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
-      // Redirect to the AuthCallback.jsx route with user data in query params
-      res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
+      
+      // Directly send HTML to the popup that sends a message to opener and closes itself
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Authentication Complete</title>
+          <script>
+            window.onload = function() {
+              if (window.opener) {
+                // Send message to the opener window
+                window.opener.postMessage(
+                  { 
+                    type: 'authSuccess', 
+                    payload: { 
+                      user: { 
+                        id: '${req.user.id}', 
+                        displayName: '${encodeURIComponent(req.user.displayName)}' 
+                      } 
+                    } 
+                  },
+                  'https://minesweeper-flags-frontend.onrender.com' // Specify the exact origin of your main frontend
+                );
+              }
+              window.close(); // Close the pop-up window
+            };
+          </script>
+        </head>
+        <body>
+          <p>Authentication successful. Please close this window or it will close automatically.</p>
+        </body>
+        </html>
+      `);
     });
   }
 );
@@ -225,11 +256,41 @@ app.get("/auth/facebook/callback",
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
         // Redirect to a failure page with an error message
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/login-failed?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
       console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
-      // Redirect to the AuthCallback.jsx route with user data in query params
-      res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
+      
+      // Directly send HTML to the popup that sends a message to opener and closes itself
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Authentication Complete</title>
+          <script>
+            window.onload = function() {
+              if (window.opener) {
+                window.opener.postMessage(
+                  { 
+                    type: 'authSuccess', 
+                    payload: { 
+                      user: { 
+                        id: '${req.user.id}', 
+                        displayName: '${encodeURIComponent(req.user.displayName)}' 
+                      } 
+                    } 
+                  },
+                  'https://minesweeper-flags-frontend.onrender.com' 
+                );
+              }
+              window.close();
+            };
+          </script>
+        </head>
+        <body>
+          <p>Authentication successful. Please close this window or it will close automatically.</p>
+        </body>
+        </html>
+      `);
     });
   }
 );
@@ -629,7 +690,7 @@ io.on("connection", (socket) => {
                     turn: existingGame.turn,
                     scores: existingGame.scores,
                     bombsUsed: existingGame.bombsUsed,
-                    gameOver: existingGame.gameOver,
+                    gameOver: existing.gameOver,
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
                 console.log(`User ${userName} re-associated socket ID for active game ${gameId}.`);
