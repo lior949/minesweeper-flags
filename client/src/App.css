@@ -136,37 +136,21 @@ body {
 .tile.revealed {
   background-color: #333;
   border: 1px solid #555;
-  color: #eee;
+  color: #eee; /* Default text color for revealed, non-mine tiles */
   /* Ensure no transition applies when it becomes revealed, for instant change */
   transition: none;
 }
 
 /* Colors for adjacent mine numbers */
-.tile.revealed:not(.mine) {
-  /* Specific colors for numbers */
-  color: #aaffaa; /* Green for 1 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="2"] {
-  color: #aaddff; /* Light Blue for 2 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="3"] {
-  color: #ffaaaa; /* Light Red for 3 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="4"] {
-  color: #ffccaa; /* Orange for 4 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="5"] {
-  color: #ffaaee; /* Pink for 5 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="6"] {
-  color: #eeffaa; /* Light Yellow-Green for 6 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="7"] {
-  color: #aaeeff; /* Cyan for 7 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="8"] {
-  color: #ffeeaa; /* Light Gold for 8 */
-}
+.number-1 { color: #0000FF; } /* Blue */
+.number-2 { color: #008000; } /* Green */
+.number-3 { color: #FF0000; } /* Red */
+.number-4 { color: #800080; } /* Purple */
+.number-5 { color: #CD853F; } /* Peru (light brown) */
+.number-6 { color: #008B8B; } /* Dark Cyan (cyan) */
+.number-7 { color: #000000; } /* Black */
+.number-8 { color: #8B4513; } /* SaddleBrown (dark brown) */
+
 
 /* Base styles for Google Login component (if any specific styling is needed) */
 .google-login-button {
