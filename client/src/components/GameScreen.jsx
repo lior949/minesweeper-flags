@@ -1,4 +1,4 @@
-// src/components/GameScreen.js
+// src/components/GameScreen.jsx
 import React from 'react';
 
 const GameScreen = ({
@@ -36,8 +36,8 @@ const GameScreen = ({
     
     if (!tile.revealed) return '';
     if (tile.isMine) {
-      if (tile.owner === 1) return <span style={{ color: 'red' }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: 'blue' }}>🏴</span>;
+      if (tile.owner === 1) return <span style={{ color: 'red', fontSize: '24px' }}>🚩</span>;
+      if (tile.owner === 2) return <span style={{ color: 'blue', fontSize: '24px' }}>🏴</span>;
       return ''; // Fallback for mines without owner (shouldn't occur)
     }
     // For non-mine revealed tiles, show adjacent mine count
@@ -48,7 +48,7 @@ const GameScreen = ({
   const renderBombTarget = (x, y) => {
     if (!bombMode || !board.length || !board[0].length) return ''; // Only show in bomb mode with a board
 
-    const MIN_BOMB_X = 2; // Board is 0-indexed, so x=2 is 3rd col
+    const MIN_BOMB_X = 2; // For 3rd column (0-indexed)
     const MAX_BOMB_X = board[0].length - 3; // 16 - 3 = 13 (14th col)
     const MIN_BOMB_Y = 2; // y=2 is 3rd row
     const MAX_BOMB_Y = board.length - 3; // 16 - 3 = 13 (14th row)
@@ -131,4 +131,3 @@ const GameScreen = ({
 };
 
 export default GameScreen;
-
