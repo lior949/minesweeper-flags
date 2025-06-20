@@ -106,38 +106,38 @@ redisClient.connect()
 
     // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
     // This middleware will run for every incoming Socket.IO connection.
-    io.use((socket, next) => {
+    io.use(async (socket, next) => {
         const req = socket.request;
-        // Provide a robust mock 'res' object for session and passport middleware compatibility
-        const res = {
-            writeHead: () => {},
-            setHeader: () => {},
-            end: () => {}
-        };
-        // Ensure the mocked res is attached if not already present.
-        // This is important because sessionMiddleware might use it internally.
-        socket.request.res = res;
+        const res = {}; // Minimal mock res object, some session stores might touch it
 
-        // Chain middleware calls to ensure proper order and session loading
-        sessionMiddleware(req, res, (err) => {
-            if (err) {
-                console.error("Socket.IO session middleware error:", err);
-                return next(new Error("Session error during Socket.IO handshake."));
-            }
-            console.log(`[Socket.IO Auth] After sessionMiddleware for ${socket.id}. Session ID: ${req.sessionID}. Session exists: ${!!req.session}`);
-
-            passport.initialize()(req, res, () => {
-                passport.session()(req, res, () => {
-                    // At this point, req.user should be populated if authentication was successful.
-                    if (req.user) {
-                        console.log(`[Socket.IO Auth] User authenticated via session: ${req.user.displayName || req.user.id}`);
-                    } else {
-                        console.log(`[Socket.IO Auth] User NOT authenticated after passport.session() for ${socket.id}.`);
-                    }
-                    next(); // Allow the connection to proceed
+        try {
+            // Apply session middleware to parse cookies and load session from store
+            // We use a Promise wrapper to make it awaitable.
+            await new Promise((resolve, reject) => {
+                sessionMiddleware(req, res, (err) => {
+                    if (err) return reject(err);
+                    resolve();
                 });
             });
-        });
+
+            console.log(`[Socket.IO Auth] After sessionMiddleware for ${socket.id}. Session ID: ${req.sessionID}. Session exists: ${!!req.session}`);
+            console.log(`[Socket.IO Auth] Session.passport exists: ${!!req.session?.passport}`);
+            console.log(`[Socket.IO Auth] Session.passport.user: ${JSON.stringify(req.session?.passport?.user)}`);
+
+            // If session is loaded and contains passport user data, manually deserialize it
+            if (req.session && req.session.passport && req.session.passport.user) {
+                // Call the promisified deserializeUser to get the user object.
+                req.user = await deserializeUserPromise(req.session.passport.user);
+                console.log(`[Socket.IO Auth] User deserialized and attached: ${req.user ? req.user.displayName || req.user.id : 'N/A'}`);
+            } else {
+                req.user = null; // Ensure req.user is null if no passport user data is found
+                console.log("Socket.IO Auth: No passport user found in session after sessionMiddleware.");
+            }
+            next(); // Allow the connection to proceed
+        } catch (err) {
+            console.error("Socket.IO authentication middleware error:", err);
+            next(new Error("Authentication failed during Socket.IO handshake."));
+        }
     });
     // === END Socket.IO Session Integration ===
 
@@ -146,8 +146,7 @@ redisClient.connect()
       clientSecret: GOOGLE_CLIENT_SECRET,
       callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
     }, (accessToken, refreshToken, profile, done) => {
-      console.log("Google Auth Profile:", profile.displayName, profile.id);
-      // Store a simple object with id and displayName
+      console.log(`[Passport Callback] Google Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
       done(null, { id: profile.id, displayName: profile.displayName });
     }));
 
@@ -158,20 +157,19 @@ redisClient.connect()
         profileFields: ['id', 'displayName', 'photos', 'email']
       },
       function(accessToken, refreshToken, profile, cb) {
-        console.log("Facebook Auth Profile:", profile.displayName, profile.id);
-        // Store a simple object with id and displayName
+        console.log(`[Passport Callback] Facebook Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
         cb(null, { id: profile.id, displayName: profile.displayName });
       }
     ));
 
 
     passport.serializeUser((user, done) => {
-      // Serialize the user object (containing id and displayName)
+      console.log(`[Passport] serializeUser: Serializing user - ID: ${user.id}, Name: ${user.displayName || user.name}`);
       done(null, user);
     });
 
     passport.deserializeUser((user, done) => {
-      // Deserialize the user object
+      console.log(`[Passport] deserializeUser: Deserializing user - ID: ${user.id}, Name: ${user.displayName || user.name}`);
       done(null, user);
     });
 
@@ -197,7 +195,7 @@ redisClient.connect()
           res.clearCookie("connect.sid", {
               path: '/',
               domain: '.onrender.com', // Crucial for clearing cross-domain cookies
-              secure: true,
+              secure: process.env.NODE_ENV === 'production',
               sameSite: 'none'
           });
           console.log("User logged out and session destroyed.");
