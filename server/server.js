@@ -22,12 +22,13 @@ const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
 const app = express();
+app.use(express.json()); // Enable parsing of JSON body for guest login
 // IMPORTANT: Add this line to trust proxy headers when deployed to Render
 app.set('trust proxy', 1); 
 const server = http.createServer(app);
 
 // New global data structures for robust player tracking across reconnections
-const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID)
+const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID, Guest ID)
 const userGameMap = {};   // Maps userId to the gameId they are currently in
 
 // Configure CORS for Express
@@ -57,10 +58,6 @@ const HEIGHT = 16;
 const MINES = 51;
 const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
 const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
-
-// Determine cookie domain dynamically for production vs local development
-const NODE_ENV = process.env.NODE_ENV || 'development';
-
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -278,6 +275,26 @@ app.get("/auth/facebook/callback",
   }
 );
 
+// NEW: Guest Login Route
+app.post("/auth/guest", (req, res) => {
+    const { guestId } = req.body;
+    if (!guestId) {
+        return res.status(400).json({ message: "Guest ID is required." });
+    }
+
+    // Set user data directly in the session for guest
+    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` } };
+
+    req.session.save((err) => {
+        if (err) {
+            console.error("Error saving guest session:", err);
+            return res.status(500).json({ message: "Failed to create guest session." });
+        }
+        console.log(`Guest session saved: ${guestId}`);
+        res.status(200).json({ user: req.session.passport.user });
+    });
+});
+
 
 // Logout Route
 app.get("/logout", (req, res, next) => {
@@ -310,7 +327,10 @@ app.get("/me", (req, res) => {
 
   if (req.isAuthenticated() && req.user) {
     res.json({ user: req.user }); // req.user now contains id and displayName
-  } else {
+  } else if (req.session?.passport?.user) { // Check for guest user explicitly if Passport.js didn't authenticate
+      res.json({ user: req.session.passport.user });
+  }
+  else {
     res.status(401).json({ error: "Not authenticated" });
   }
   console.log("------------------------------------------------------------");
@@ -738,7 +758,6 @@ io.on("connection", (socket) => {
             players.push(player1);
         }
         player1.socketId = userSocketMap[p1UserId] || null; // Get current socket ID from map
-        player1.inGame = true; // Mark as in game
 
         let player2 = players.find(p => p.userId === p2UserId);
         if (!player2) {
@@ -746,7 +765,6 @@ io.on("connection", (socket) => {
             players.push(player2);
         }
         player2.socketId = userSocketMap[p2UserId] || null; // Get current socket ID from map
-        player2.inGame = true; // Mark as in game
 
         game.players = [player1, player2];
         games[gameId] = game; // Add game to in-memory active games
@@ -1389,7 +1407,7 @@ io.on("connection", (socket) => {
                         status: 'waiting_for_resume', 
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
-                    console.log(`[Disconnect] Game ${gameId} status set to 'waiting_for_resume' in Firestore as all players disconnected.`);
+                    console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore as all players disconnected.`);
                 } catch (error) {
                     console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on total disconnect:", error);
                 }
