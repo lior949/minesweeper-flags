@@ -1,4 +1,4 @@
-// src/components/AuthCallback.js
+// src/components/AuthCallback.jsx
 import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 
