@@ -106,52 +106,38 @@ redisClient.connect()
 
     // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
     // This middleware will run for every incoming Socket.IO connection.
-    io.use(async (socket, next) => {
+    io.use((socket, next) => {
         const req = socket.request;
-        // A dummy res object is not strictly necessary for manual session loading/passport deserialization here
-        // but is kept for consistency with how Express middleware might expect it.
-        const res = {}; // Minimal mock res object
+        // Provide a robust mock 'res' object for session and passport middleware compatibility
+        const res = {
+            writeHead: () => {},
+            setHeader: () => {},
+            end: () => {}
+        };
+        // Ensure the mocked res is attached if not already present.
+        // This is important because sessionMiddleware might use it internally.
+        socket.request.res = res;
 
-        // Check for session ID and attempt to load session manually from the store.
-        if (req.sessionID && sessionMiddleware.store) {
-            try {
-                // Explicitly get the session data from the store.
-                const sessionFromStore = await new Promise((resolve, reject) => {
-                    sessionMiddleware.store.get(req.sessionID, (err, session) => {
-                        if (err) return reject(err);
-                        resolve(session);
-                    });
-                });
-
-                if (sessionFromStore) {
-                    req.session = sessionFromStore; // Attach the loaded session to the request.
-                    console.log(`Socket.IO middleware: Session loaded for ID ${req.sessionID}. Passport user data: ${JSON.stringify(sessionFromStore.passport?.user)}`);
-
-                    // If the session contains Passport user data, deserialize it.
-                    if (req.session.passport && req.session.passport.user) {
-                        const user = await deserializeUserPromise(req.session.passport.user);
-                        req.user = user; // Attach the deserialized user object.
-                        console.log(`Socket.IO middleware: User deserialized and attached: ${user ? user.id : 'N/A'}`);
-                    } else {
-                        req.user = null; // No passport user data in session.
-                        console.log("Socket.IO middleware: Loaded session has no passport user.");
-                    }
-                } else {
-                    req.session = null; // No session found in the store for this ID.
-                    req.user = null;
-                    console.log(`Socket.IO middleware: No session found in store for ID ${req.sessionID}.`);
-                }
-            } catch (err) {
-                console.error("Socket.IO middleware: Error loading session from store:", err);
-                req.session = null;
-                req.user = null;
+        // Chain middleware calls to ensure proper order and session loading
+        sessionMiddleware(req, res, (err) => {
+            if (err) {
+                console.error("Socket.IO session middleware error:", err);
+                return next(new Error("Session error during Socket.IO handshake."));
             }
-        } else {
-            req.session = null; // No session ID on request or session store not initialized/available.
-            req.user = null;
-            console.log("Socket.IO middleware: No session ID on request or session store not available.");
-        }
-        next(); // Proceed to io.on("connection").
+            console.log(`[Socket.IO Auth] After sessionMiddleware for ${socket.id}. Session ID: ${req.sessionID}. Session exists: ${!!req.session}`);
+
+            passport.initialize()(req, res, () => {
+                passport.session()(req, res, () => {
+                    // At this point, req.user should be populated if authentication was successful.
+                    if (req.user) {
+                        console.log(`[Socket.IO Auth] User authenticated via session: ${req.user.displayName || req.user.id}`);
+                    } else {
+                        console.log(`[Socket.IO Auth] User NOT authenticated after passport.session() for ${socket.id}.`);
+                    }
+                    next(); // Allow the connection to proceed
+                });
+            });
+        });
     });
     // === END Socket.IO Session Integration ===
 
