@@ -309,7 +309,6 @@ function App() {
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setMessage(""); // Clear message
     setLastClickedTile({ 1: null, 2: null }); // NEW: Reset last clicked tile
 	window.location.reload();
   } catch (err) {
@@ -325,7 +324,14 @@ function App() {
       if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴</span>;
       return "";
     }
-    return tile.adjacentMines > 0 ? tile.adjacentMines : "";
+    // Corrected: Wrap the number in a span with the appropriate class for coloring
+    return tile.adjacentMines > 0 ? (
+      <span className={`number-${tile.adjacentMines}`}>
+        {tile.adjacentMines}
+      </span>
+    ) : (
+      ""
+    );
   };
 
   // --- NEW: Resume Game Function ---
@@ -433,9 +439,14 @@ function App() {
       </p>
 
       {gameOver && (
-        <button className="bomb-button" onClick={backToLobby}>
-          Back to Lobby
-        </button>
+        <>
+            <button className="bomb-button" onClick={backToLobby}>
+              Back to Lobby
+            </button>
+            <button className="bomb-button" onClick={() => socket.emit("restart-game", { gameId })}>
+              Restart Game
+            </button>
+        </>
       )}
 
       <div
