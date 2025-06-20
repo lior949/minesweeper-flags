@@ -93,7 +93,7 @@ try {
 
   // Promisify deserializeUser for async/await usage
   const deserializeUserPromise = util.promisify(passport.deserializeUser);
-  const sessionStoreGetPromise = util.promisify(sessionMiddleware.store.get).bind(sessionMiddleware.store); // Promisify store.get
+  // Removed: const sessionStoreGetPromise = util.promisify(sessionMiddleware.store.get).bind(sessionMiddleware.store); // Promisify store.get
 
   // === IMPORTANT: Integrate session and passport with Socket.IO directly ===
   io.use(async (socket, next) => {
@@ -112,7 +112,8 @@ try {
 
       try {
           // Manually load session from the FirestoreStore
-          const sessionData = await sessionStoreGetPromise(sessionId);
+          // Changed: Directly use sessionMiddleware.store.get which is already async
+          const sessionData = await sessionMiddleware.store.get(sessionId);
 
           if (sessionData) {
               req.session = sessionData; // Attach the loaded session to req.session
