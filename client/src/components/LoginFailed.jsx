@@ -1,4 +1,4 @@
-// src/components/LoginFailedScreen.js
+// src/components/LoginFailedScreen.jsx
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 
