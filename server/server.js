@@ -95,6 +95,8 @@ try {
   // --- NEW LOGGING: Log raw cookies on every HTTP request ---
   app.use((req, res, next) => {
     console.log(`[HTTP Request Debug] Path: ${req.path}, Raw Cookies Header: ${req.headers.cookie}`);
+    console.log(`[HTTP Request Debug] Path: ${req.path}, Parsed Signed Cookies: ${JSON.stringify(req.signedCookies)}`);
+    console.log(`[HTTP Request Debug] Path: ${req.path}, Parsed Unsigned Cookies: ${JSON.stringify(req.cookies)}`);
     next();
   });
   // --- END NEW LOGGING ---
@@ -240,10 +242,12 @@ app.get("/auth/facebook/callback",
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
+        res.status(500).json({ success: false, message: "Error saving session" });
       } else {
         console.log(`[Session Save] Session successfully saved after Facebook auth. Session ID: ${req.sessionID}`);
+        // Send JSON response instead of redirecting
+        res.json({ success: true, user: { id: req.user.id, displayName: req.user.displayName } });
       }
-      res.redirect("https://minesweeper-flags-frontend.onrender.com");
     });
   }
 );
@@ -261,10 +265,12 @@ app.get("/auth/google/callback",
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
+        res.status(500).json({ success: false, message: "Error saving session" });
       } else {
         console.log(`[Session Save] Session successfully saved after Google auth. Session ID: ${req.sessionID}`);
+        // Send JSON response instead of redirecting
+        res.json({ success: true, user: { id: req.user.id, displayName: req.user.displayName } });
       }
-      res.redirect("https://minesweeper-flags-frontend.onrender.com");
     });
   }
 );
