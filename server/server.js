@@ -90,6 +90,12 @@ try {
   console.log(`[Debug] firestoreSessionStore is defined: ${!!firestoreSessionStore}`);
   console.log(`[Debug] firestoreSessionStore.get type: ${typeof firestoreSessionStore.get}`);
 
+  // --- NEW LOGGING: Log raw cookies on every HTTP request ---
+  app.use((req, res, next) => {
+    console.log(`[HTTP Request Debug] Path: ${req.path}, Raw Cookies Header: ${req.headers.cookie}`);
+    next();
+  });
+  // --- END NEW LOGGING ---
 
   app.use(sessionMiddleware);
   app.use(passport.initialize());
@@ -113,11 +119,21 @@ try {
           setHeader: () => {}
       };
 
+      // --- NEW LOGGING: Log raw cookies from Socket.IO handshake ---
+      console.log(`[Socket.IO Session Debug] Socket ${socket.id} handshake cookies: ${socket.request.headers.cookie}`);
+      // --- END NEW LOGGING ---
+
       // Apply cookie-parser middleware to parse the cookie from the socket request
       parseCookieMiddleware(socket.request, socket.request.res, async () => {
+          // --- NEW LOGGING: Log parsed cookies from Socket.IO handshake ---
+          console.log(`[Socket.IO Session Debug] Socket ${socket.id} parsed cookies (signed): ${JSON.stringify(socket.request.signedCookies)}`);
+          console.log(`[Socket.IO Session Debug] Socket ${socket.id} parsed cookies (unsigned): ${JSON.stringify(socket.request.cookies)}`);
+          // --- END NEW LOGGING ---
+
           const sessionId = socket.request.signedCookies['connect.sid'] || socket.request.cookies['connect.sid']; // Get session ID from cookie
           
           if (sessionId) {
+              console.log(`[Socket.IO Session Debug] Session ID found for socket ${socket.id}: ${sessionId}`); // Added explicit log for found ID
               try {
                   console.log(`[Socket.IO Session Debug] Attempting to load session ${sessionId} from store for socket ${socket.id}.`);
                   // Promisify firestoreSessionStore.get and await its result
@@ -125,6 +141,11 @@ try {
                   if (sessionData) {
                       socket.request.session = sessionData;
                       console.log(`[Socket.IO Session Debug] Session ${sessionId} loaded. Passport user exists: ${!!socket.request.session.passport?.user}`);
+                      // --- NEW LOGGING: Log deserialized user if found in session data ---
+                      if (socket.request.session.passport?.user) {
+                        console.log(`[Socket.IO Session Debug] User in session data: ${JSON.stringify(socket.request.session.passport.user)}`);
+                      }
+                      // --- END NEW LOGGING ---
                   } else {
                       console.log(`[Socket.IO Session Debug] No session data found for ID ${sessionId}. Initializing empty session.`);
                       socket.request.session = {}; // Initialize empty session if not found
@@ -190,6 +211,11 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser((obj, done) => {
   console.log(`[Passport] deserializeUser: Deserializing user - ID: ${obj.id}, Name: ${obj.displayName || obj.name}`);
+  // --- NEW LOGGING: Confirm `obj` being deserialized ---
+  if (!obj || !obj.id) {
+    console.error("[Passport] deserializeUser: Received invalid object:", obj);
+  }
+  // --- END NEW LOGGING ---
   done(null, obj); // The deserialized object should be the same as the serialized one
 });
 
@@ -212,7 +238,7 @@ app.get("/auth/facebook/callback",
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
       } else {
-        console.log(`[Session Save] Session successfully saved after Facebook auth.`);
+        console.log(`[Session Save] Session successfully saved after Facebook auth. Session ID: ${req.sessionID}`);
       }
       res.redirect("https://minesweeper-flags-frontend.onrender.com");
     });
@@ -233,7 +259,7 @@ app.get("/auth/google/callback",
       if (err) {
         console.error("Error saving session after Google auth:", err);
       } else {
-        console.log(`[Session Save] Session successfully saved after Google auth.`);
+        console.log(`[Session Save] Session successfully saved after Google auth. Session ID: ${req.sessionID}`);
       }
       res.redirect("https://minesweeper-flags-frontend.onrender.com");
     });
@@ -266,6 +292,10 @@ app.get("/me", (req, res) => {
   console.log("User in session (req.user):", req.user);
   console.log("Session ID (req.sessionID):", req.sessionID);
   console.log("Session object (req.session):", req.session);
+  // --- NEW LOGGING: Check if session contains passport data directly ---
+  console.log("Passport data in session:", req.session.passport);
+  // --- END NEW LOGGING ---
+
 
   if (req.isAuthenticated() && req.user) {
     res.json({ user: { id: req.user.id, displayName: req.user.displayName } });
@@ -705,7 +735,7 @@ io.on("connection", (socket) => {
             scores: gameData.scores,
             bombsUsed: gameData.bombsUsed,
             turn: gameData.turn,
-            gameOver: gameData.gameOver,
+            gameOver: game.gameOver,
             lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load last clicked tile
             players: []
         };
