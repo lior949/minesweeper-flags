@@ -123,7 +123,7 @@ body {
 
 .tile.revealed {
   background-color: #222;
-  border: 2px solid #999;
+  border: none; /* Removed the border highlight */
   cursor: default; /* Default cursor for revealed tiles */
 }
 
