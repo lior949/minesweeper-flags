@@ -324,20 +324,6 @@ function App() {
     };
   }, [loggedIn, name]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
 
-    // Login functions to open OAuth pop-up
-
-  const handleLogin = (provider) => {
-    // Redirect the pop-up to your backend's auth endpoint (e.g., /auth/google or /auth/facebook)
-    const authUrl = `${BACKEND_URL}/auth/${provider}`;
-    // Open a new window for the OAuth flow. 'noopener' and 'noreferrer' are security best practices.
-    const popup = window.open(authUrl, '_blank', 'width=500,height=600,noopener,noreferrer');
-    setAuthPopup(popup); // Store reference to the popup window
-    // Check if the popup was blocked by the browser's popup blocker.
-    if (!popup || popup.closed || typeof popup.closed == 'undefined') {
-      showMessage('Popup blocked! Please allow popups for this site to log in.', true);
-    }
-  };
-
   // --- User Interaction Functions (using socketRef.current for emits) ---
 
   const invitePlayer = (id) => {
@@ -504,29 +490,17 @@ function App() {
 
   if (!loggedIn) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-gray-100 font-inter flex flex-col items-center justify-center p-4">
-        {message && <p className="app-message text-red-500 font-bold mb-4">{message}</p>}
-        <h2 className="text-3xl font-bold mb-6 text-center text-white">Login to Join the Minesweeper Flags Lobby</h2>
-        <div className="flex flex-col space-y-4">
-          <button
-            onClick={() => handleLogin('google')}
-            className="px-8 py-4 bg-blue-600 text-white rounded-lg text-xl font-bold hover:bg-blue-700 transition duration-300 shadow-xl flex items-center justify-center space-x-3 transform hover:scale-105"
-          >
-            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12.24 10.285V14.4h6.88c-.28 1.48-1.59 4.31-6.88 4.31-4.14 0-7.5-3.36-7.5-7.5s3.36-7.5 7.5-7.5c2.23 0 3.84 0.96 4.79 1.845l3.1-3.1C18.41 1.715 15.82 0 12.24 0 5.46 0 0 5.46 0 12.24s5.46 12.24 12.24 12.24c7.34 0 12.01-5.31 12.01-11.96 0-.79-.06-1.46-.17-2.125h-11.84z"/>
-            </svg>
-            <span>Login with Google</span>
-          </button>
-          <button
-            onClick={() => handleLogin('facebook')}
-            className="px-8 py-4 bg-indigo-600 text-white rounded-lg text-xl font-bold hover:bg-indigo-700 transition duration-300 shadow-xl flex items-center justify-center space-x-3 transform hover:scale-105"
-          >
-            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M14 12h-1v5h1v-5zm3-2h-1.5a2.5 2.5 0 00-2.5 2.5V17h4V12.5a2.5 2.5 0 00-2.5-2.5zM12 2C6.477 2 2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.873V14.89h-2.54V12h2.54V9.77c0-2.535 1.554-3.926 3.792-3.926 1.095 0 2.19.195 2.19.195V8.5h-1.397c-1.259 0-1.638.775-1.638 1.56V12h2.773l-.443 2.89h-2.33V22h5.532c4.781-.745 8.438-4.882 8.438-9.873C22 6.477 17.523 2 12 2z" />
-            </svg>
-            <span>Login with Facebook</span>
-          </button>
-        </div>
+      <div className="lobby">
+        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+        <h2>Login with Google to join the lobby</h2>
+        <GoogleLogin
+          onLogin={(googleName) => {
+            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
+            // No direct socket.emit("join-lobby") here anymore.
+            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
+            console.log("Google Login completed via pop-up callback. State will update.");
+          }}
+        />
       </div>
     );
   }
