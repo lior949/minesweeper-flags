@@ -286,12 +286,6 @@ redisClient.connect()
         console.log(`User ${userNameOnConnect} (${userIdOnConnect}) connected via socket.`);
         userSocketMap[userIdOnConnect] = socket.id; // Store current socket ID for this user
 
-        // IMMEDIATE SIGNAL: If the user is authenticated at the time of connection,
-        // send the 'authenticated-socket-ready' event.
-        // This is crucial for the client's `useEffect` to proceed with `join-lobby`.
-        socket.emit('authenticated-socket-ready');
-        console.log(`Emitted 'authenticated-socket-ready' for user ${userNameOnConnect}.`);
-
         // Handle rejoining an existing game (if any)
         if (userGameMap[userIdOnConnect]) {
             const gameId = userGameMap[userIdOnConnect];
@@ -342,8 +336,7 @@ redisClient.connect()
                             }).catch(e => console.error("Error updating game status on resume:", e));
                         }
                         console.log(`Game ${gameId} loaded from Firestore and rehydrated in memory.`);
-                        // authenticated-socket-ready already emitted above
-
+                        
                         // Send game state to reconnected player
                         const playerInGame = game.players.find(p => p.userId === userIdOnConnect);
                         if (playerInGame && playerInGame.socketId) {
@@ -371,18 +364,15 @@ redisClient.connect()
                     } else {
                         delete userGameMap[userIdOnConnect]; // Game not found or invalid status, clear map
                         console.log(`Game ${gameId} for user ${userIdOnConnect} not found or invalid status in Firestore, clearing map.`);
-                        // authenticated-socket-ready already emitted above
                     }
                 }).catch(e => {
                     console.error("Error fetching game from Firestore on reconnect:", e);
-                    // authenticated-socket-ready already emitted above
                 });
             } else { // Game found in memory
                 const playerInGame = game.players.find(p => p.userId === userIdOnConnect);
                 if (playerInGame) {
                     playerInGame.socketId = socket.id; // Ensure current socketId is used in game object
                     console.log(`Re-sent active game state for game ${gameId} to ${playerInGame.name}.`);
-                    // authenticated-socket-ready already emitted above
                 }
                 const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
                 if (opponentPlayer && opponentPlayer.socketId) {
@@ -443,6 +433,10 @@ redisClient.connect()
         userSocketMap[userId] = socket.id; // Ensure userSocketMap is up-to-date
 
         socket.emit("lobby-joined", userDisplayName || name);
+        // Emit authenticated-socket-ready AFTER successful lobby join
+        socket.emit('authenticated-socket-ready'); // ADDED THIS LINE
+        console.log(`Emitted 'authenticated-socket-ready' after lobby-joined for user ${userDisplayName || name}.`);
+
 
         // Filter players for lobby list: only those not in a game
         io.emit(
@@ -573,6 +567,8 @@ redisClient.connect()
                     opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent"
                 });
                 console.log(`User ${userName} successfully resumed game ${gameId}.`);
+                socket.emit('authenticated-socket-ready'); // ADDED THIS LINE
+                console.log(`Emitted 'authenticated-socket-ready' after resuming game for user ${userName}.`);
             }
 
             if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
