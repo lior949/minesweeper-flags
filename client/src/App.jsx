@@ -49,9 +49,6 @@ function App() {
           setLoggedIn(true);
           console.log("Frontend: Auth check successful, user:", data.user.displayName || data.user.name);
 
-          // REMOVED: socket.emit("join-lobby", ...) from here.
-          // It will now be handled by the next useEffect.
-
         } else {
           // If auth check fails, set loggedIn to false and clear name.
           setLoggedIn(false);
@@ -92,14 +89,7 @@ function App() {
     socket.on('connect', () => {
         console.log("Socket.IO connected!");
         setSocketConnected(true);
-        // Important: You would ideally send a signal from the server
-        // after socket.request.user is populated. For now, we set socketReady here
-        // as well if authChecked and loggedIn, but a server event is more robust.
-        if (loggedIn && authChecked) {
-             // If already logged in and auth checked, assume socket is ready or will be shortly.
-             // A server-emitted 'authenticated-socket-ready' event is best practice.
-            setSocketReady(true); // Tentative: assuming session is linked on connect if already logged in
-        }
+        // Do NOT set socketReady here. Wait for explicit server confirmation.
     });
 
     socket.on('disconnect', () => {
@@ -110,8 +100,6 @@ function App() {
     });
 
     // NEW: Listen for a server-side confirmation that the socket session is ready
-    // You MUST add `socket.emit('authenticated-socket-ready');` in your server.js
-    // after `socket.request.user` is known to be populated.
     socket.on('authenticated-socket-ready', () => {
         console.log("Frontend: Authenticated socket ready for game events!");
         setSocketReady(true);
@@ -144,7 +132,7 @@ function App() {
       setLoggedIn(true); // Confirm successful lobby join.
       setName(userName); // Update name, potentially with the server-validated name.
       setMessage(""); // Clear any previous messages
-      setSocketReady(true); // Confirm socket is ready after successful lobby join
+      setSocketReady(true); // Confirm socket is ready after successful lobby join (redundant if authenticated-socket-ready is used, but safe)
       console.log(`Frontend: Lobby joined successfully as ${userName}!`);
       // Request unfinished games here to ensure it's fetched after a successful lobby join event
       socket.emit("request-unfinished-games");
@@ -257,7 +245,7 @@ function App() {
     return () => {
       socket.off("connect");
       socket.off("disconnect");
-      socket.off("authenticated-socket-ready");
+      socket.off("authenticated-socket-ready"); // Unsubscribe
       socket.off("join-error");
       socket.off("lobby-joined");
       socket.off("players-list");
