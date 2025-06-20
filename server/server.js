@@ -877,9 +877,9 @@ io.on("connection", (socket) => {
               gameId: game.gameId,
               board: serializedBoard, // Save serialized board
               player1_userId: inviterPlayer.userId,
-              player2_userId: responderPlayer.userId,
+              player2_userId: respondingPlayer.userId, // Corrected variable name from responderPlayer to respondingPlayer
               player1_name: inviterPlayer.name,
-              player2_name: responderPlayer.name,
+              player2_name: respondingPlayer.name,   // Corrected variable name from responderPlayer to respondingPlayer
               turn: game.turn,
               scores: game.scores,
               bombsUsed: game.bombsUsed,
