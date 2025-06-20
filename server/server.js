@@ -672,7 +672,7 @@ io.on("connection", (socket) => {
         }
 
         if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
-            io.to(opponentInGame.socketId).emit("opponent-reconnected", { name: userName });
+            io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName }); // Corrected typo here
             console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
