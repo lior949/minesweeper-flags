@@ -1256,19 +1256,21 @@ io.on("connection", (socket) => {
             const allPlayersDisconnected = game.players.every(p => p.socketId === null);
 
             if (allPlayersDisconnected) {
-                // If both players are disconnected, end the game
+                // If both players are disconnected, set status to 'waiting_for_resume'
+                // and do NOT delete the game from memory, as it might be resumed later.
+                // The game will only be truly deleted from memory if the server restarts.
                 game.players.forEach(p => delete userGameMap[p.userId]); // Clear userGameMap for both
-                delete games[gameId];
+                // Do NOT delete from `games[gameId]` here.
                 try {
                     await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
-                        status: 'completed',
+                        status: 'waiting_for_resume', // Change from 'completed' to 'waiting_for_resume'
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
-                    console.log(`Game ${gameId} status set to 'completed' in Firestore as all players disconnected.`);
+                    console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore as all players disconnected.`);
                 } catch (error) {
-                    console.error("Error updating game status to 'completed' on total disconnect:", error);
+                    console.error("Error updating game status to 'waiting_for_resume' on total disconnect:", error);
                 }
-                console.log(`Game ${gameId} deleted from memory (both disconnected).`);
+                // No `delete games[gameId]` here
             } else {
                 // One player disconnected, but the other might still be connected or might reconnect
                 const remainingPlayer = game.players.find(p => p.userId !== disconnectedUserId);
