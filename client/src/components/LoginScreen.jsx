@@ -1,4 +1,4 @@
-// src/components/LoginScreen.js
+// src/components/LoginScreen.jsx
 import React from 'react';
 
 const LoginScreen = ({ onGoogleLogin, onFacebookLogin, message }) => {
@@ -32,3 +32,4 @@ const LoginScreen = ({ onGoogleLogin, onFacebookLogin, message }) => {
 };
 
 export default LoginScreen;
+
