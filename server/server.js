@@ -83,7 +83,8 @@ try {
     cookie: {
       sameSite: "none",
       secure: process.env.NODE_ENV === 'production', // Use true in production
-      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      domain: '.onrender.com' // <-- ADDED THIS LINE
     },
   });
 
@@ -274,7 +275,8 @@ app.get("/logout", (req, res, next) => {
       res.clearCookie("connect.sid", {
           path: '/',
           secure: process.env.NODE_ENV === 'production',
-          sameSite: 'none'
+          sameSite: 'none',
+          domain: '.onrender.com' // <-- ADDED THIS LINE
       });
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
@@ -733,7 +735,7 @@ io.on("connection", (socket) => {
             gameId: gameData.gameId,
             board: deserializedBoard,
             scores: gameData.scores,
-            bombsUsed: gameData.bombsUsed,
+            bombsUsed: game.bombsUsed,
             turn: gameData.turn,
             gameOver: game.gameOver,
             lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load last clicked tile
