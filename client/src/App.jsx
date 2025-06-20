@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css";
 
@@ -495,6 +496,18 @@ function App() {
         <h2>Login with Google to join the lobby</h2>
         <GoogleLogin
           onLogin={(googleName) => {
+            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
+            // No direct socket.emit("join-lobby") here anymore.
+            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
+            console.log("Google Login completed via pop-up callback. State will update.");
+          }}
+        />
+      </div>
+	  <div className="lobby">
+        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+        <h2>Login with Facebook to join the lobby</h2>
+        <FacebookLogin
+          onLogin={(facebookName) => {
             // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
             // No direct socket.emit("join-lobby") here anymore.
             // The state update (setName, setLoggedIn) will trigger the socket useEffect.
