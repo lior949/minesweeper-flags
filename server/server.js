@@ -7,46 +7,64 @@ const { Server } = require("socket.io");
 const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
-const FacebookStrategy = require("passport-facebook").Strategy;
-const { v4: uuidv4 } = require("uuid");
-const util = require('util'); // Import util for promisify
-const cookieParser = require('cookie-parser'); // Import cookie-parser
-
+const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
+const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
 
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
-const { Firestore } = require('@google-cloud/firestore');
+const { Firestore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
+
+// --- NEW: Corrected Firestore Session Store Imports ---
+// The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
+// It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
 const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
 const app = express();
+// IMPORTANT: Add this line to trust proxy headers when deployed to Render
+app.set('trust proxy', 1); 
 const server = http.createServer(app);
 
-// New global data structures (in-memory, these will be synchronized with Firestore)
-const userSocketMap = {}; // Maps userId to current socket.id
-const userGameMap = {};   // Maps userId to current gameId
-let players = []; // Lobby players: { id: socket.id, userId, name, number, inGame, socketId } (socketId is redundant with id, but explicitly kept for clarity)
-let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile }
+// New global data structures for robust player tracking across reconnections
+const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID)
+const userGameMap = {};   // Maps userId to the gameId they are currently in
 
-// Configure CORS for Express HTTP routes
-app.use(cors({
-    origin: "https://minesweeper-flags-frontend.onrender.com",
-    credentials: true,
-}));
+// Configure CORS for Express
+// MUST match your frontend Render URL exactly
+app.use(
+  cors({
+    origin: "https://minesweeper-flags-frontend.onrender.com", // Your frontend URL
+    credentials: true, // Allow cookies to be sent cross-origin
+  })
+);
 
-app.set('trust proxy', 1); // Crucial for Render
+// === Environment Variables for OAuth (DO NOT HARDCODE IN PRODUCTION) ===
+// These should be set on Render as environment variables.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
+const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
 let sessionMiddleware;
-let io;
-let firestoreSessionStore; // Dedicated variable for FirestoreStore instance
-// let parseCookieMiddleware; // This variable is now implicitly used by app.use(cookieParser(...));
+let io; // Declare io here so it's accessible globally
+
+// --- Game Constants (Moved to a more global scope) ---
+const WIDTH = 16;
+const HEIGHT = 16;
+const MINES = 51;
+const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
+const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
+
+// Determine cookie domain dynamically for production vs local development
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+  // Add detailed logging for service account parsing
   console.log(`[Firebase Init] Service Account Project ID: ${serviceAccount.project_id}`);
   const privateKeyCleaned = serviceAccount.private_key.replace(/\\n/g, '\n');
   console.log(`[Firebase Init] Private Key (first 20 chars): ${privateKeyCleaned.substring(0, 20)}...`);
@@ -56,124 +74,73 @@ try {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
-  db = getFirestore();
+  db = getFirestore(); // Initialize db for Admin SDK operations
 
+  // Create a separate Firestore client instance for the session store.
+  // This is how @google-cloud/connect-firestore expects it.
   const firestoreClient = new Firestore({
-    projectId: serviceAccount.project_id,
+    projectId: serviceAccount.project_id, // Use project_id from service account
     credentials: {
       client_email: serviceAccount.client_email,
-      private_key: privateKeyCleaned,
+      // Ensure private_key handles actual newlines, as required by @google-cloud/firestore client
+      private_key: privateKeyCleaned, // Use the cleaned private key
     },
+    // Explicitly target the default database to avoid potential issues
     databaseId: '(default)',
   });
 
-  // Capture the FirestoreStore instance in a dedicated variable
-  firestoreSessionStore = new FirestoreStore({
-      dataset: firestoreClient,
-      kind: 'express-sessions',
-  });
-
-  // --- IMPORTANT: Ensure cookie-parser runs BEFORE express-session for HTTP requests ---
-  app.use(cookieParser(process.env.SESSION_SECRET)); // Initialize cookie-parser with the session secret and apply globally
-
-  sessionMiddleware = session({
-    secret: process.env.SESSION_SECRET,
-    resave: false, // Set to false, session should not be saved if unmodified
-    saveUninitialized: false, // Set to false, don't save new sessions that have no data
-    store: firestoreSessionStore, // Use the captured instance here
+  // === Define the session middleware instance with FirestoreStore ===
+  sessionMiddleware = session({ // Assign to the already declared variable
+    secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev", // Use env var, fallback for local dev
+    resave: false, // Changed to false: generally recommended to only resave modified sessions
+    saveUninitialized: false, // Prevents storing empty sessions in Firestore
+    store: new FirestoreStore({ // Instantiate FirestoreStore with 'new'
+      dataset: firestoreClient, // Pass the Firestore client instance
+      kind: 'express-sessions', // Optional: collection name for sessions, defaults to 'express-sessions'
+    }),
     cookie: {
       sameSite: "none",
-      secure: process.env.NODE_ENV === 'production', // Use true in production
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-      domain: '.onrender.com' // <-- This was already correct and is being sent
+      secure: true,
+      maxAge: 1000 * 60 * 60 * 24, // 24 hours (example)
+      proxy: true, // IMPORTANT: Inform express-session that it's behind a proxy
+      // REMOVED `domain` property as it can cause issues with different subdomains on Render
     },
   });
 
-  console.log(`[Debug] firestoreSessionStore is defined: ${!!firestoreSessionStore}`);
-  console.log(`[Debug] firestoreSessionStore.get type: ${typeof firestoreSessionStore.get}`);
-
-  // --- NEW LOGGING: Log raw cookies on every HTTP request ---
-  app.use((req, res, next) => {
-    console.log(`[HTTP Request Debug] Path: ${req.path}, Raw Cookies Header: ${req.headers.cookie}`);
-    console.log(`[HTTP Request Debug] Path: ${req.path}, Parsed Signed Cookies: ${JSON.stringify(req.signedCookies)}`);
-    console.log(`[HTTP Request Debug] Path: ${req.path}, Parsed Unsigned Cookies: ${JSON.stringify(req.cookies)}`);
-    next();
-  });
-  // --- END NEW LOGGING ---
-
+  // === Apply session middleware to Express ===
   app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
-  io = new Server(server, {
+  console.log("Firebase Admin SDK and FirestoreStore initialized.");
+
+
+  // Configure Socket.IO with CORS
+  io = new Server(server, { // Assign to the already declared 'io' variable
     cors: {
       origin: "https://minesweeper-flags-frontend.onrender.com",
       methods: ["GET", "POST"],
-      credentials: true,
+      credentials: true, // Allow cookies for Socket.IO handshake
     },
   });
 
-  // === IMPORTANT: Integrate session and passport with Socket.IO using chained middleware ===
-  // This single middleware block handles loading the session and applying Passport logic
-  io.use(async (socket, next) => {
-      // Mock response object as Passport expects it
-      socket.request.res = {
-          writeHead: () => {},
-          end: () => {},
-          setHeader: () => {}
+  // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
+  // Moved inside try block to ensure sessionMiddleware is defined
+  io.use((socket, next) => {
+      // Mock a 'res' object for session and passport middleware compatibility
+      const dummyRes = {
+          writeHead: () => {}, // Add no-op writeHead
+          end: () => {} // Add no-op end
       };
+      socket.request.res = dummyRes;
 
-      // --- NEW LOGGING: Log raw cookies from Socket.IO handshake ---
-      console.log(`[Socket.IO Session Debug] Socket ${socket.id} handshake cookies: ${socket.request.headers.cookie}`);
-      // --- END NEW LOGGING ---
-
-      // Apply cookie-parser middleware to parse the cookie from the socket request
-      // We explicitly run it here for Socket.IO as it doesn't go through the main app.use pipeline
-      cookieParser(process.env.SESSION_SECRET)(socket.request, socket.request.res, async () => {
-          // --- NEW LOGGING: Log parsed cookies from Socket.IO handshake ---
-          console.log(`[Socket.IO Session Debug] Socket ${socket.id} parsed cookies (signed): ${JSON.stringify(socket.request.signedCookies)}`);
-          console.log(`[Socket.IO Session Debug] Socket ${socket.id} parsed cookies (unsigned): ${JSON.stringify(socket.request.cookies)}`);
-          // --- END NEW LOGGING ---
-
-          const sessionId = socket.request.signedCookies['connect.sid'] || socket.request.cookies['connect.sid']; // Get session ID from cookie
-          
-          if (sessionId) {
-              console.log(`[Socket.IO Session Debug] Session ID found for socket ${socket.id}: ${sessionId}`); // Added explicit log for found ID
-              try {
-                  console.log(`[Socket.IO Session Debug] Attempting to load session ${sessionId} from store for socket ${socket.id}.`);
-                  // Promisify firestoreSessionStore.get and await its result
-                  const sessionData = await util.promisify(firestoreSessionStore.get).call(firestoreSessionStore, sessionId);
-                  if (sessionData) {
-                      socket.request.session = sessionData;
-                      console.log(`[Socket.IO Session Debug] Session ${sessionId} loaded. Passport user exists: ${!!socket.request.session.passport?.user}`);
-                      // --- NEW LOGGING: Log deserialized user if found in session data ---
-                      if (socket.request.session.passport?.user) {
-                        console.log(`[Socket.IO Session Debug] User in session data: ${JSON.stringify(socket.request.session.passport.user)}`);
-                      }
-                      // --- END NEW LOGGING ---
-                  } else {
-                      console.log(`[Socket.IO Session Debug] No session data found for ID ${sessionId}. Initializing empty session.`);
-                      socket.request.session = {}; // Initialize empty session if not found
-                  }
-              } catch (e) {
-                  console.error(`[Socket.IO Session Error] Failed to load session ${sessionId} for socket ${socket.id}:`, e);
-                  socket.request.session = {}; // Ensure session object exists even on error
-              }
-          } else {
-              console.log(`[Socket.IO Session Debug] No session ID found in cookie for socket ${socket.id}. Initializing empty session.`);
-              socket.request.session = {}; // Initialize empty session if no cookie
-          }
-
-          // Now apply Passport middleware with the loaded session
+      // Apply session middleware
+      sessionMiddleware(socket.request, socket.request.res, () => {
+          // Apply passport.initialize
           passport.initialize()(socket.request, socket.request.res, () => {
+              // Apply passport.session
               passport.session()(socket.request, socket.request.res, () => {
-                  console.log(`[Socket.IO Auth Final] Final check for socket ${socket.id}. req.user: ${JSON.stringify(socket.request.user)}`);
-                  if (socket.request.user) {
-                      console.log(`[Socket.IO Auth Final] User authenticated via session: ${socket.request.user.displayName || socket.request.user.id}`);
-                  } else {
-                      console.log(`[Socket.IO Auth Final] User NOT authenticated for socket ${socket.id}.`);
-                  }
-                  next(); // Always call next to continue connection process
+                  next();
               });
           });
       });
@@ -183,241 +150,225 @@ try {
 
 } catch (error) {
   console.error("Failed to initialize Firebase Admin SDK or FirestoreStore.", error);
-  process.exit(1);
+  process.exit(1); // Exit process if initialization fails
 }
 
 
 // === Passport config ===
 passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  clientID: GOOGLE_CLIENT_ID,
+  clientSecret: GOOGLE_CLIENT_SECRET,
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
-  console.log(`[Passport Callback] Google Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
-  done(null, { id: profile.id, displayName: profile.displayName });
+  done(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
 }));
 
 passport.use(new FacebookStrategy({
-    clientID: process.env.FACEBOOK_CLIENT_ID,
-    clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
-    callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/facebook/callback",
-    profileFields: ['id', 'displayName', 'photos', 'email']
-  },
-  function(accessToken, refreshToken, profile, cb) {
-    console.log(`[Passport Callback] Facebook Strategy: Received profile for user ID: ${profile.id}, Name: ${profile.displayName}`);
-    cb(null, { id: profile.id, displayName: profile.displayName });
-  }
-));
+  clientID: FACEBOOK_CLIENT_ID, // Correctly using the declared variable
+  clientSecret: FACEBOOK_CLIENT_SECRET, // Correctly using the declared variable
+  callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/facebook/callback",
+  profileFields: ['id', 'displayName', 'photos', 'email']
+},
+function(accessToken, refreshToken, profile, cb) {
+  cb(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
+}));
 
+
+// Passport Serialization/Deserialization
 passport.serializeUser((user, done) => {
-  console.log(`[Passport] serializeUser: Serializing user - ID: ${user.id}, Name: ${user.displayName || user.name}`);
-  done(null, { id: user.id, displayName: user.displayName }); // Ensure displayName is part of serialized user
+  done(null, user); // Store the entire user object in the session
 });
 
-passport.deserializeUser((obj, done) => {
-  console.log(`[Passport] deserializeUser: Deserializing user - ID: ${obj.id}, Name: ${obj.displayName || obj.name}`);
-  // --- NEW LOGGING: Confirm `obj` being deserialized ---
-  if (!obj || !obj.id) {
-    console.error("[Passport] deserializeUser: Received invalid object:", obj);
-  }
-  // --- END NEW LOGGING ---
-  done(null, obj); // The deserialized object should be the same as the serialized one
+passport.deserializeUser((user, done) => {
+  done(null, user); // Pass the user object back to req.user
 });
-
-const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
-const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
 
 
 // === Authentication Routes ===
-// === Authentication Routes ===
-app.get("/auth/facebook",
-  passport.authenticate("facebook", { scope: ['public_profile'] })
-);
 
-app.get("/auth/facebook/callback",
-  passport.authenticate("facebook", {
-    failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
-  }),
-  (req, res) => {
-    console.log(`[Session Save] Attempting to save session after Facebook auth.`);
-    req.session.save((err) => {
-      if (err) {
-        console.error("Error saving session after Facebook auth:", err);
-        // Redirect to a specific frontend failure URL, passing an error message
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent("Failed to save session after Facebook login.")}`);
-      } else {
-        console.log(`[Session Save] Session successfully saved after Facebook auth. Session ID: ${req.sessionID}`);
-        // Redirect to frontend success URL with user data
-        // Make sure to encodeURIComponent for safe URL parameters
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
-      }
-    });
-  }
-);
-
+// Google Auth Initiate
 app.get("/auth/google",
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
+// Google Auth Callback
 app.get("/auth/google/callback",
   passport.authenticate("google", {
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
-  (req, res) => {
-    console.log(`[Session Save] Attempting to save session after Google auth.`);
+  (req, res) => { // Add a callback to manually save session
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
-        // Redirect to a specific frontend failure URL, passing an error message
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent("Failed to save session after Google login.")}`);
-      } else {
-        console.log(`[Session Save] Session successfully saved after Google auth. Session ID: ${req.sessionID}`);
-        // Redirect to frontend success URL with user data
-        // Make sure to encodeURIComponent for safe URL parameters
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
+        // Redirect to a failure page with an error message
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
+      console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
+      // Redirect to the AuthCallback.jsx route with user data in query params
+      res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
     });
   }
 );
 
+// Facebook Auth Initiate
+app.get("/auth/facebook",
+  passport.authenticate("facebook", { scope: ['public_profile'] })
+);
+
+// Facebook Auth Callback
+app.get("/auth/facebook/callback",
+  passport.authenticate("facebook", {
+    failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
+  }),
+  (req, res) => { // Add a callback to manually save session
+    req.session.save((err) => {
+      if (err) {
+        console.error("Error saving session after Facebook auth:", err);
+        // Redirect to a failure page with an error message
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+      }
+      console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
+      // Redirect to the AuthCallback.jsx route with user data in query params
+      res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
+    });
+  }
+);
+
+
+// Logout Route
 app.get("/logout", (req, res, next) => {
-  req.logout((err) => {
+  req.logout((err) => { // Passport's logout method
     if (err) { return next(err); }
-    req.session.destroy((destroyErr) => {
+    req.session.destroy((destroyErr) => { // Destroy the session on the server
       if (destroyErr) { return next(destroyErr); }
       res.clearCookie("connect.sid", {
           path: '/',
-          secure: process.env.NODE_ENV === 'production',
+          secure: true,
           sameSite: 'none',
-          domain: '.onrender.com' 
-      });
+          proxy: true, // Clear cookie with proxy setting
+          // REMOVED `domain` property
+      }); // Clear the session cookie from the client
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
     });
   });
 });
 
-app.get("/login-failed", (req, res) => {
-  res.send("Login failed");
-});
-
+// Login Check Route
 app.get("/me", (req, res) => {
   console.log("------------------- /me Request Received -------------------");
   console.log("Is Authenticated (req.isAuthenticated()):", req.isAuthenticated());
   console.log("User in session (req.user):", req.user);
   console.log("Session ID (req.sessionID):", req.sessionID);
   console.log("Session object (req.session):", req.session);
-  // --- NEW LOGGING: Check if session contains passport data directly ---
-  console.log("Passport data in session:", req.session.passport);
-  // --- END NEW LOGGING ---
+  console.log("Passport data in session:", req.session?.passport);
 
 
   if (req.isAuthenticated() && req.user) {
-    res.json({ user: { id: req.user.id, displayName: req.user.displayName } });
+    res.json({ user: req.user }); // req.user now contains id and displayName
   } else {
     res.status(401).json({ error: "Not authenticated" });
   }
   console.log("------------------------------------------------------------");
 });
 
-// --- Game Logic ---
-const WIDTH = 16;
-const HEIGHT = 16;
-const MINES = 51;
+app.get("/login-failed", (req, res) => {
+  res.send("Login failed");
+});
+
+
+// Global Game Data Structures
+let players = []; // Lobby players: [{ id: socket.id, userId, name }]
+let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver }
 
 // Helper to generate a new Minesweeper board
 const generateBoard = () => {
-    const board = Array.from({ length: HEIGHT }, () =>
-      Array.from({ length: WIDTH }, () => ({
-        isMine: false,
-        revealed: false,
-        adjacentMines: 0,
-        owner: null,
-      }))
-    );
-    let minesPlaced = 0;
-    while (minesPlaced < MINES) {
-      const x = Math.floor(Math.random() * WIDTH);
-      const y = Math.floor(Math.random() * HEIGHT);
-      if (!board[y][x].isMine) {
-        board[y][x].isMine = true;
-        minesPlaced++;
-      }
+  const board = Array.from({ length: HEIGHT }, () =>
+    Array.from({ length: WIDTH }, () => ({
+      isMine: false,
+      revealed: false,
+      adjacentMines: 0,
+      owner: null, // Player number who claimed the mine
+    }))
+  );
+
+  let minesPlaced = 0;
+  while (minesPlaced < MINES) {
+    const x = Math.floor(Math.random() * WIDTH);
+    const y = Math.floor(Math.random() * HEIGHT);
+    if (!board[y][x].isMine) {
+      board[y][x].isMine = true;
+      minesPlaced++;
     }
-    for (let y = 0; y < HEIGHT; y++) {
-      for (let x = 0; x < WIDTH; x++) {
-        if (board[y][x].isMine) continue;
-        let count = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const ny = y + dy;
-            const nx = x + dx;
-            if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
-              if (board[ny][nx].isMine) count++;
-            }
-          }
-        }
-        board[y][x].adjacentMines = count;
-      }
-    }
-    return board;
-};
-const revealRecursive = (board, x, y) => {
-    if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || board[y][x].revealed) {
-      return;
-    }
-    const tile = board[y][x];
-    tile.revealed = true;
-    if (tile.adjacentMines === 0 && !tile.isMine) {
+  }
+
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      if (board[y][x].isMine) continue;
+      let count = 0;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
-          if (dx !== 0 || dy !== 0) {
-            revealRecursive(board, x + dx, y + dy);
+          const ny = y + dy;
+          const nx = x + dx;
+          if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
+            if (board[ny][nx].isMine) count++;
           }
         }
       }
+      board[y][x].adjacentMines = count;
     }
+  }
+  return board;
 };
+
+// Helper for recursive reveal of blank areas
+const revealRecursive = (board, x, y) => {
+  // Check bounds and if already revealed
+  if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || board[y][x].revealed) {
+    return;
+  }
+
+  const tile = board[y][x];
+  tile.revealed = true; // Mark as revealed
+
+  // If it's a blank tile (0 adjacent mines) and not a mine, propagate reveal
+  if (tile.adjacentMines === 0 && !tile.isMine) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx !== 0 || dy !== 0) { // Exclude the center tile itself
+          revealRecursive(board, x + dx, y + dy);
+        }
+      }
+    }
+  }
+};
+
+// Helper for bomb ability 5x5 reveal
 const revealArea = (board, cx, cy, playerNumber, scores) => {
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
-          const tile = board[y][x];
-          if (!tile.revealed) {
-                // If it's a mine, reveal it and award point to player
-            if (tile.isMine) {
-              tile.revealed = true;
-              tile.owner = playerNumber;
-              scores[playerNumber]++;
-            } else {
-                // If not a mine, perform recursive reveal
-              revealRecursive(board, x, y);
-            }
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+        const tile = board[y][x];
+        if (!tile.revealed) {
+          if (tile.isMine) {
+            tile.revealed = true;
+            tile.owner = playerNumber; // Assign bomb owner
+            scores[playerNumber]++; // Increment score for captured mine
+          } else {
+            revealRecursive(board, x, y); // Recursively reveal non-mine tiles
           }
         }
       }
     }
+  }
 };
+
+// Helper to check for game over condition
 const checkGameOver = (scores) => {
-    return scores[1] >= 26 || scores[2] >= 26;
-};
-
-// Helper function to check if a game is truly "active" in memory
-// A game is considered "active" in memory if both players have non-null socket IDs
-// AND those socket IDs match their current entries in userSocketMap.
-const isGameActiveInMemory = (game) => {
-    if (!game || !game.players || game.players.length !== 2) return false;
-
-    const player1 = game.players.find(p => p.number === 1);
-    const player2 = game.players.find(p => p.number === 2);
-
-    // Ensure player objects exist before checking properties
-    const player1ConnectedAndActive = player1 && player1.socketId && userSocketMap[player1.userId] === player1.socketId;
-    const player2ConnectedAndActive = player2 && player2.socketId && userSocketMap[player2.userId] === player2.socketId;
-
-    return player1ConnectedAndActive && player2ConnectedAndActive;
+  // Game over if either player reaches 26 flags (mines)
+  return scores[1] >= 26 || scores[2] >= 26;
 };
 
 
@@ -425,18 +376,23 @@ const isGameActiveInMemory = (game) => {
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
 
-  const userIdOnConnect = socket.request.user ? socket.request.user.id : null;
-  const userNameOnConnect = socket.request.user ? socket.request.user.displayName : null;
+  // Passport.js attaches session to socket.request
+  const user = socket.request.session?.passport?.user || null;
+  const userId = user ? user.id : null;
+  const userName = user ? user.displayName : null;
 
-  if (userIdOnConnect) {
-    console.log(`User ${userNameOnConnect} (${userIdOnConnect}) connected via socket.`);
-    userSocketMap[userIdOnConnect] = socket.id; // Store current socket ID for this user
-    console.log(`[Connect Debug] userGameMap for ${userIdOnConnect}: ${userGameMap[userIdOnConnect]}`); // ADDED LOG
+  if (userId) {
+    console.log(`User ${userName} (${userId}) (re)connected. Socket ID: ${socket.id}`);
 
-    // Handle rejoining an existing game (if any)
-    if (userGameMap[userIdOnConnect]) {
-        const gameId = userGameMap[userIdOnConnect];
-        let game = games[gameId]; 
+    // Always update user-to-socket mapping with the latest socket ID
+    userSocketMap[userId] = socket.id;
+    // Emit this event *after* userSocketMap is updated and userId is confirmed
+    socket.emit('authenticated-socket-ready');
+
+    // Handle rejoining an existing game if user was previously in one or if it's stored in Firestore
+    if (userGameMap[userId]) {
+        const gameId = userGameMap[userId];
+        let game = games[gameId]; // Try to get from in-memory first
 
         if (!game) { // If not in memory, try to load from Firestore
             db.collection(GAMES_COLLECTION_PATH).doc(gameId).get().then(doc => {
@@ -444,6 +400,7 @@ io.on("connection", (socket) => {
                     const gameData = doc.data();
                     const deserializedBoard = JSON.parse(gameData.board);
 
+                    // Reconstruct in-memory game object
                     game = {
                         gameId: gameData.gameId,
                         board: deserializedBoard,
@@ -451,158 +408,124 @@ io.on("connection", (socket) => {
                         bombsUsed: gameData.bombsUsed,
                         turn: gameData.turn,
                         gameOver: gameData.gameOver,
-                        lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null },
-                        players: []
+                        players: [] // Will be populated with proper player objects
                     };
 
+                    // Find or create player objects for the in-memory game structure
                     let player1 = players.find(p => p.userId === gameData.player1_userId);
                     if (!player1) {
-                        player1 = { userId: gameData.player1_userId, name: gameData.player1_name, inGame: true }; // Removed number from initial creation
-                        players.push(player1);
+                        player1 = { userId: gameData.player1_userId, name: gameData.player1_name, number: 1 };
+                        players.push(player1); // Add to global players list
                     }
-                    player1.number = 1; // FIX: Ensure number is set regardless of new or existing player object
-                    player1.socketId = userSocketMap[player1.userId] || null;
-                    player1.id = player1.socketId; // Use socketId as id for consistency
-                    player1.inGame = true;
+                    player1.socketId = userSocketMap[player1.userId] || null; // Update socketId from userSocketMap
 
                     let player2 = players.find(p => p.userId === gameData.player2_userId);
                     if (!player2) {
-                        player2 = { userId: gameData.player2_userId, name: gameData.player2_name, inGame: true }; // Removed number from initial creation
-                        players.push(player2);
+                        player2 = { userId: gameData.player2_userId, name: gameData.player2_name, number: 2 };
+                        players.push(player2); // Add to global players list
                     }
-                    player2.number = 2; // FIX: Ensure number is set regardless of new or existing player object
-                    player2.socketId = userSocketMap[player2.userId] || null;
-                    player2.id = player2.socketId; // Use socketId as id for consistency
-                    player2.inGame = true;
+                    player2.socketId = userSocketMap[player2.userId] || null; // Update socketId from userSocketMap
 
                     game.players = [player1, player2];
-                    games[gameId] = game;
+                    games[gameId] = game; // Add game to in-memory active games
 
+                    // Set game status to active if it was waiting for resume
                     if (gameData.status === 'waiting_for_resume') {
                         doc.ref.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true }).then(() => {
                             console.log(`Game ${gameId} status updated to 'active' in Firestore on resume.`);
                         }).catch(e => console.error("Error updating game status on resume:", e));
                     }
-                    console.log(`Game ${gameId} loaded from Firestore and rehydrated in memory.`);
-                    
-                    const playerInGame = game.players.find(p => p.userId === userIdOnConnect);
-                    console.log(`[Resume Game Emit] Emitting game-start to ${playerInGame?.name} (Socket: ${playerInGame?.socketId}). Player Number: ${playerInGame?.number}`); // NEW LOG
+
+                    const playerInGame = game.players.find(p => p.userId === userId);
+                    const opponentPlayer = game.players.find(op => op.userId !== userId);
+
+                    // Send game state to reconnected player
                     if (playerInGame && playerInGame.socketId) {
-                        const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
                         io.to(playerInGame.socketId).emit("game-start", {
                             gameId: game.gameId,
                             playerNumber: playerInGame.number,
-                            board: JSON.stringify(game.board), // Stringify board for client
+                            board: JSON.stringify(game.board),
                             turn: game.turn,
                             scores: game.scores,
                             bombsUsed: game.bombsUsed,
                             gameOver: game.gameOver,
-                            opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
-                            lastClickedTile: game.lastClickedTile
+                            opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                         });
                         console.log(`Emitted game-start to reconnected user ${playerInGame.name} for game ${gameId}.`);
                     }
-                    const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
+
+                    // Notify opponent if they are also online
                     if (opponentPlayer && opponentPlayer.socketId) {
-                        io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: userNameOnConnect });
-                        console.log(`Notified opponent ${opponentPlayer.name} of ${userNameOnConnect} re-connection in game ${gameId}.`);
+                        io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: playerInGame.name });
+                        console.log(`Notified opponent ${opponentPlayer.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
                     }
-                    // Filter out players who are in active games or mapped to a game in userGameMap
-                    io.emit("players-list", players.filter(p => !p.inGame && !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
-
+                    // Update lobby list as this game might become active
+                    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
                 } else {
-                    delete userGameMap[userIdOnConnect];
-                    console.log(`Game ${gameId} for user ${userIdOnConnect} not found or invalid status in Firestore, clearing map.`);
+                    delete userGameMap[userId]; // Game not found or invalid status, clear map
+                    console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore, clearing map.`);
                 }
-            }).catch(e => {
-                console.error("Error fetching game from Firestore on reconnect:", e);
-            });
+            }).catch(e => console.error("Error fetching game from Firestore on reconnect:", e));
         } else { // Game found in memory
-            const playerInGame = game.players.find(p => p.userId === userIdOnConnect);
+            const playerInGame = game.players.find(p => p.userId === userId);
             if (playerInGame) {
-                // Ensure the player number is consistent even if re-using an in-memory object
-                // The playerInGame object should already have the 'number' from its initial setup
-                // but if it somehow got corrupted, this ensures it's correct.
-                // However, the resume-game flow below handles this more robustly.
-                playerInGame.socketId = socket.id;
-                playerInGame.id = socket.id; // Use socketId as id for consistency
-                playerInGame.inGame = true; // Ensure marked as inGame
+                playerInGame.socketId = socket.id; // Ensure current socketId is used in game object
+                const opponentPlayer = game.players.find(op => op.userId !== userId);
 
-                // NEW: Update opponent's socketId in memory from userSocketMap
-                const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
-                if (opponentPlayer) {
-                    opponentPlayer.socketId = userSocketMap[opponentPlayer.userId] || null; // Will be null if opponent not connected
-                    opponentPlayer.id = opponentPlayer.socketId; // Update id as well
-                }
-
+                // Re-send game state to ensure client is up-to-date
+                io.to(playerInGame.socketId).emit("game-start", {
+                    gameId: game.gameId,
+                    playerNumber: playerInGame.number,
+                    board: JSON.stringify(game.board),
+                    turn: game.turn,
+                    scores: game.scores,
+                    bombsUsed: game.bombsUsed,
+                    gameOver: game.gameOver,
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                });
                 console.log(`Re-sent active game state for game ${gameId} to ${playerInGame.name}.`);
+
+                if (opponentPlayer && opponentPlayer.socketId) {
+                    io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: playerInGame.name });
+                    console.log(`Notified opponent ${opponentPlayer.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
+                }
             }
-            const opponentPlayer = game.players.find(op => op.userId !== userIdOnConnect);
-            if (opponentPlayer && opponentPlayer.socketId) {
-                io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: userNameOnConnect });
-            }
-            io.to(playerInGame.socketId).emit("game-start", {
-                gameId: game.gameId,
-                playerNumber: playerInGame.number,
-                board: JSON.stringify(game.board), // Stringify board for client
-                turn: game.turn,
-                scores: game.scores,
-                bombsUsed: game.bombsUsed,
-                gameOver: game.gameOver,
-                opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
-                lastClickedTile: game.lastClickedTile
-            });
         }
     }
-  }
-  else {
-    console.log(`Unauthenticated or session-less socket ${socket.id} connected. (No req.user)`);
+  } else {
+      console.log(`Unauthenticated socket ${socket.id} connected.`);
+      // No `authenticated-socket-ready` emitted for unauthenticated sockets
   }
 
-
+  // Lobby Join Event
   socket.on("join-lobby", (name) => {
-    const userId = socket.request.user ? socket.request.user.id : null;
-    const userDisplayName = socket.request.user ? socket.request.user.displayName : null;
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const userName = user ? user.displayName : name; // Use displayName from Passport if available, else provided name
 
     if (!userId) {
-      socket.emit("join-error", "Authentication required to join lobby. Please login.");
-      console.warn(`Attempt to join lobby from unauthenticated socket ${socket.id}. Rejected.`);
-      return;
-    }
-
-    if (!name || name.trim() === "") {
-        socket.emit("join-error", "Name cannot be empty.");
+        socket.emit("join-error", "Authentication required to join lobby.");
+        console.warn(`Unauthenticated socket ${socket.id} tried to join lobby.`);
         return;
     }
 
-    let playerEntry = players.find(p => p.userId === userId);
-
-    if (playerEntry) {
-      playerEntry.id = socket.id;
-      playerEntry.socketId = socket.id; // Update socket ID
-      playerEntry.name = userDisplayName || name;
-      playerEntry.inGame = false; // Player is now in lobby, not in a game
-      playerEntry.number = null; // No player number in lobby
-      console.log(`Player ${playerEntry.name} (ID: ${userId}) re-joined lobby with new socket ID.`);
-    } else {
-      players.push({ id: socket.id, userId: userId, name: userDisplayName || name, number: null, inGame: false, socketId: socket.id });
-      console.log(`New player ${userDisplayName || name} (ID: ${userId}) joined lobby.`);
-    }
-
+    // Ensure userSocketMap is updated
     userSocketMap[userId] = socket.id;
 
-    socket.emit("lobby-joined", userDisplayName || name);
-    
-    // Filter players list to only show those not in game and not already mapped to a game in userGameMap
-    io.emit(
-      "players-list",
-      players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
-    );
+    // Ensure only one entry per userId in the players list, update socket.id if rejoining
+    players = players.filter(p => p.userId !== userId);
+    players.push({ id: socket.id, userId: userId, name: userName }); // Store userId and current socket.id
+
+    console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
+    socket.emit("lobby-joined", userName); // Send back the name used
+    // Emit updated player list to all connected clients in the lobby (all players now)
+    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
   });
 
   socket.on("request-unfinished-games", async () => {
-    const userId = socket.request.user ? socket.request.user.id : null;
-    const userName = socket.request.user ? socket.request.user.displayName : 'Unknown Player';
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const userName = user ? user.displayName : 'Unknown Player';
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to fetch games.");
@@ -610,62 +533,34 @@ io.on("connection", (socket) => {
     }
 
     try {
-        console.log(`[Request Unfinished Games] User ${userName} (${userId}) is requesting unfinished games.`);
-        const gamesQuerySnapshot = await db.collection(GAMES_COLLECTION_PATH)
-            .where('status', 'in', ['active', 'waiting_for_resume'])
+        const gamesQuery = await db.collection(GAMES_COLLECTION_PATH)
+            .where('status', 'in', ['active', 'waiting_for_resume']) // Fetch active or waiting games
             .get();
 
         let unfinishedGames = [];
 
-        gamesQuerySnapshot.forEach(doc => {
+        gamesQuery.forEach(doc => {
             const gameData = doc.data();
-            // --- FIX: Skip malformed documents without gameId ---
-            if (!gameData || !gameData.gameId) {
-                console.warn(`[Request Unfinished Games] Skipping invalid Firestore document: ${doc.id} (no gameId or empty data).`);
-                return; // Skip to next document
-            }
-            console.log(`[Request Unfinished Games] Inspecting Firestore game: ${gameData.gameId}, Status: ${gameData.status}`);
-            console.log(`[Request Unfinished Games] Player1: ${gameData.player1_userId}, Player2: ${gameData.player2_userId}`);
-
+            // Check if the current user is part of this game
             const isPlayer1 = gameData.player1_userId === userId;
             const isPlayer2 = gameData.player2_userId === userId;
 
             if (isPlayer1 || isPlayer2) {
-                const gameInMemory = games[gameData.gameId];
-                // --- FIX: Use the new helper to accurately determine if the game is truly active in memory ---
-                const isActuallyFullyActive = isGameActiveInMemory(gameInMemory);
-
-                console.log(`[Request Unfinished Games] User ${userId} is participant in ${gameData.gameId}.`);
-                console.log(`[Request Unfinished Games] Game in memory (games[gameData.gameId]): ${!!gameInMemory}`);
-                if (gameInMemory) {
-                    console.log(`[Request Unfinished Games] Game ${gameData.gameId} players in memory: ${JSON.stringify(gameInMemory.players.map(p => ({ userId: p.userId, socketId: p.socketId })))}`);
-                }
-                console.log(`[Request Unfinished Games] Current userSocketMap[userId]: ${userSocketMap[userId]}`);
-                console.log(`[Request Unfinished Games] Is actually fully active (helper check)? ${isActuallyFullyActive}`);
-
-
-                if (!isActuallyFullyActive) { // Only add to unfinished if not fully active in memory with both players
-                    unfinishedGames.push({
-                        gameId: gameData.gameId,
-                        board: gameData.board, // Send serialized board
-                        opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
-                        myPlayerNumber: isPlayer1 ? 1 : 2,
-                        status: gameData.status,
-                        lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
-                    });
-                    console.log(`[Request Unfinished Games] Added game ${gameData.gameId} to list.`);
-                } else {
-                    console.log(`[Request Unfinished Games] Game ${gameData.gameId} is fully active with current socket, skipping.`);
-                }
-            } else {
-                console.log(`[Request Unfinished Games] User ${userId} is not a participant in game ${gameData.gameId}.`);
+                // Always add the game to the unfinishedGames list if the current user is a participant
+                // and the game is active or waiting for resume, regardless of current socket activity.
+                unfinishedGames.push({
+                    gameId: gameData.gameId,
+                    board: gameData.board, // Send serialized board for potential client-side preview
+                    opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
+                    myPlayerNumber: isPlayer1 ? 1 : 2,
+                    status: gameData.status,
+                    lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
+                });
             }
         });
 
-        const uniqueGames = Array.from(new Map(unfinishedGames.map(item => [item.gameId, item])).values());
-
-        socket.emit("receive-unfinished-games", uniqueGames);
-        console.log(`Sent ${uniqueGames.length} unfinished games to user ${userName}.`);
+        socket.emit("receive-unfinished-games", unfinishedGames);
+        console.log(`Sent ${unfinishedGames.length} unfinished games to user ${userName}.`);
 
     } catch (error) {
         console.error("Error fetching unfinished games for user:", userId, error);
@@ -674,8 +569,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("resume-game", async ({ gameId }) => {
-    const userId = socket.request.user ? socket.request.user.id : null;
-    const userName = socket.request.user ? socket.request.user.displayName : 'Unknown Player';
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const userName = user ? user.displayName : 'Unknown Player';
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to resume game.");
@@ -686,39 +582,29 @@ io.on("connection", (socket) => {
         const gameDocRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
         const gameDoc = await gameDocRef.get();
 
-        if (!gameDoc.exists || (gameDoc.data().status !== 'active' && gameDoc.data().status !== 'waiting_for_resume')) {
-            socket.emit("join-error", "Game not found or cannot be resumed.");
+        if (!gameDoc.exists) {
+            socket.emit("join-error", "Game not found or already ended.");
             return;
         }
 
         const gameData = gameDoc.data();
 
+        // Verify that the resuming user is one of the players in this game
         if (gameData.player1_userId !== userId && gameData.player2_userId !== userId) {
             socket.emit("join-error", "You are not a participant in this game.");
             return;
         }
 
-        // Handle case where game is already in memory
+        // Check if the game is already active in memory for *any* player
         if (games[gameId]) {
             const existingGame = games[gameId];
             const playerInExistingGame = existingGame.players.find(p => p.userId === userId);
-            
-            if (playerInExistingGame) {
-                // Ensure player number is correctly assigned to the existing in-memory player object
-                playerInExistingGame.number = (gameData.player1_userId === userId) ? 1 : 2; // FIX: Assign correct player number
-                playerInExistingGame.socketId = socket.id;
-                playerInExistingGame.id = socket.id; // Use socketId as id for consistency
-                playerInExistingGame.inGame = true; // Ensure marked as inGame
-                userSocketMap[userId] = socket.id; // Update global map
 
+            if (playerInExistingGame && playerInExistingGame.socketId === socket.id) {
+                // Player is trying to resume a game they are already actively connected to with this socket.
+                // Just re-send the current state.
                 const opponentPlayer = existingGame.players.find(op => op.userId !== userId);
-                // Update opponent's socketId in memory from userSocketMap
-                if (opponentPlayer) {
-                    opponentPlayer.socketId = userSocketMap[opponentPlayer.userId] || null; // Will be null if opponent not connected
-                    opponentPlayer.id = opponentPlayer.socketId; // Update id as well
-                }
-                
-                io.to(socket.id).emit("game-start", {
+                socket.emit("game-start", {
                     gameId: existingGame.gameId,
                     playerNumber: playerInExistingGame.number,
                     board: JSON.stringify(existingGame.board),
@@ -726,92 +612,111 @@ io.on("connection", (socket) => {
                     scores: existingGame.scores,
                     bombsUsed: existingGame.bombsUsed,
                     gameOver: existingGame.gameOver,
-                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
-                    lastClickedTile: existingGame.lastClickedTile // Send last clicked tile
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
-                console.log(`User ${userName} reconnected and re-sent active game state for game ${gameId}.`);
-                console.log(`[Resume Game Emit Debug] Player ${userName} assigned number: ${playerInExistingGame.number}`); // Added debug log
+                console.log(`User ${userName} re-sent active game state for game ${gameId}.`);
+                return;
+            } else if (playerInExistingGame && playerInExistingGame.socketId !== socket.id) {
+                // User is in the game in memory but with an old socket ID, update it
+                playerInExistingGame.socketId = socket.id;
+                userSocketMap[userId] = socket.id; // Update global userSocketMap
 
+                const opponentPlayer = existingGame.players.find(op => op.userId !== userId);
+                socket.emit("game-start", {
+                    gameId: existingGame.gameId,
+                    playerNumber: playerInExistingGame.number,
+                    board: JSON.stringify(existingGame.board),
+                    turn: existingGame.turn,
+                    scores: existingGame.scores,
+                    bombsUsed: existingGame.bombsUsed,
+                    gameOver: existingGame.gameOver,
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                });
+                console.log(`User ${userName} re-associated socket ID for active game ${gameId}.`);
+                // Notify opponent that their partner reconnected
                 if (opponentPlayer && opponentPlayer.socketId) {
                     io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: userName });
                 }
-                io.emit("players-list", players.filter(p => !p.inGame && !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
                 return;
             }
+            // If the game exists in memory but this user isn't part of it, or the game is full/has an active player who is not this user.
+            // This scenario implies a conflict (e.g., player trying to join a game already resumed by another account or another instance).
+            socket.emit("join-error", "Game is currently active with another player or your other session.");
+            console.warn(`User ${userName} tried to resume game ${gameId} but it's already active or user is in another game.`);
+            return;
         }
 
-
-        // Game not in memory, load from Firestore and re-create in memory
-        const deserializedBoard = JSON.parse(gameData.board);
+        // If game not in memory, load from Firestore
+        const deserializedBoard = JSON.parse(gameData.board); // Deserialize board from Firestore string
 
         const game = {
             gameId: gameData.gameId,
-            board: deserializedBoard,
+            board: deserializedBoard, // Use the deserialized board
             scores: gameData.scores,
-            bombsUsed: game.bombsUsed,
+            bombsUsed: gameData.bombsUsed,
             turn: gameData.turn,
-            gameOver: game.gameOver,
-            lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load last clicked tile
-            players: []
+            gameOver: gameData.gameOver,
+            players: [] // Will populate based on who is resuming
         };
 
-        // Reconstruct player objects for the game and update global players list
-        let player1 = players.find(p => p.userId === gameData.player1_userId);
+        // Populate players array for the in-memory game object
+        const p1UserId = gameData.player1_userId;
+        const p2UserId = gameData.player2_userId;
+
+        // Ensure players exist in the global 'players' list or add them temporarily
+        let player1 = players.find(p => p.userId === p1UserId);
         if (!player1) {
-            player1 = { userId: gameData.player1_userId, name: gameData.player1_name };
+            player1 = { userId: p1UserId, name: gameData.player1_name, number: 1 };
             players.push(player1);
         }
-        player1.number = 1; // FIX: Ensure number is always set for player1
-        player1.socketId = userSocketMap[player1.userId] || null;
-        player1.id = player1.socketId; // Use socketId as id for consistency
+        player1.socketId = userSocketMap[p1UserId] || null; // Get current socket ID from map
         player1.inGame = true; // Mark as in game
 
-        let player2 = players.find(p => p.userId === gameData.player2_userId);
+        let player2 = players.find(p => p.userId === p2UserId);
         if (!player2) {
-            player2 = { userId: gameData.player2_userId, name: gameData.player2_name };
+            player2 = { userId: p2UserId, name: gameData.player2_name, number: 2 };
             players.push(player2);
         }
-        player2.number = 2; // FIX: Ensure number is always set for player2
-        player2.socketId = userSocketMap[player2.userId] || null;
-        player2.id = player2.socketId; // Use socketId as id for consistency
+        player2.socketId = userSocketMap[p2UserId] || null; // Get current socket ID from map
         player2.inGame = true; // Mark as in game
 
         game.players = [player1, player2];
-        games[gameId] = game;
-        userGameMap[player1.userId] = gameId;
-        userGameMap[player2.userId] = gameId;
+        games[gameId] = game; // Add game to in-memory active games
+        userGameMap[p1UserId] = gameId; // Map both players to this game
+        userGameMap[p2UserId] = gameId;
 
         // Update Firestore status if it was waiting for resume
         if (gameData.status === 'waiting_for_resume') {
             await gameDocRef.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true });
-            console.log(`Game ${gameId} status updated to 'active' in Firestore on resume.`);
+            console.log(`Game ${gameId} status updated to 'active' in Firestore.`);
         }
 
+        // Emit game-start to the player who resumed
         const currentPlayerInGame = game.players.find(p => p.userId === userId);
         const opponentPlayerInGame = game.players.find(op => op.userId !== userId);
 
-        console.log(`[Resume Game Emit] Emitting game-start to ${currentPlayerInGame?.name} (Socket: ${currentPlayerInGame?.socketId}). Player Number: ${currentPlayerInGame?.number}`); // NEW LOG
         if (currentPlayerInGame && currentPlayerInGame.socketId) {
             io.to(currentPlayerInGame.socketId).emit("game-start", {
                 gameId: game.gameId,
                 playerNumber: currentPlayerInGame.number,
-                board: JSON.stringify(game.board),
+                board: JSON.stringify(game.board), // Send serialized board
                 turn: game.turn,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
-                opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent",
-                lastClickedTile: game.lastClickedTile
+                opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent"
             });
             console.log(`User ${userName} successfully resumed game ${gameId}.`);
         }
 
+        // If opponent is also connected, notify them that game is active again
         if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
             io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName });
             console.log(`Notified opponent ${opponentPlayerInGame.name} that ${userName} reconnected to game ${gameId}.`);
         }
 
-        io.emit("players-list", players.filter(p => !p.inGame && !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+        // Update lobby player list (all players now)
+        io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
     } catch (error) {
         console.error("Error resuming game:", error);
@@ -820,191 +725,228 @@ io.on("connection", (socket) => {
   });
 
 
-  socket.on("invite-player", (targetId) => {
-    const inviterUserId = socket.request.user ? socket.request.user.id : null;
-    const inviter = players.find((p) => p.userId === inviterUserId);
-    const invitee = players.find((p) => p.id === targetId);
+  // Invite Player Event
+  socket.on("invite-player", (targetSocketId) => {
+    const inviterUser = socket.request.session?.passport?.user || null;
+    const inviterUserId = inviterUser ? inviterUser.id : null;
+    
+    const inviterPlayer = players.find((p) => p.userId === inviterUserId);
+    const invitedPlayer = players.find((p) => p.id === targetSocketId); // targetSocketId is the socket.id from playersList on client
 
-    if (!inviter || !invitee) return;
-    if (userGameMap[inviter.userId] || userGameMap[invitee.userId]) {
-        console.warn(`Invite failed: Inviter or invitee already in game or already mapped.`);
-        io.to(inviter.id).emit("invite-rejected", { fromName: invitee.name, reason: "Player is currently in a game." });
+    if (!inviterPlayer || !invitedPlayer) {
+      console.warn(`Invite failed: Inviter or invitee not found. Inviter: ${inviterPlayer?.name}, Invitee: ${invitedPlayer?.name}`);
+      return;
+    }
+    // Check if either player is already associated with a game
+    if (userGameMap[inviterPlayer.userId] || userGameMap[invitedPlayer.userId]) {
+        console.warn(`Invite failed: Inviter (${inviterPlayer.name}) or invitee (${invitedPlayer.name}) already in game.`);
+        // Optionally, send a message back to the inviter
+        io.to(inviterPlayer.id).emit("invite-rejected", { fromName: invitedPlayer.name, reason: "Player is already in a game." });
         return;
     }
 
-    io.to(invitee.id).emit("game-invite", {
-      fromId: inviter.id,
-      fromName: inviter.name,
+
+    io.to(invitedPlayer.id).emit("game-invite", {
+      fromId: inviterPlayer.id, // This is the inviter's current socket.id
+      fromName: inviterPlayer.name,
     });
-    console.log(`Invite sent from ${inviter.name} (${inviter.userId}) to ${invitee.name} (${invitee.userId || invitee.id}).`);
+    console.log(`Invite sent from ${inviterPlayer.name} to ${invitedPlayer.name}`);
   });
 
+  // Respond to Invite Event
   socket.on("respond-invite", async ({ fromId, accept }) => {
-    const responderUserId = socket.request.user ? socket.request.user.id : null;
-    const responder = players.find((p) => p.userId === responderUserId);
-    const inviter = players.find((p) => p.id === fromId);
+    const respondingUser = socket.request.session?.passport?.user || null;
+    const respondingUserId = respondingUser ? respondingUser.id : null;
 
-    if (!responder || !inviter) return;
+    const respondingPlayer = players.find((p) => p.userId === respondingUserId);
+    const inviterPlayer = players.find((p) => p.id === fromId); // fromId is inviter's socket.id
 
-    if (userGameMap[responder.userId] || userGameMap[inviter.userId]) {
-        console.warn("Respond invite failed: One or both players already in a game via userGameMap.");
-        io.to(responder.id).emit("invite-rejected", { fromName: inviter.name, reason: "Already in another game" });
-        io.to(inviter.id).emit("invite-rejected", { fromName: responder.name, reason: "Already in another game" });
+    if (!respondingPlayer || !inviterPlayer) {
+        console.warn("Respond invite failed: Players not found.");
         return;
     }
 
+    // Double check if either player is already in a game
+    if (userGameMap[respondingPlayer.userId] || userGameMap[inviterPlayer.userId]) {
+        console.warn("Respond invite failed: One or both players already in a game.");
+        io.to(respondingPlayer.id).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "Already in another game" });
+        io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name, reason: "Already in another game" });
+        return;
+    }
 
     if (accept) {
-      const gameId = uuidv4();
-      const board = generateBoard();
+      const gameId = uuidv4(); // Generate a unique game ID
+      const newBoard = generateBoard();
       const scores = { 1: 0, 2: 0 };
       const bombsUsed = { 1: false, 2: false };
       const turn = 1;
       const gameOver = false;
-      const lastClickedTile = { 1: null, 2: null };
-
-      inviter.number = 1;
-      inviter.inGame = true;
-      inviter.socketId = inviter.id;
-      inviter.id = inviter.socketId; // Use socketId as id for consistency
-      responder.number = 2;
-      responder.inGame = true;
-      responder.socketId = responder.id;
-      responder.id = responder.socketId; // Use socketId as id for consistency
 
       const game = {
         gameId,
-        players: [inviter, responder],
-        board,
+        board: newBoard,
+        players: [
+          // Store userId and current socketId for players in the game object
+          { userId: inviterPlayer.userId, name: inviterPlayer.name, number: 1, socketId: inviterPlayer.id },
+          { userId: respondingPlayer.userId, name: respondingPlayer.name, number: 2, socketId: respondingPlayer.id },
+        ],
+        turn,
         scores,
         bombsUsed,
-        turn,
         gameOver,
-        lastClickedTile
       };
       games[gameId] = game;
 
-      userGameMap[inviter.userId] = gameId;
-      userGameMap[responder.userId] = gameId;
+      // Update userGameMap for both players
+      userGameMap[inviterPlayer.userId] = gameId;
+      userGameMap[respondingPlayer.userId] = gameId;
+      console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
 
-      console.log(`Game ${gameId} started between ${inviter.name} (ID: ${inviter.userId}) and ${responder.name} (ID: ${responder.userId}).`);
-
+      // Save game state to Firestore (with serialized board)
       try {
-          const serializedBoard = JSON.stringify(game.board);
+          const serializedBoard = JSON.stringify(game.board); // Serialize board for Firestore
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-              gameId: game.gameId, // <-- ensure gameId is always explicitly set
-              board: serializedBoard,
-              player1_userId: inviter.userId,
-              player2_userId: responder.userId,
-              player1_name: inviter.name,
-              player2_name: responder.name,
+              gameId: game.gameId,
+              board: serializedBoard, // Save serialized board
+              player1_userId: inviterPlayer.userId,
+              player2_userId: respondingPlayer.userId,
+              player1_name: inviterPlayer.name,
+              player2_name: respondingPlayer.name,
               turn: game.turn,
               scores: game.scores,
               bombsUsed: game.bombsUsed,
               gameOver: game.gameOver,
-              lastClickedTile: game.lastClickedTile,
-              status: 'active',
+              status: 'active', // Mark as active
               lastUpdated: Timestamp.now(),
               winnerId: null,
               loserId: null
-          }, { merge: true });
+          }, { merge: true }); // Use merge: true for robustness
           console.log(`Game ${gameId} saved to Firestore.`);
       } catch (error) {
-          console.error("Error saving new game to Firestore:", error);
-          delete games[gameId];
-          delete userGameMap[inviter.userId];
-          delete userGameMap[responder.userId];
-          io.to(inviter.id).emit("join-error", "Failed to start game (DB error).");
-          io.to(responder.id).emit("join-error", "Failed to start game (DB error).");
+          console.error("Error saving new game to Firestore:", error); // Log the full error object
+          io.to(inviterPlayer.id).emit("join-error", "Failed to start game (DB error).");
+          io.to(respondingPlayer.id).emit("join-error", "Failed to start game (DB error).");
+          delete games[gameId]; // Clean up in-memory game if DB save fails
+          delete userGameMap[inviterPlayer.userId];
+          delete userGameMap[respondingPlayer.userId];
           return;
       }
 
-      io.emit(
-        "players-list",
-        players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
-      );
+      // Remove players from the general lobby list as they are now in a game
+      io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
-      io.to(inviter.id).emit("game-start", {
-        playerNumber: inviter.number,
-        board: JSON.stringify(board),
-        turn,
-        scores,
-        bombsUsed,
-        gameOver,
-        opponentName: responder.name,
-        gameId,
-        lastClickedTile
+      // Emit game-start to both players with their specific player number and opponent name
+      io.to(inviterPlayer.id).emit("game-start", {
+        gameId: game.gameId,
+        playerNumber: 1,
+        board: JSON.stringify(game.board), // Send serialized board to client
+        turn: game.turn,
+        scores: game.scores,
+        bombsUsed: game.bombsUsed,
+        gameOver: game.gameOver,
+        opponentName: respondingPlayer.name,
       });
-      io.to(responder.id).emit("game-start", {
-        playerNumber: responder.number,
-        board: JSON.stringify(board),
-        turn,
-        scores,
-        bombsUsed,
-        gameOver,
-        opponentName: inviter.name,
-        gameId,
-        lastClickedTile
+      io.to(respondingPlayer.id).emit("game-start", {
+        gameId: game.gameId,
+        playerNumber: 2,
+        board: JSON.stringify(game.board), // Send serialized board to client
+        turn: game.turn,
+        scores: game.scores,
+        bombsUsed: game.bombsUsed,
+        gameOver: game.gameOver,
+        opponentName: inviterPlayer.name,
       });
 
     } else {
-      io.to(fromId).emit("invite-rejected", { fromName: responder.name });
+      io.to(fromId).emit("invite-rejected", { fromName: respondingPlayer.name });
+      console.log(`Invite from ${inviterPlayer.name} rejected by ${respondingPlayer.name}.`);
     }
   });
 
-  // Handle game actions
+
+  // Tile Click Event (main game action)
   socket.on("tile-click", async ({ gameId, x, y }) => {
     const game = games[gameId];
-    if (!game || game.gameOver) return;
+    if (!game || game.gameOver) {
+        console.warn(`Tile click: Game ${gameId} not found or game over.`);
+        return;
+    }
 
-    const currentUserId = socket.request.user ? socket.request.user.id : null;
-    const player = game.players.find((p) => p.userId === currentUserId);
-    if (!player || player.number !== game.turn) return; // Turn check
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    if (!userId) {
+        console.warn(`Tile click: Unauthenticated user ${socket.id}.`);
+        return;
+    }
 
+    // Find the player within the game object using their userId (more reliable for turn check)
+    const player = game.players.find((p) => p.userId === userId);
+    if (!player || player.number !== game.turn) {
+        console.warn(`Tile click: Not player's turn or player not found in game. Player: ${player?.name}, Turn: ${game?.turn}`);
+        return;
+    }
+
+    // IMPORTANT: Update player's socketId in the game object with current socket.id
+    // This ensures subsequent emits (like board-update, game-restarted) go to the correct, potentially new, socket.id
     player.socketId = socket.id;
-    player.id = socket.id; // Use socketId as id for consistency
 
     const tile = game.board[y][x];
-    if (tile.revealed) return;
+    if (tile.revealed) {
+        console.warn(`Tile click: Tile ${x},${y} already revealed.`);
+        return;
+    }
 
-    game.lastClickedTile[player.number] = { x, y }; // Update last clicked tile for the current player
-
+    // --- Start of Re-ordered and Corrected Logic ---
     if (tile.isMine) {
       tile.revealed = true;
-      tile.owner = player.number;
-      game.scores[player.number]++;
+      tile.owner = player.number; // Assign owner to the mine
+      game.scores[player.number]++; // Increment score for capturing a mine
+
+      console.log(`[Tile Click] Player ${player.name} revealed a mine at (${x},${y}). New score: ${game.scores[player.number]}`);
+
       if (checkGameOver(game.scores)) {
           game.gameOver = true;
+          console.log(`[Game Over] Game ${gameId} ended. Final Scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
       }
-    } else {
+      // Turn does NOT switch if a mine is revealed.
+      // The turn will only switch after a non-mine tile is revealed.
+
+    } else { // This block handles non-mine tiles
       const isBlankTile = tile.adjacentMines === 0;
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
+
+      // Debug logs removed as requested in previous turn after confirmation
+      // console.log(`[Tile Click Debug] Tile at (${x},${y}).`);
+      // console.log(`[Tile Click Debug] tile.isMine: ${tile.isMine}, tile.adjacentMines: ${tile.adjacentMines}, tile.revealed: ${tile.revealed}`);
+      // console.log(`[Tile Click Debug] Current scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+      // console.log(`[Tile Click Debug] isBlankTile (calculated from adjacentMines): ${isBlankTile}`);
+      // console.log(`[Tile Click Debug] noFlagsRevealedYet (calculated from scores): ${noFlagsRevealedYet}`);
+      // console.log(`[Tile Click Debug] Combined restart condition (isBlankTile && noFlagsRevealedYet): ${isBlankTile && noFlagsRevealedYet}`);
 
       if (isBlankTile && noFlagsRevealedYet) {
         console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
 
-        game.board = generateBoard();
-        game.scores = { 1: 0, 2: 0 };
-        game.bombsUsed = { 1: false, 2: false };
-        game.turn = 1;
-        game.gameOver = false;
-        game.lastClickedTile = { 1: null, 2: null }; // Reset last clicked tile on restart
+        // Reset game state properties within the existing game object
+        game.board = generateBoard(); // Generate a brand new board
+        game.scores = { 1: 0, 2: 0 }; // Reset scores
+        game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
+        game.turn = 1; // Reset turn to player 1
+        game.gameOver = false; // Game is no longer over
 
         try {
-            const serializedBoard = JSON.stringify(game.board);
-            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                board: serializedBoard,
-                scores: game.scores,
-                bombsUsed: game.bombsUsed,
-                turn: game.turn,
-                gameOver: game.gameOver,
-                lastClickedTile: game.lastClickedTile,
-                status: 'active',
-                lastUpdated: Timestamp.now(),
-                winnerId: null,
-                loserId: null
-            }, { merge: true });
-            console.log(`Game ${gameId} restarted and updated in Firestore.`);
+          const serializedBoard = JSON.stringify(game.board);
+          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
+              board: serializedBoard,
+              scores: game.scores,
+              bombsUsed: game.bombsUsed,
+              turn: game.turn,
+              gameOver: game.gameOver,
+              status: 'active', // Game is active after restart
+              lastUpdated: Timestamp.now(),
+              winnerId: null,
+              loserId: null
+          }, { merge: true });
+          console.log(`Game ${gameId} restarted and updated in Firestore.`);
         } catch (error) {
             console.error("Error restarting game in Firestore:", error);
         }
@@ -1020,90 +962,85 @@ io.on("connection", (socket) => {
                     scores: game.scores,
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
-                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
-                    lastClickedTile: game.lastClickedTile
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
+            } else {
+                console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send restart event.`);
             }
         });
-        return;
+        console.log(`[GAME RESTARTED] Game ${gameId} state after reset. Players: ${game.players.map(p => p.name).join(', ')}`);
+        return; // Important: Exit after restarting
       }
 
+      // If not a mine and not a restart condition on a blank tile, then it's a normal reveal
       revealRecursive(game.board, x, y);
-      game.turn = game.turn === 1 ? 2 : 1;
+      game.turn = game.turn === 1 ? 2 : 1; // Turn switches only for non-mine reveals
     }
+    // --- End of Re-ordered and Corrected Logic ---
 
+    // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board);
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
             lastUpdated: Timestamp.now(),
-            winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null,
-            loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null
+            winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
+            loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null
         }, { merge: true });
         console.log(`Game ${gameId} updated in Firestore (tile-click).`);
     } catch (error) {
         console.error("Error updating game in Firestore (tile-click):", error);
     }
 
+    // Emit board-update to both players
     game.players.forEach(p => {
-        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board), lastClickedTile: game.lastClickedTile });
+        if (p.socketId) {
+            io.to(p.socketId).emit("board-update", {
+                gameId: game.gameId,
+                playerNumber: p.number,
+                board: JSON.stringify(game.board), // Send serialized board to client
+                turn: game.turn,
+                scores: game.scores,
+                bombsUsed: game.bombsUsed,
+                gameOver: game.gameOver,
+            });
+        } else {
+             console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send board update.`);
+        }
     });
   });
 
+  // Use Bomb Event
   socket.on("use-bomb", ({ gameId }) => {
-    const currentUserId = socket.request.user ? socket.request.user.id : null;
-    if (!currentUserId) {
-        console.warn(`Use bomb: Unauthenticated user for socket ${socket.id}.`);
-        return;
-    }
-
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    const player = game.players.find((p) => p.userId === currentUserId);
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const player = game.players.find((p) => p.userId === userId);
     if (!player || game.bombsUsed[player.number]) return;
 
-    // FIX: Add turn check for "use-bomb"
-    if (player.number !== game.turn) {
-        console.warn(`Player ${player.name} (${player.userId}) attempted to use bomb out of turn in game ${gameId}.`);
-        io.to(player.socketId).emit("bomb-error", "It's not your turn to use a bomb.");
-        return;
-    }
-
-    player.socketId = socket.id;
-    player.id = socket.id; // Use socketId as id for consistency
+    player.socketId = socket.id; // Update socket ID on action
 
     io.to(player.socketId).emit("wait-bomb-center");
     console.log(`Player ${player.name} is waiting for bomb center selection.`);
   });
 
+  // Bomb Center Selected Event
   socket.on("bomb-center", async ({ gameId, x, y }) => {
-    const currentUserId = socket.request.user ? socket.request.user.id : null;
-    if (!currentUserId) {
-        console.warn(`Bomb center: Unauthenticated user for socket ${socket.id}.`);
-        return;
-    }
-
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    const player = game.players.find((p) => p.userId === currentUserId);
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const player = game.players.find((p) => p.userId === userId);
     if (!player || game.bombsUsed[player.number]) return;
 
-    // FIX: Add turn check for "bomb-center"
-    if (player.number !== game.turn) {
-        console.warn(`Player ${player.name} (${player.userId}) attempted to set bomb center out of turn in game ${gameId}.`);
-        io.to(player.socketId).emit("bomb-error", "It's not your turn to set the bomb center.");
-        return;
-    }
-
-    player.socketId = socket.id;
-    player.id = socket.id; // Use socketId as id for consistency
+    player.socketId = socket.id; // Update socket ID on action
 
     const MIN_COORD = 2;
     const MAX_COORD_X = WIDTH - 3;
@@ -1139,258 +1076,229 @@ io.on("connection", (socket) => {
       return;
     }
 
+
     game.bombsUsed[player.number] = true;
     revealArea(game.board, x, y, player.number, game.scores);
-
-    game.lastClickedTile[player.number] = { x, y }; // Update last clicked tile after bomb
 
     if (checkGameOver(game.scores)) game.gameOver = true;
     else game.turn = game.turn === 1 ? 2 : 1;
 
     console.log(`Player ${player.name} used bomb at ${x},${y}. New scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
 
+    // Update game state in Firestore
     try {
-        const serializedBoard = JSON.stringify(game.board);
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+        const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
             lastUpdated: Timestamp.now(),
-            winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null,
-            loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null
+            winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
+            loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null
         }, { merge: true });
         console.log(`Game ${gameId} updated in Firestore (bomb-center).`);
     } catch (error) {
-        console.error("Error updating game in Firestore (bomb-center):", error);
+        console.error("Error updating game in Firestore (bomb-center):", error); // Log the full error object
     }
 
+
     game.players.forEach(p => {
-        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board), lastClickedTile: game.lastClickedTile });
+        if (p.socketId) {
+            io.to(p.socketId).emit("board-update", {
+                gameId: game.gameId,
+                playerNumber: p.number,
+                board: JSON.stringify(game.board), // Send serialized board to client
+                turn: game.turn,
+                scores: game.scores,
+                bombsUsed: game.bombsUsed,
+                gameOver: game.gameOver,
+            });
+        }
     });
   });
 
+  // Restart Game Event (Manual Restart Button)
   socket.on("restart-game", async ({ gameId }) => {
     const game = games[gameId];
     if (!game) return;
+    
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const requestingPlayer = game.players.find(p => p.userId === userId);
+    if (!requestingPlayer) return;
 
-    const currentUserId = socket.request.user ? socket.request.user.id : null;
-    const player = game.players.find((p) => p.userId === currentUserId);
-    if (!player) return;
-
-    player.socketId = socket.id;
-    player.id = socket.id; // Use socketId as id for consistency
-
-    console.log(`Player ${player.name} requested game ${gameId} restart.`);
+    console.log(`Manual restart requested by ${requestingPlayer.name} for game ${gameId}.`);
 
     game.board = generateBoard();
     game.scores = { 1: 0, 2: 0 };
     game.bombsUsed = { 1: false, 2: false };
     game.turn = 1;
     game.gameOver = false;
-    game.lastClickedTile = { 1: null, 2: null }; // Reset last clicked tile on restart
 
+    // Update game state in Firestore
     try {
-        const serializedBoard = JSON.stringify(game.board);
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+        const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
             board: serializedBoard,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             turn: game.turn,
             gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            status: 'active',
+            status: 'active', // Game is active after restart
             lastUpdated: Timestamp.now(),
             winnerId: null,
             loserId: null
         }, { merge: true });
         console.log(`Game ${gameId} restarted and updated in Firestore.`);
     } catch (error) {
-        console.error("Error restarting game in Firestore:", error);
+        console.error("Error restarting game in Firestore:", error); // Log the full error object
     }
 
     game.players.forEach(p => {
-        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board), lastClickedTile: game.lastClickedTile });
+        if (p.socketId) {
+            const opponentPlayer = game.players.find(op => op.userId !== p.userId);
+            io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
+                gameId: game.gameId,
+                playerNumber: p.number,
+                board: JSON.stringify(game.board),
+                turn: game.turn,
+                scores: game.scores,
+                bombsUsed: game.bombsUsed,
+                gameOver: game.gameOver,
+                opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+            });
+        }
     });
   });
 
+  // Leave Game Event (Player voluntarily leaves)
   socket.on("leave-game", async ({ gameId }) => {
-    const userId = socket.request.user ? socket.request.user.id : null;
-    if (!userId) return;
-
-    // Find the player in the global players array
-    const leavingPlayerGlobalEntry = players.find((p) => p.userId === userId);
-    if (!leavingPlayerGlobalEntry) {
-      console.log(`Player with ID ${userId} not found in global list on leave-game.`);
-      return;
-    }
-
-    // Attempt to find the game in memory
     const game = games[gameId];
-    if (!game) { // If game not in memory, but user was mapped to it, clean up
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+
+    if (game && userId) {
+      const playerIndex = game.players.findIndex(p => p.userId === userId);
+      if (playerIndex !== -1) {
+        // Remove from userGameMap
         delete userGameMap[userId];
-        leavingPlayerGlobalEntry.inGame = false;
-        leavingPlayerGlobalEntry.number = null;
-        leavingPlayerGlobalEntry.socketId = null;
-        leavingPlayerGlobalEntry.id = null;
-        console.log(`Game ${gameId} not found in memory for user ${userId} on leave. Cleaning userGameMap and player entry.`);
-        io.emit(
-            "players-list",
-            players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
-        );
-        return;
+        console.log(`User ${userId} (${game.players[playerIndex].name}) left game ${gameId}.`);
+
+        // Remove the player from the game's player list in memory
+        game.players.splice(playerIndex, 1);
+
+        if (game.players.length === 0) {
+          // If no players left in the game, delete the game from memory and Firestore
+          delete games[gameId];
+          try {
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
+                  status: 'completed', // Mark as completed if all players left
+                  lastUpdated: Timestamp.now()
+              }, { merge: true });
+              console.log(`Game ${gameId} status set to 'completed' in Firestore as all players left.`);
+          }
+           catch (error) {
+              console.error("Error updating game status to 'completed' on leave:", error);
+          }
+          console.log(`Game ${gameId} deleted from memory.`);
+        } else {
+          // Notify the remaining player if any (using their current socketId)
+          const remainingPlayer = game.players[0];
+          if (remainingPlayer && remainingPlayer.socketId) {
+             io.to(remainingPlayer.socketId).emit("opponent-left");
+             console.log(`Notified opponent ${remainingPlayer.name} that their partner left.`);
+          }
+          // Update game status in Firestore to 'waiting_for_resume'
+          try {
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
+                  status: 'waiting_for_resume',
+                  lastUpdated: Timestamp.now()
+              }, { merge: true });
+              console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to leave.`);
+          } catch (error) {
+              console.error("Error updating game status to 'waiting_for_resume' on leave:", error);
+          }
+        }
+      }
     }
-
-    // Find the player object within the specific game's players array
-    const leavingPlayerInGame = game.players.find(p => p.userId === userId);
-    if (!leavingPlayerInGame) {
-        console.log(`User ${userId} not found in game ${gameId}'s player list, despite being mapped. Consistency issue?`);
-        // Clean up in-memory state for this user if somehow inconsistent
-        delete userGameMap[userId];
-        leavingPlayerGlobalEntry.inGame = false;
-        leavingPlayerGlobalEntry.number = null;
-        leavingPlayerGlobalEntry.socketId = null;
-        leavingPlayerGlobalEntry.id = null;
-        io.emit(
-            "players-list",
-            players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
-        );
-        return;
-    }
-
-    console.log(`Player ${leavingPlayerGlobalEntry.name} (ID: ${userId}) initiating leave from game ${gameId}.`);
-
-    // Mark leaving player's in-game status and socket as null
-    leavingPlayerGlobalEntry.inGame = false;
-    leavingPlayerGlobalEntry.number = null; // No longer has a player number
-    leavingPlayerGlobalEntry.socketId = null; // No longer connected via this socket for the game
-    leavingPlayerGlobalEntry.id = null; // Corresponding id in players list also nulled
-
-    leavingPlayerInGame.socketId = null; // Also nullify within the game object
-    leavingPlayerInGame.id = null; // Corresponding id in game.players also nulled
-
-    delete userGameMap[userId]; // Remove user's game mapping
-
-    const opponentPlayer = game.players.find(p => p.userId !== userId);
-
-    if (opponentPlayer) {
-        if (opponentPlayer.socketId) {
-            io.to(opponentPlayer.socketId).emit("opponent-left");
-            console.log(`Notified opponent ${opponentPlayer.name} of ${leavingPlayerGlobalEntry.name}'s disconnection.`);
-        }
-        // Ensure opponent's global player entry is also marked for lobby if they're not connected to it
-        const opponentGlobalEntry = players.find(p => p.userId === opponentPlayer.userId);
-        if(opponentGlobalEntry) {
-            opponentGlobalEntry.inGame = false; // Opponent is now also effectively in lobby
-            opponentGlobalEntry.number = null;
-        }
-
-        // Update Firestore status to 'waiting_for_resume'
-        try {
-            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                status: 'waiting_for_resume',
-                lastUpdated: Timestamp.now()
-            }, { merge: true });
-            console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
-        } catch (error) {
-            console.error("Error updating game status on leave:", error);
-        }
-        // IMPORTANT: DO NOT delete game from `games` in-memory here. Keep it for resume.
-    } else {
-        // Last player leaving
-        // Delete game from in-memory `games` object
-        delete games[gameId];
-        // Update Firestore status to 'completed'
-        try {
-            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                status: 'completed',
-                lastUpdated: Timestamp.now()
-            }, { merge: true });
-            console.log(`Game ${gameId} status set to 'completed' as last player left.`);
-        } catch (error) {
-            console.error("Error updating game status to 'completed' on leave:", error);
+    // Attempt to re-add player to lobby list if they were logged in (all players now)
+    if (userId) {
+        // Ensure the player is in the global 'players' list and not marked as being in a game
+        let existingPlayerInLobby = players.find(p => p.userId === userId);
+        if (existingPlayerInLobby) {
+            existingPlayerInLobby.id = socket.id; // Update their socket if needed
+        } else {
+            const userNameForLobby = user ? user.displayName : `User_${userId.substring(0, 8)}`;
+            players.push({ id: socket.id, userId: userId, name: userNameForLobby });
         }
     }
-
-    // Emit updated players list (filter out those still in-game or mapped to a game)
-    io.emit(
-      "players-list",
-      players.filter((p) => !p.inGame && !userGameMap[p.userId]).map((p) => ({ id: p.id, name: p.name }))
-    );
+    // Always update lobby list to reflect changes
+    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
   });
 
 
+  // Socket Disconnect Event (e.g., browser tab closed, network drop)
   socket.on("disconnect", async () => {
     console.log(`Socket disconnected: ${socket.id}`);
+    const user = socket.request.session?.passport?.user || null;
+    const disconnectedUserId = user ? user.id : null;
 
-    let disconnectedUserId = null;
-    // Find the userId associated with this disconnected socket
-    for (const userId in userSocketMap) {
-        if (userSocketMap[userId] === socket.id) {
-            disconnectedUserId = userId;
-            delete userSocketMap[userId]; // Remove this socket from the map
-            break;
-        }
+    if (disconnectedUserId) {
+        // Remove from userSocketMap as this socket is no longer active for this user
+        delete userSocketMap[disconnectedUserId];
+        console.log(`User ${disconnectedUserId} socket removed from map.`);
     }
 
-    // Update the player's status in the global 'players' array
-    const disconnectedPlayerEntry = players.find(p => p.userId === disconnectedUserId);
-    if (disconnectedPlayerEntry) {
-        disconnectedPlayerEntry.socketId = null;
-        disconnectedPlayerEntry.id = null; // Mark id as null as socket is gone
-    }
-
-    // Filter out players from the lobby list who are not in-game and whose socket just disconnected
-    // Or, if their userId is known and not in a game map, remove them from lobby list.
-    io.emit("players-list", players.filter(p => p.socketId !== null && !p.inGame && !userGameMap[p.userId]).map(p => ({ id: p.id, name: p.name })));
+    // Remove from lobby player list (by socket.id or userId if known)
+    // Filter out players whose current socket matches the disconnected one, or if they are the disconnected user and not in a game
+    players = players.filter(p => !(p.id === socket.id || (disconnectedUserId && p.userId === disconnectedUserId && !userGameMap[disconnectedUserId])));
+    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
 
 
+    // Check if the disconnected user was in a game
     if (disconnectedUserId && userGameMap[disconnectedUserId]) {
         const gameId = userGameMap[disconnectedUserId];
-        const game = games[gameId]; // Try to find the game in memory
-        console.log(`[Disconnect] User ${disconnectedUserId} was in game ${gameId}. Game in memory: ${!!game}.`); // ADDED LOG
+        const game = games[gameId];
 
         if (game) {
+            // Find and update the disconnected player's socketId within the game object
             const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
             if (disconnectedPlayerInGame) {
-                disconnectedPlayerInGame.socketId = null; // Mark socket as null in game object
-                disconnectedPlayerInGame.id = null; // Mark id as null in game object
+                disconnectedPlayerInGame.socketId = null; // Mark their socket as null
                 console.log(`Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
             }
 
+            // Check if both players are now disconnected (i.e., both have null socketIds)
             const allPlayersDisconnected = game.players.every(p => p.socketId === null);
 
             if (allPlayersDisconnected) {
-                // Both players disconnected, keep game in memory, mark Firestore for resume
-                game.players.forEach(p => {
-                    delete userGameMap[p.userId]; // Clear userGameMap for both
-                    const globalPlayerEntry = players.find(gp => gp.userId === p.userId);
-                    if (globalPlayerEntry) {
-                        globalPlayerEntry.inGame = false;
-                        globalPlayerEntry.number = null;
-                    }
-                });
-                // Do NOT delete games[gameId] from in-memory here. It stays for resume.
+                // If both players are disconnected, set status to 'waiting_for_resume'
+                // and do NOT delete the game from memory, as it might be resumed later.
+                // The game will only be truly deleted from memory if the server restarts.
+                game.players.forEach(p => delete userGameMap[p.userId]); // Clear userGameMap for both
+                // Do NOT delete from `games[gameId]` here.
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                        status: 'waiting_for_resume',
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
+                        status: 'waiting_for_resume', // Change from 'completed' to 'waiting_for_resume'
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
-                    console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore on total disconnect.`);
+                    console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore as all players disconnected.`);
                 } catch (error) {
                     console.error("Error updating game status to 'waiting_for_resume' on total disconnect:", error);
                 }
+                // No `delete games[gameId]` here
             } else {
-                // One player disconnected, notify opponent and mark for resume
+                // One player disconnected, but the other might still be connected or might reconnect
                 const remainingPlayer = game.players.find(p => p.userId !== disconnectedUserId);
                 if (remainingPlayer && remainingPlayer.socketId) {
                     io.to(remainingPlayer.socketId).emit("opponent-left");
                     console.log(`Notified opponent ${remainingPlayer.name} that their partner disconnected.`);
                 }
+                // Update game status in Firestore to 'waiting_for_resume'
                 try {
-                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
                         status: 'waiting_for_resume',
                         lastUpdated: Timestamp.now()
                     }, { merge: true });
@@ -1399,27 +1307,17 @@ io.on("connection", (socket) => {
                     console.error("Error updating game status to 'waiting_for_resume' on disconnect:", error);
                 }
             }
-        } else { // Game not in memory, but user was mapped to it. Update Firestore if needed.
-            try {
-                const gameDocRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
-                const gameDoc = await gameDocRef.get();
-                if (gameDoc.exists && (gameDoc.data().status === 'active' || gameDoc.data().status === 'waiting_for_resume')) {
-                    await gameDocRef.set({
-                        status: 'waiting_for_resume',
-                        lastUpdated: Timestamp.now()
-                    }, { merge: true });
-                    console.log(`Game ${gameId} (Firestore) status set to 'waiting_for_resume' due to user disconnect.`);
-                }
-            } catch (error) {
-                console.error("Error updating Firestore game status on disconnect (game not in memory):", error);
-            }
-            delete userGameMap[disconnectedUserId]; // Clear stale entry
+        } else {
+            delete userGameMap[disconnectedUserId]; // Game wasn't in memory, just clear the userGameMap entry
+            console.log(`User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
         }
     }
   });
+
 });
 
-const PORT = process.env.PORT || 3001;
+// --- Server Startup ---
+const PORT = process.env.PORT || 3001; // Use Render's PORT env var, or 3001 for local dev
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
