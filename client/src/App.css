@@ -89,106 +89,83 @@ body {
   background-color: #cc4444;
 }
 
-.app-message {
-  color: red;
-  font-weight: bold;
-  margin-top: 5px;
-  margin-bottom: 5px;
-}
-
 .grid {
   display: grid;
+  justify-content: center;
   gap: 2px;
-  border: 2px solid #555;
-  width: fit-content;
-  margin: 20px auto;
-  border-radius: 8px;
-  overflow: hidden; /* Ensures rounded corners apply cleanly */
+  user-select: none;
+  margin-top: 15px;
 }
 
 .tile {
   width: 40px;
   height: 40px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 1.2em;
+  line-height: 40px;
   font-weight: bold;
-  cursor: pointer;
-  border-radius: 4px; /* Slightly rounded corners for tiles */
-  /* Removed general transition from here */
-  box-sizing: border-box; /* Include padding and border in the element's total width and height */
+  font-size: 18px;
+  text-align: center;
+  vertical-align: middle;
+  border-radius: 4px;
+  color: white; /* Default text color for tiles */
+  user-select: none;
 }
 
 .tile.hidden {
-  background-color: #4a4a4a;
+  background-color: #555;
   border: 2px solid #666;
-  color: transparent; /* Hide text until revealed */
-  /* Added transition specifically for the hidden state */
-  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  cursor: pointer; /* Ensure pointer for hidden tiles */
+  transition: background-color 0.2s; /* Smooth transition for hover */
 }
 
 .tile.hidden:hover {
-  background-color: #6a6a6a; /* Highlight on hover */
-  border-color: #888;
+  background-color: #777; /* Highlight on hover for hidden tiles */
 }
 
 .tile.revealed {
-  background-color: #333;
-  border: 1px solid #555;
-  color: #eee;
-  /* Ensure no transition applies when it becomes revealed, for instant change */
-  transition: none;
+  background-color: #222;
+  border: 2px solid #999;
+  cursor: default; /* Default cursor for revealed tiles */
 }
 
-/* Colors for adjacent mine numbers */
-.tile.revealed:not(.mine) {
-  /* Specific colors for numbers */
-  color: #aaffaa; /* Green for 1 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="2"] {
-  color: #aaddff; /* Light Blue for 2 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="3"] {
-  color: #ffaaaa; /* Light Red for 3 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="4"] {
-  color: #ffccaa; /* Orange for 4 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="5"] {
-  color: #ffaaee; /* Pink for 5 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="6"] {
-  color: #eeffaa; /* Light Yellow-Green for 6 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="7"] {
-  color: #aaeeff; /* Cyan for 7 */
-}
-.tile.revealed:not(.mine)[data-adjacent-mines="8"] {
-  color: #ffeeaa; /* Light Gold for 8 */
+.tile.mine {
+  color: inherit; /* Mines will use the parent tile's text color */
+  font-size: 26px;
 }
 
-/* Base styles for Google Login component (if any specific styling is needed) */
-.google-login-button {
-  background-color: #4285f4;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 1em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 20px auto;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: background-color 0.3s ease;
+/* --- Number Colors --- */
+.number-1 {
+  color: #0000FF; /* Blue */
 }
 
-.google-login-button:hover {
-  background-color: #357ae8;
+.number-2 {
+  color: #008000; /* Green */
 }
 
-.google-icon {
-  margin-right: 10px;
+.number-3 {
+  color: #FF0000; /* Red */
+}
+
+.number-4 {
+  color: #800080; /* Purple */
+}
+
+.number-5 {
+  color: #A52A2A; /* Light Brown (using a common brown shade) */
+}
+
+.number-6 {
+  color: #40E0D0; /* Turquoise */
+}
+
+.number-7 {
+  color: #000000; /* Black */
+}
+
+.number-8 {
+  color: #5A2C00; /* Dark Brown (a darker shade of brown) */
+}
+
+/* Ensure flags are visible */
+.tile.mine span {
+    font-size: 26px; /* Larger font for flags */
 }
