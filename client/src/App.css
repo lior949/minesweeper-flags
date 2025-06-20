@@ -89,113 +89,123 @@ body {
   background-color: #cc4444;
 }
 
+.app-message {
+  color: red;
+  font-weight: bold;
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
 .grid {
   display: grid;
-  justify-content: center;
   gap: 2px;
-  user-select: none;
-  margin-top: 15px;
+  border: 2px solid #555;
+  width: fit-content;
+  margin: 20px auto;
+  border-radius: 8px;
+  overflow: hidden; /* Ensures rounded corners apply cleanly */
 }
 
 .tile {
   width: 40px;
   height: 40px;
-  line-height: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.2em;
   font-weight: bold;
-  font-size: 18px;
-  text-align: center;
-  vertical-align: middle;
-  border-radius: 4px;
-  color: white; /* Default text color for tiles */
-  user-select: none;
+  cursor: pointer;
+  border-radius: 4px; /* Slightly rounded corners for tiles */
+  /* Removed general transition from here */
+  box-sizing: border-box; /* Include padding and border in the element's total width and height */
 }
 
 .tile.hidden {
-  background-color: #555;
+  background-color: #4a4a4a;
   border: 2px solid #666;
-  cursor: pointer; /* Ensure pointer for hidden tiles */
-  transition: background-color 0.2s; /* Smooth transition for hover */
+  color: transparent; /* Hide text until revealed */
+  /* Added transition specifically for the hidden state */
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
 .tile.hidden:hover {
-  background-color: #777; /* Highlight on hover for hidden tiles */
+  background-color: #6a6a6a; /* Highlight on hover */
+  border-color: #888;
 }
 
 .tile.revealed {
-  background-color: #ccc; /* Changed to a lighter background for revealed tiles */
+  background-color: #333;
+  border: 1px solid #555;
+  color: #eee;
+  /* Ensure no transition applies when it becomes revealed, for instant change */
+  transition: none;
+}
+
+/* Colors for adjacent mine numbers */
+.tile.revealed:not(.mine) {
+  /* Specific colors for numbers */
+  color: #aaffaa; /* Green for 1 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="2"] {
+  color: #aaddff; /* Light Blue for 2 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="3"] {
+  color: #ffaaaa; /* Light Red for 3 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="4"] {
+  color: #ffccaa; /* Orange for 4 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="5"] {
+  color: #ffaaee; /* Pink for 5 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="6"] {
+  color: #eeffaa; /* Light Yellow-Green for 6 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="7"] {
+  color: #aaeeff; /* Cyan for 7 */
+}
+.tile.revealed:not(.mine)[data-adjacent-mines="8"] {
+  color: #ffeeaa; /* Light Gold for 8 */
+}
+
+/* Base styles for Google Login component (if any specific styling is needed) */
+.google-login-button {
+  background-color: #4285f4;
+  color: white;
+  padding: 10px 20px;
   border: none;
-  cursor: default; /* Default cursor for revealed tiles */
-  /* Removed: color: #333; */ /* This was causing numbers to be black */
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease;
 }
 
-.tile.mine {
-  color: inherit; /* Mines will use the parent tile's text color, or specific flag colors */
-  font-size: 26px;
+.google-login-button:hover {
+  background-color: #357ae8;
 }
 
-/* --- Number Colors (now applied to tiles with specific numbers) --- */
-/* These will override the general .tile.revealed color for numbers */
-.number-1 {
-  color: #0000FF; /* Blue */
+.google-icon {
+  margin-right: 10px;
 }
 
-.number-2 {
-  color: #008000; /* Green */
+/* New CSS for bomb target area */
+.bomb-target-area {
+  outline: 2px dashed #ffff00; /* Yellow dashed border */
+  outline-offset: -2px; /* Inset the outline */
 }
 
-.number-3 {
-  color: #FF0000; /* Red */
+/* Keyframes for blinking effect on last clicked tile */
+@keyframes blink-red {
+    0%, 100% { opacity: 1; color: red; }
+    50% { opacity: 0.5; color: darkred; }
 }
 
-.number-4 {
-  color: #800080; /* Purple */
-}
-
-.number-5 {
-  color: #A52A2A; /* Light Brown (using a common brown shade) */
-}
-
-.number-6 {
-  color: #40E0D0; /* Turquoise */
-}
-
-.number-7 {
-  color: #000000; /* Black */
-}
-
-.number-8 {
-  color: #5A2C00; /* Dark Brown (a darker shade of brown) */
-}
-
-/* Ensure flags are visible */
-.tile.mine span {
-    font-size: 26px; /* Larger font for flags */
-}
-
-/* --- Last Clicked Tile Highlighting --- */
-.tile.last-clicked-p1 {
-    background-color: #8B0000 !important; /* Dark Red for Player 1 */
-    border-color: #FF4500 !important; /* Orange-Red border */
-    transition: background-color 0.3s ease-in-out;
-    color: white !important; /* Ensure text is visible on dark highlight */
-}
-
-.tile.last-clicked-p2 {
-    background-color: #00008B !important; /* Dark Blue for Player 2 */
-    border-color: #00BFFF !important; /* Deep Sky Blue border */
-    transition: background-color 0.3s ease-in-out;
-    color: white !important; /* Ensure text is visible on dark highlight */
-}
-
-/* Ensure last clicked highlight is visible even on revealed tiles */
-.tile.revealed.last-clicked-p1,
-.tile.revealed.last-clicked-p2 {
-    opacity: 0.8; /* Make it slightly transparent so you can still see the revealed content */
-}
-
-/* Override hover for last-clicked tiles to maintain highlight */
-.tile.last-clicked-p1:hover,
-.tile.last-clicked-p2:hover {
-    background-color: inherit; /* Keep the last clicked color */
-    cursor: default; /* Not interactive if it was the last clicked (and likely revealed) */
+@keyframes blink-blue {
+    0%, 100% { opacity: 1; color: blue; }
+    50% { opacity: 0.5; color: darkblue; }
 }
