@@ -10,7 +10,6 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy;
 const { v4: uuidv4 } = require("uuid");
 const util = require('util'); // Import util for promisify
-const cookie = require('cookie'); // NEW: Import 'cookie' for manual cookie parsing
 
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
@@ -40,7 +39,7 @@ app.set('trust proxy', 1); // Crucial for Render
 let db;
 let sessionMiddleware;
 let io;
-let firestoreSessionStore; // NEW: Declare variable for FirestoreStore instance
+let firestoreSessionStore; // Dedicated variable for FirestoreStore instance
 
 
 try {
@@ -65,7 +64,7 @@ try {
     databaseId: '(default)',
   });
 
-  // NEW: Capture the FirestoreStore instance in a dedicated variable
+  // Capture the FirestoreStore instance in a dedicated variable
   firestoreSessionStore = new FirestoreStore({
       dataset: firestoreClient,
       kind: 'express-sessions',
@@ -83,7 +82,6 @@ try {
     },
   });
 
-  // NEW: Add debug logs to confirm the store is defined immediately after creation
   console.log(`[Debug] firestoreSessionStore is defined: ${!!firestoreSessionStore}`);
   console.log(`[Debug] firestoreSessionStore.get type: ${typeof firestoreSessionStore.get}`);
 
@@ -100,63 +98,49 @@ try {
     },
   });
 
-  // Promisify deserializeUser for async/await usage
-  const deserializeUserPromise = util.promisify(passport.deserializeUser);
+  // === IMPORTANT: Integrate session and passport with Socket.IO using chained middleware ===
+  // This is the standard and most robust way to share Express sessions with Socket.IO.
+  // We apply the Express session and Passport middleware directly to the Socket.IO handshake.
 
-  // === IMPORTANT: Integrate session and passport with Socket.IO directly ===
-  io.use(async (socket, next) => {
-      console.log(`[Socket.IO Auth] Socket ${socket.id} connecting.`);
-      
-      const req = socket.request;
-      // Manually parse cookies from the handshake headers
-      const cookies = cookie.parse(req.headers.cookie || '');
-      const sessionId = cookies['connect.sid'] ? cookies['connect.sid'].substring(2) : null; // Remove 's:' prefix
+  // 1. Session Middleware for Socket.IO
+  io.use((socket, next) => {
+    // We need to attach a dummy `res` object to `socket.request` because `express-session`
+    // and `passport` middleware expect a `res` object, even in a Socket.IO context.
+    socket.request.res = {
+        writeHead: () => {},
+        end: () => {},
+        setHeader: () => {} // Added setHeader for robustness
+    };
+    console.log(`[Socket.IO Auth Step 1] Applying sessionMiddleware for socket ${socket.id}.`);
+    sessionMiddleware(socket.request, socket.request.res, next);
+  });
 
-      if (!sessionId) {
-          console.log(`[Socket.IO Auth] No session ID found in cookies for socket ${socket.id}.`);
-          req.user = null; // Ensure no user is attached if no session ID
-          return next(); // Proceed as unauthenticated
-      }
+  // 2. Passport Initialize Middleware for Socket.IO
+  io.use((socket, next) => {
+    console.log(`[Socket.IO Auth Step 2] Applying passport.initialize() for socket ${socket.id}.`);
+    passport.initialize()(socket.request, socket.request.res, next);
+  });
 
-      try {
-          // NEW: Add a defensive check before using the captured store instance
-          if (!firestoreSessionStore || typeof firestoreSessionStore.get !== 'function') {
-              console.error(`[Socket.IO Auth Error] firestoreSessionStore or its 'get' method is missing during handshake.`);
-              return next(new Error("Session store not available for Socket.IO authentication."));
-          }
-          // Manually load session from the FirestoreStore using the captured instance
-          // MODIFIED: Wrap the callback-style get method in a Promise to satisfy internal callback expectations
-          const sessionData = await new Promise((resolve, reject) => {
-              firestoreSessionStore.get(sessionId, (err, session) => {
-                  if (err) {
-                      return reject(err);
-                  }
-                  resolve(session);
-              });
-          });
+  // 3. Passport Session Middleware for Socket.IO
+  io.use((socket, next) => {
+    console.log(`[Socket.IO Auth Step 3] Applying passport.session() for socket ${socket.id}.`);
+    passport.session()(socket.request, socket.request.res, next);
+  });
 
-          if (sessionData) {
-              req.session = sessionData; // Attach the loaded session to req.session
-              console.log(`[Socket.IO Auth] Session loaded for ID ${sessionId}. Passport user data: ${JSON.stringify(sessionData.passport?.user)}`);
-
-              // If session contains Passport user data, manually deserialize it
-              if (sessionData.passport && sessionData.passport.user) {
-                  req.user = await deserializeUserPromise(sessionData.passport.user);
-                  console.log(`[Socket.IO Auth] User deserialized and attached: ${req.user ? req.user.displayName || req.user.id : 'N/A'}`);
-              } else {
-                  req.user = null; // No passport user data in session
-                  console.log("Socket.IO Auth: Loaded session has no passport user.");
-              }
-          } else {
-              req.session = null; // No session found in the store for this ID
-              req.user = null;
-              console.log(`Socket.IO Auth: No session data found in store for ID ${sessionId}.`);
-          }
-          next(); // Proceed with the connection
-      } catch (err) {
-          console.error("Socket.IO authentication middleware error:", err);
-          next(new Error("Authentication failed during Socket.IO handshake."));
-      }
+  // 4. Final authentication check within Socket.IO middleware
+  io.use((socket, next) => {
+    console.log(`[Socket.IO Auth Step 4] Final check for socket ${socket.id}. req.user: ${JSON.stringify(socket.request.user)}`);
+    if (socket.request.user) {
+        console.log(`[Socket.IO Auth Final] User authenticated via session: ${socket.request.user.displayName || socket.request.user.id}`);
+        // At this point, req.session and req.user should be populated if authentication succeeded.
+        // Allow the connection to proceed.
+        next();
+    } else {
+        console.log(`[Socket.IO Auth Final] User NOT authenticated for socket ${socket.id}.`);
+        // Allow unauthenticated connections to reach the socket.on('connection') handler,
+        // but restrict game-specific actions as per current logic.
+        next();
+    }
   });
   // === END Socket.IO Session Integration ===
 
@@ -815,7 +799,7 @@ io.on("connection", (socket) => {
       const isBlankTile = tile.adjacentMines === 0;
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
-      if (isBlankTile && noFlagsRevealedYet) {
+      if (isBlankTile && noFlagsFlagsRevealedYet) {
         console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
 
         game.board = generateBoard();
