@@ -42,7 +42,7 @@ let db;
 let sessionMiddleware;
 let io;
 let firestoreSessionStore; // Dedicated variable for FirestoreStore instance
-let parseCookieMiddleware; // Middleware for parsing cookies
+// let parseCookieMiddleware; // This variable is now implicitly used by app.use(cookieParser(...));
 
 
 try {
@@ -73,7 +73,8 @@ try {
       kind: 'express-sessions',
   });
 
-  parseCookieMiddleware = cookieParser(process.env.SESSION_SECRET); // Initialize cookie-parser with the session secret
+  // --- IMPORTANT: Ensure cookie-parser runs BEFORE express-session for HTTP requests ---
+  app.use(cookieParser(process.env.SESSION_SECRET)); // Initialize cookie-parser with the session secret and apply globally
 
   sessionMiddleware = session({
     secret: process.env.SESSION_SECRET,
@@ -84,7 +85,7 @@ try {
       sameSite: "none",
       secure: process.env.NODE_ENV === 'production', // Use true in production
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-      domain: '.onrender.com' // <-- ADDED THIS LINE
+      domain: '.onrender.com' // <-- This was already correct and is being sent
     },
   });
 
@@ -125,7 +126,8 @@ try {
       // --- END NEW LOGGING ---
 
       // Apply cookie-parser middleware to parse the cookie from the socket request
-      parseCookieMiddleware(socket.request, socket.request.res, async () => {
+      // We explicitly run it here for Socket.IO as it doesn't go through the main app.use pipeline
+      cookieParser(process.env.SESSION_SECRET)(socket.request, socket.request.res, async () => {
           // --- NEW LOGGING: Log parsed cookies from Socket.IO handshake ---
           console.log(`[Socket.IO Session Debug] Socket ${socket.id} parsed cookies (signed): ${JSON.stringify(socket.request.signedCookies)}`);
           console.log(`[Socket.IO Session Debug] Socket ${socket.id} parsed cookies (unsigned): ${JSON.stringify(socket.request.cookies)}`);
@@ -276,7 +278,7 @@ app.get("/logout", (req, res, next) => {
           path: '/',
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'none',
-          domain: '.onrender.com' // <-- ADDED THIS LINE
+          domain: '.onrender.com' 
       });
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
