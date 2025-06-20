@@ -40,6 +40,7 @@ app.set('trust proxy', 1); // Crucial for Render
 let db;
 let sessionMiddleware;
 let io;
+let firestoreSessionStore; // NEW: Declare variable for FirestoreStore instance
 
 
 try {
@@ -64,20 +65,28 @@ try {
     databaseId: '(default)',
   });
 
+  // NEW: Capture the FirestoreStore instance in a dedicated variable
+  firestoreSessionStore = new FirestoreStore({
+      dataset: firestoreClient,
+      kind: 'express-sessions',
+  });
+
   sessionMiddleware = session({
     secret: process.env.SESSION_SECRET,
     resave: false, // Set to false, session should not be saved if unmodified
     saveUninitialized: false, // Set to false, don't save new sessions that have no data
-    store: new FirestoreStore({
-      dataset: firestoreClient,
-      kind: 'express-sessions',
-    }),
+    store: firestoreSessionStore, // Use the captured instance here
     cookie: {
       sameSite: "none",
       secure: process.env.NODE_ENV === 'production', // Use true in production
       maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
     },
   });
+
+  // NEW: Add debug logs to confirm the store is defined immediately after creation
+  console.log(`[Debug] firestoreSessionStore is defined: ${!!firestoreSessionStore}`);
+  console.log(`[Debug] firestoreSessionStore.get type: ${typeof firestoreSessionStore.get}`);
+
 
   app.use(sessionMiddleware);
   app.use(passport.initialize());
@@ -93,7 +102,6 @@ try {
 
   // Promisify deserializeUser for async/await usage
   const deserializeUserPromise = util.promisify(passport.deserializeUser);
-  // Removed: const sessionStoreGetPromise = util.promisify(sessionMiddleware.store.get).bind(sessionMiddleware.store); // Promisify store.get
 
   // === IMPORTANT: Integrate session and passport with Socket.IO directly ===
   io.use(async (socket, next) => {
@@ -111,9 +119,13 @@ try {
       }
 
       try {
-          // Manually load session from the FirestoreStore
-          // Changed: Directly use sessionMiddleware.store.get which is already async
-          const sessionData = await sessionMiddleware.store.get(sessionId);
+          // NEW: Add a defensive check before using the captured store instance
+          if (!firestoreSessionStore || typeof firestoreSessionStore.get !== 'function') {
+              console.error(`[Socket.IO Auth Error] firestoreSessionStore or its 'get' method is missing during handshake.`);
+              return next(new Error("Session store not available for Socket.IO authentication."));
+          }
+          // Manually load session from the FirestoreStore using the captured instance
+          const sessionData = await firestoreSessionStore.get(sessionId); // Use the new variable here
 
           if (sessionData) {
               req.session = sessionData; // Attach the loaded session to req.session
