@@ -106,7 +106,7 @@ body {
   text-align: center;
   vertical-align: middle;
   border-radius: 4px;
-  color: white; /* Default text color for tiles */
+  /* Default text color for numbers will be set below */
   user-select: none;
 }
 
@@ -122,17 +122,19 @@ body {
 }
 
 .tile.revealed {
-  background-color: #222;
-  border: none; /* Removed the border highlight */
+  background-color: #ccc; /* Changed to a lighter background for revealed tiles */
+  border: none;
   cursor: default; /* Default cursor for revealed tiles */
+  color: #333; /* Default text color for numbers on a light background */
 }
 
 .tile.mine {
-  color: inherit; /* Mines will use the parent tile's text color */
+  color: inherit; /* Mines will use the parent tile's text color, or specific flag colors */
   font-size: 26px;
 }
 
-/* --- Number Colors --- */
+/* --- Number Colors (now applied to tiles with specific numbers) --- */
+/* These will override the general .tile.revealed color for numbers */
 .number-1 {
   color: #0000FF; /* Blue */
 }
@@ -170,23 +172,24 @@ body {
     font-size: 26px; /* Larger font for flags */
 }
 
-/* --- NEW: Last Clicked Tile Highlighting --- */
+/* --- Last Clicked Tile Highlighting --- */
 .tile.last-clicked-p1 {
     background-color: #8B0000 !important; /* Dark Red for Player 1 */
     border-color: #FF4500 !important; /* Orange-Red border */
     transition: background-color 0.3s ease-in-out;
+    color: white !important; /* Ensure text is visible on dark highlight */
 }
 
 .tile.last-clicked-p2 {
     background-color: #00008B !important; /* Dark Blue for Player 2 */
     border-color: #00BFFF !important; /* Deep Sky Blue border */
     transition: background-color 0.3s ease-in-out;
+    color: white !important; /* Ensure text is visible on dark highlight */
 }
 
 /* Ensure last clicked highlight is visible even on revealed tiles */
 .tile.revealed.last-clicked-p1,
 .tile.revealed.last-clicked-p2 {
-    /* If revealed, you might want a slightly different shade or just let the border show */
     opacity: 0.8; /* Make it slightly transparent so you can still see the revealed content */
 }
 
