@@ -201,7 +201,7 @@ app.get("/auth/google/callback",
       if (err) {
         console.error("Error saving session after Google auth:", err);
         // Redirect to a failure page with an error message
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/login-failed?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
       console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
       
@@ -256,7 +256,7 @@ app.get("/auth/facebook/callback",
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
         // Redirect to a failure page with an error message
-        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/login-failed?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
       console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
       
@@ -432,6 +432,14 @@ const checkGameOver = (scores) => {
   return scores[1] >= 26 || scores[2] >= 26;
 };
 
+// Helper to emit the filtered list of players in the lobby
+const emitLobbyPlayersList = () => {
+    // Filter players to show only those NOT currently in an active game
+    const lobbyPlayers = players.filter(p => !userGameMap[p.userId]);
+    io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
+    console.log(`Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}`);
+};
+
 
 // === Socket.IO Connection and Game Events ===
 io.on("connection", (socket) => {
@@ -521,7 +529,7 @@ io.on("connection", (socket) => {
                         console.log(`Notified opponent ${opponentPlayer.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
                     }
                     // Update lobby list as this game might become active
-                    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
+                    emitLobbyPlayersList(); // Use the helper
                 } else {
                     delete userGameMap[userId]; // Game not found or invalid status, clear map
                     console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore, clearing map.`);
@@ -580,7 +588,7 @@ io.on("connection", (socket) => {
     console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined", userName); // Send back the name used
     // Emit updated player list to all connected clients in the lobby (all players now)
-    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
+    emitLobbyPlayersList(); // Use the helper
   });
 
   socket.on("request-unfinished-games", async () => {
@@ -690,7 +698,7 @@ io.on("connection", (socket) => {
                     turn: existingGame.turn,
                     scores: existingGame.scores,
                     bombsUsed: existingGame.bombsUsed,
-                    gameOver: existing.gameOver,
+                    gameOver: existingGame.gameOver,
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
                 console.log(`User ${userName} re-associated socket ID for active game ${gameId}.`);
@@ -777,7 +785,7 @@ io.on("connection", (socket) => {
         }
 
         // Update lobby player list (all players now)
-        io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
+        emitLobbyPlayersList(); // Use the helper
 
     } catch (error) {
         console.error("Error resuming game:", error);
@@ -894,7 +902,7 @@ io.on("connection", (socket) => {
       }
 
       // Remove players from the general lobby list as they are now in a game
-      io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
+      emitLobbyPlayersList(); // Use the helper
 
       // Emit game-start to both players with their specific player number and opponent name
       io.to(inviterPlayer.id).emit("game-start", {
@@ -1296,7 +1304,7 @@ io.on("connection", (socket) => {
         }
     }
     // Always update lobby list to reflect changes
-    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
+    emitLobbyPlayersList(); // Use the helper
   });
 
 
@@ -1315,7 +1323,7 @@ io.on("connection", (socket) => {
     // Remove from lobby player list (by socket.id or userId if known)
     // Filter out players whose current socket matches the disconnected one, or if they are the disconnected user and not in a game
     players = players.filter(p => !(p.id === socket.id || (disconnectedUserId && p.userId === disconnectedUserId && !userGameMap[disconnectedUserId])));
-    io.emit("players-list", players.map(p => ({ id: p.id, name: p.name })));
+    emitLobbyPlayersList(); // Use the helper
 
 
     // Check if the disconnected user was in a game
