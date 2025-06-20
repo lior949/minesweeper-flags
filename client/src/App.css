@@ -169,3 +169,30 @@ body {
 .tile.mine span {
     font-size: 26px; /* Larger font for flags */
 }
+
+/* --- NEW: Last Clicked Tile Highlighting --- */
+.tile.last-clicked-p1 {
+    background-color: #8B0000 !important; /* Dark Red for Player 1 */
+    border-color: #FF4500 !important; /* Orange-Red border */
+    transition: background-color 0.3s ease-in-out;
+}
+
+.tile.last-clicked-p2 {
+    background-color: #00008B !important; /* Dark Blue for Player 2 */
+    border-color: #00BFFF !important; /* Deep Sky Blue border */
+    transition: background-color 0.3s ease-in-out;
+}
+
+/* Ensure last clicked highlight is visible even on revealed tiles */
+.tile.revealed.last-clicked-p1,
+.tile.revealed.last-clicked-p2 {
+    /* If revealed, you might want a slightly different shade or just let the border show */
+    opacity: 0.8; /* Make it slightly transparent so you can still see the revealed content */
+}
+
+/* Override hover for last-clicked tiles to maintain highlight */
+.tile.last-clicked-p1:hover,
+.tile.last-clicked-p2:hover {
+    background-color: inherit; /* Keep the last clicked color */
+    cursor: default; /* Not interactive if it was the last clicked (and likely revealed) */
+}
