@@ -1,14 +1,14 @@
-// src/App.js
+// src/App.jsx
 import React, { useEffect, useState, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 
-// Import your components
-import LoginScreen from './components/LoginScreen';
-import LobbyScreen from './components/LobbyScreen';
-import GameScreen from './components/GameScreen';
-import AuthCallback from './components/AuthCallback';
-import LoginFailedScreen from './components/LoginFailedScreen'; // A simple component for login failure
+// Import your components with .jsx suffix
+import LoginScreen from './components/LoginScreen.jsx';
+import LobbyScreen from './components/LobbyScreen.jsx';
+import GameScreen from './components/GameScreen.jsx';
+import AuthCallback from './components/AuthCallback.jsx';
+import LoginFailedScreen from './components/LoginFailedScreen.jsx';
 
 import './App.css'; // Your main CSS file
 
@@ -86,14 +86,14 @@ function App() {
           const data = await response.json();
           setUser(data.user);
           setLoggedIn(true);
-          console.log('App.js: Initial auth check successful for:', data.user.displayName);
+          console.log('App.jsx: Initial auth check successful for:', data.user.displayName);
         } else {
           setUser(null);
           setLoggedIn(false);
-          console.log('App.js: Initial auth check failed (not logged in).');
+          console.log('App.jsx: Initial auth check failed (not logged in).');
         }
       } catch (error) {
-        console.error('App.js: Error checking auth status:', error);
+        console.error('App.jsx: Error checking auth status:', error);
         setUser(null);
         setLoggedIn(false);
       } finally {
@@ -258,14 +258,14 @@ function App() {
     const handleAuthMessage = async (event) => {
       // Ensure the message comes from a trusted origin (your own frontend URL)
       if (event.origin !== 'https://minesweeper-flags-frontend.onrender.com') {
-        console.warn('App.js: Message from untrusted origin:', event.origin);
+        console.warn('App.jsx: Message from untrusted origin:', event.origin);
         return;
       }
 
       const { type, payload } = event.data;
 
       if (type === 'authSuccess') {
-        console.log('App.js: Authentication successful via pop-up:', payload);
+        console.log('App.jsx: Authentication successful via pop-up:', payload);
         setUser(payload.user);
         setLoggedIn(true);
         // After successful login, ensure Socket.IO attempts to connect/re-authenticate
@@ -273,7 +273,7 @@ function App() {
         showMessage(`Successfully logged in as ${payload.user.displayName}!`, 3000);
         navigate('/lobby'); // Navigate to lobby directly
       } else if (type === 'authFailure') {
-        console.error('App.js: Authentication failed via pop-up:', payload.message);
+        console.error('App.jsx: Authentication failed via pop-up:', payload.message);
         setLoggedIn(false);
         setUser(null);
         showMessage(`Login failed: ${payload.message}`, 5000);
@@ -293,18 +293,20 @@ function App() {
   // --- User Interaction Functions (Prop drilling to components) ---
 
   const handleGoogleLogin = () => {
+    // Open the backend's Google auth URL in a new pop-up window
     const authPopup = window.open(
       'https://minesweeper-flags-backend.onrender.com/auth/google',
       '_blank', // Open in a new tab/window
       'width=500,height=600,toolbar=no,menubar=no,location=no,status=no'
     );
-    // Periodically check if the popup has closed
+
+    // Optional: Periodically check if the popup has closed
     const checkPopup = setInterval(() => {
       if (!authPopup || authPopup.closed) {
         clearInterval(checkPopup);
-        console.log('Authentication pop-up closed (Google).');
-        // If popup closes without message, it's either user cancelled or issue.
-        // The main useEffect will eventually re-check auth status.
+        console.log('Authentication pop-up closed.');
+        // Optionally, if the popup closed without a message, re-check auth status
+        checkAuthStatus();
       }
     }, 500);
   };
@@ -318,7 +320,8 @@ function App() {
     const checkPopup = setInterval(() => {
       if (!authPopup || authPopup.closed) {
         clearInterval(checkPopup);
-        console.log('Authentication pop-up closed (Facebook).');
+        console.log('Authentication pop-up closed.');
+        checkAuthStatus();
       }
     }, 500);
   };
@@ -334,7 +337,7 @@ function App() {
         setLoggedIn(false);
         resetGameState(); // Reset all game and lobby states
         showMessage('Logged out successfully.', 3000);
-        navigate('/login'); // Navigate back to login
+        navigate('/login');
       } else {
         console.error('Logout failed.');
         showMessage('Logout failed. Please try again.', 5000);
@@ -513,7 +516,7 @@ function App() {
 }
 
 // Export the App component wrapped with Router if it's the root component
-// If App.js is already nested inside a Router in index.js, remove this wrap.
+// If App.jsx is already nested inside a Router in index.js, remove this wrap.
 export default function AppWithRouter() {
   return (
     <Router>
@@ -521,4 +524,3 @@ export default function AppWithRouter() {
     </Router>
   );
 }
-
