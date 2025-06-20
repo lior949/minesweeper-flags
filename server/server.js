@@ -125,7 +125,15 @@ try {
               return next(new Error("Session store not available for Socket.IO authentication."));
           }
           // Manually load session from the FirestoreStore using the captured instance
-          const sessionData = await firestoreSessionStore.get(sessionId); // Use the new variable here
+          // MODIFIED: Wrap the callback-style get method in a Promise to satisfy internal callback expectations
+          const sessionData = await new Promise((resolve, reject) => {
+              firestoreSessionStore.get(sessionId, (err, session) => {
+                  if (err) {
+                      return reject(err);
+                  }
+                  resolve(session);
+              });
+          });
 
           if (sessionData) {
               req.session = sessionData; // Attach the loaded session to req.session
