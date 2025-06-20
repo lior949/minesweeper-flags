@@ -877,9 +877,9 @@ io.on("connection", (socket) => {
               gameId: game.gameId,
               board: serializedBoard, // Save serialized board
               player1_userId: inviterPlayer.userId,
-              player2_userId: respondingPlayer.userId,
+              player2_userId: responderPlayer.userId,
               player1_name: inviterPlayer.name,
-              player2_name: respondingPlayer.name,
+              player2_name: responderPlayer.name,
               turn: game.turn,
               scores: game.scores,
               bombsUsed: game.bombsUsed,
@@ -1099,7 +1099,15 @@ io.on("connection", (socket) => {
     const user = socket.request.session?.passport?.user || null;
     const userId = user ? user.id : null;
     const player = game.players.find((p) => p.userId === userId);
-    if (!player || game.bombsUsed[player.number]) return;
+    // NEW: Add turn check here
+    if (!player || player.number !== game.turn || game.bombsUsed[player.number]) {
+        if (player && player.number !== game.turn) {
+            console.warn(`Player ${player.name} tried to use bomb out of turn. Current turn: ${game.turn}`);
+            // Optionally, send an error message back to the client
+            io.to(socket.id).emit("bomb-error", "It's not your turn to use the bomb.");
+        }
+        return;
+    }
 
     player.socketId = socket.id; // Update socket ID on action
 
@@ -1115,7 +1123,15 @@ io.on("connection", (socket) => {
     const user = socket.request.session?.passport?.user || null;
     const userId = user ? user.id : null;
     const player = game.players.find((p) => p.userId === userId);
-    if (!player || game.bombsUsed[player.number]) return;
+    // NEW: Add turn check here
+    if (!player || player.number !== game.turn || game.bombsUsed[player.number]) {
+        if (player && player.number !== game.turn) {
+            console.warn(`Player ${player.name} tried to place bomb out of turn. Current turn: ${game.turn}`);
+            // This might happen if 'wait-bomb-center' was emitted, but turn changed before selection.
+            io.to(socket.id).emit("bomb-error", "It's not your turn to place the bomb.");
+        }
+        return;
+    }
 
     player.socketId = socket.id; // Update socket ID on action
 
@@ -1132,11 +1148,10 @@ io.on("connection", (socket) => {
     let allTilesRevealed = true;
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
-          const tile = board[y][x];
-          if (!tile.revealed) {
+        const checkX = x + dx;
+        const checkY = y + dy;
+        if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) {
+          if (!game.board[checkY][checkX].revealed) {
             allTilesRevealed = false;
             break;
           }
