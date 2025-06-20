@@ -229,6 +229,7 @@ const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`
 
 
 // === Authentication Routes ===
+// === Authentication Routes ===
 app.get("/auth/facebook",
   passport.authenticate("facebook", { scope: ['public_profile'] })
 );
@@ -242,34 +243,38 @@ app.get("/auth/facebook/callback",
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
-        res.status(500).json({ success: false, message: "Error saving session" });
+        // Redirect to a specific frontend failure URL, passing an error message
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent("Failed to save session after Facebook login.")}`);
       } else {
         console.log(`[Session Save] Session successfully saved after Facebook auth. Session ID: ${req.sessionID}`);
-        // Send JSON response instead of redirecting
-        res.json({ success: true, user: { id: req.user.id, displayName: req.user.displayName } });
+        // Redirect to frontend success URL with user data
+        // Make sure to encodeURIComponent for safe URL parameters
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
       }
     });
   }
 );
 
 app.get("/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] }) // Include email scope for consistency, although not directly used in displayName
+  passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
 app.get("/auth/google/callback",
   passport.authenticate("google", {
-    failureRedirect: "https://minesweeper-flags-frontend.onrender.com",
+    failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
   (req, res) => {
     console.log(`[Session Save] Attempting to save session after Google auth.`);
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
-        res.status(500).json({ success: false, message: "Error saving session" });
+        // Redirect to a specific frontend failure URL, passing an error message
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent("Failed to save session after Google login.")}`);
       } else {
         console.log(`[Session Save] Session successfully saved after Google auth. Session ID: ${req.sessionID}`);
-        // Send JSON response instead of redirecting
-        res.json({ success: true, user: { id: req.user.id, displayName: req.user.displayName } });
+        // Redirect to frontend success URL with user data
+        // Make sure to encodeURIComponent for safe URL parameters
+        return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-success?userId=${req.user.id}&displayName=${encodeURIComponent(req.user.displayName)}`);
       }
     });
   }
