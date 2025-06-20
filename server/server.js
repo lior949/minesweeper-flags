@@ -25,7 +25,7 @@ const server = http.createServer(app);
 const userSocketMap = {}; // Maps userId to current socket.id
 const userGameMap = {};   // Maps userId to current gameId
 let players = []; // Lobby players: { id: socket.id, userId, name, number, inGame }
-let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver }
+let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile }
 
 // Configure CORS for Express HTTP routes
 app.use(cors({
@@ -378,6 +378,7 @@ io.on("connection", (socket) => {
                         bombsUsed: gameData.bombsUsed,
                         turn: gameData.turn,
                         gameOver: gameData.gameOver,
+                        lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // NEW: Load last clicked tile
                         players: []
                     };
 
@@ -420,7 +421,8 @@ io.on("connection", (socket) => {
                             scores: game.scores,
                             bombsUsed: game.bombsUsed,
                             gameOver: game.gameOver,
-                            opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                            opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                            lastClickedTile: game.lastClickedTile // NEW: Send last clicked tile
                         });
                         console.log(`Emitted game-start to reconnected user ${playerInGame.name} for game ${gameId}.`);
                     }
@@ -457,7 +459,8 @@ io.on("connection", (socket) => {
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
-                opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                lastClickedTile: game.lastClickedTile // NEW: Send last clicked tile
             });
         }
     }
@@ -583,6 +586,7 @@ io.on("connection", (socket) => {
             bombsUsed: gameData.bombsUsed,
             turn: gameData.turn,
             gameOver: gameData.gameOver,
+            lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // NEW: Load last clicked tile
             players: []
         };
 
@@ -624,7 +628,8 @@ io.on("connection", (socket) => {
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
-                opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent"
+                opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent",
+                lastClickedTile: game.lastClickedTile // NEW: Send last clicked tile
             });
             console.log(`User ${userName} successfully resumed game ${gameId}.`);
         }
@@ -687,6 +692,7 @@ io.on("connection", (socket) => {
       const bombsUsed = { 1: false, 2: false };
       const turn = 1;
       const gameOver = false;
+      const lastClickedTile = { 1: null, 2: null }; // NEW: Initialize last clicked tile
 
       inviter.number = 1;
       inviter.inGame = true;
@@ -705,6 +711,7 @@ io.on("connection", (socket) => {
         bombsUsed,
         turn,
         gameOver,
+        lastClickedTile // NEW: Add to game object
       };
       games[gameId] = game;
 
@@ -726,6 +733,7 @@ io.on("connection", (socket) => {
               scores: game.scores,
               bombsUsed: game.bombsUsed,
               gameOver: game.gameOver,
+              lastClickedTile: game.lastClickedTile, // NEW: Store last clicked tile
               status: 'active',
               lastUpdated: Timestamp.now(),
               winnerId: null,
@@ -756,6 +764,7 @@ io.on("connection", (socket) => {
         gameOver,
         opponentName: responder.name,
         gameId,
+        lastClickedTile // NEW: Send last clicked tile
       });
       io.to(responder.id).emit("game-start", {
         playerNumber: responder.number,
@@ -766,6 +775,7 @@ io.on("connection", (socket) => {
         gameOver,
         opponentName: inviter.name,
         gameId,
+        lastClickedTile // NEW: Send last clicked tile
       });
 
     } else {
@@ -788,6 +798,9 @@ io.on("connection", (socket) => {
     const tile = game.board[y][x];
     if (tile.revealed) return;
 
+    // NEW: Update last clicked tile for the current player
+    game.lastClickedTile[player.number] = { x, y };
+
     if (tile.isMine) {
       tile.revealed = true;
       tile.owner = player.number;
@@ -799,7 +812,7 @@ io.on("connection", (socket) => {
       const isBlankTile = tile.adjacentMines === 0;
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
-      if (isBlankTile && noFlagsFlagsRevealedYet) {
+      if (isBlankTile && noFlagsRevealedYet) {
         console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
 
         game.board = generateBoard();
@@ -807,6 +820,7 @@ io.on("connection", (socket) => {
         game.bombsUsed = { 1: false, 2: false };
         game.turn = 1;
         game.gameOver = false;
+        game.lastClickedTile = { 1: null, 2: null }; // NEW: Reset last clicked tile on restart
 
         try {
             const serializedBoard = JSON.stringify(game.board);
@@ -816,6 +830,7 @@ io.on("connection", (socket) => {
                 bombsUsed: game.bombsUsed,
                 turn: game.turn,
                 gameOver: game.gameOver,
+                lastClickedTile: game.lastClickedTile, // NEW: Store reset last clicked tile
                 status: 'active',
                 lastUpdated: Timestamp.now(),
                 winnerId: null,
@@ -837,7 +852,8 @@ io.on("connection", (socket) => {
                     scores: game.scores,
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
-                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                    lastClickedTile: game.lastClickedTile // NEW: Send reset last clicked tile
                 });
             }
         });
@@ -856,6 +872,7 @@ io.on("connection", (socket) => {
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile, // NEW: Store last clicked tile
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null,
             loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null
@@ -866,7 +883,7 @@ io.on("connection", (socket) => {
     }
 
     game.players.forEach(p => {
-        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board) });
+        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board), lastClickedTile: game.lastClickedTile }); // NEW: Send last clicked tile
     });
   });
 
@@ -943,6 +960,9 @@ io.on("connection", (socket) => {
     game.bombsUsed[player.number] = true;
     revealArea(game.board, x, y, player.number, game.scores);
 
+    // NEW: Update last clicked tile for the current player after bomb
+    game.lastClickedTile[player.number] = { x, y };
+
     if (checkGameOver(game.scores)) game.gameOver = true;
     else game.turn = game.turn === 1 ? 2 : 1;
 
@@ -956,6 +976,7 @@ io.on("connection", (socket) => {
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile, // NEW: Store last clicked tile
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null,
             loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== currentUserId).userId) : null
@@ -966,7 +987,7 @@ io.on("connection", (socket) => {
     }
 
     game.players.forEach(p => {
-        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board) });
+        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board), lastClickedTile: game.lastClickedTile }); // NEW: Send last clicked tile
     });
   });
 
@@ -988,6 +1009,7 @@ io.on("connection", (socket) => {
     game.bombsUsed = { 1: false, 2: false };
     game.turn = 1;
     game.gameOver = false;
+    game.lastClickedTile = { 1: null, 2: null }; // NEW: Reset last clicked tile on restart
 
     try {
         const serializedBoard = JSON.stringify(game.board);
@@ -997,6 +1019,7 @@ io.on("connection", (socket) => {
             bombsUsed: game.bombsUsed,
             turn: game.turn,
             gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile, // NEW: Store reset last clicked tile
             status: 'active',
             lastUpdated: Timestamp.now(),
             winnerId: null,
@@ -1008,7 +1031,7 @@ io.on("connection", (socket) => {
     }
 
     game.players.forEach(p => {
-        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board) });
+        if(p.socketId) io.to(p.socketId).emit("board-update", { ...game, board: JSON.stringify(game.board), lastClickedTile: game.lastClickedTile }); // NEW: Send last clicked tile
     });
   });
 
