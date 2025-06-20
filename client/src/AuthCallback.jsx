@@ -5,45 +5,46 @@ function AuthCallback() {
   useEffect(() => {
     console.log("AuthCallback component mounted.");
 
-    // Parse user data from the URL hash
-    // The server redirects to /auth/callback#{"id":"...", "displayName":"..."}
-    const hash = window.location.hash.substring(1); // Remove the '#'
-    let userData = null;
-    try {
-      // Decode and parse the JSON string from the hash
-      userData = JSON.parse(decodeURIComponent(hash));
-      console.log("AuthCallback: Parsed user data from hash:", userData);
-    } catch (error) {
-      console.error("AuthCallback: Error parsing user data from hash:", error);
-      // Fallback or error message if data is malformed
-    }
+    const handleMessage = (event) => {
+      // Ensure the message is from your expected origin for security
+      // In production, replace '*' with your frontend's exact origin:
+      // 'https://minesweeper-flags-frontend.onrender.com'
+      if (event.origin !== 'https://minesweeper-flags-frontend.onrender.com' && event.origin !== 'http://localhost:3000') { // Added localhost for dev
+        console.warn('AuthCallback: Message received from unexpected origin:', event.origin);
+        return;
+      }
 
-    // Send the user data to the opening window (main application)
-    if (window.opener && userData) {
-      // Use window.opener.postMessage to safely send data back to the main window.
-      // The targetOrigin '*' is used for simplicity in development, but in production,
-      // you should specify your frontend's exact origin (e.g., 'https://minesweeper-flags-frontend.onrender.com')
-      window.opener.postMessage({ type: 'AUTH_SUCCESS', user: userData }, '*');
-      console.log("AuthCallback: Sent AUTH_SUCCESS message to opener.");
-    } else if (window.opener) {
-        // If userData is null/error, send an auth_failure message
-        window.opener.postMessage({ type: 'AUTH_FAILURE', message: 'Failed to retrieve user data from pop-up.' }, '*');
-        console.log("AuthCallback: Sent AUTH_FAILURE message to opener (no user data).");
-    } else {
+      const { type, user, message } = event.data;
+
+      if (window.opener) {
+        if (type === 'AUTH_SUCCESS') {
+          console.log("AuthCallback: Received AUTH_SUCCESS message from opener.", user);
+          // Forward the success message to the main application's listener
+          window.opener.postMessage({ type: 'AUTH_SUCCESS', user: user }, 'https://minesweeper-flags-frontend.onrender.com'); // Specify target origin
+        } else if (type === 'AUTH_FAILURE') {
+          console.error("AuthCallback: Received AUTH_FAILURE message from opener.", message);
+          // Forward the failure message
+          window.opener.postMessage({ type: 'AUTH_FAILURE', message: message }, 'https://minesweeper-flags-frontend.onrender.com'); // Specify target origin
+        }
+      } else {
         console.warn("AuthCallback: No window.opener found. Cannot send message back.");
-        // This might happen if the callback page is opened directly, not as a popup.
-        // In this case, you might want to redirect to the main app's root.
+        // This might happen if the callback page is opened directly.
+        // You might want to redirect to the main app's root in this case.
         // window.location.href = 'https://minesweeper-flags-frontend.onrender.com';
-    }
+      }
 
-    // Close the pop-up window
-    // This should always be the last step.
-    console.log("AuthCallback: Attempting to close window.");
-    window.close(); // This should now work correctly as it's initiated by same-origin script.
-    
-    // Fallback to prevent content from remaining visible if window.close() fails
+      // Close the pop-up window after handling the message
+      console.log("AuthCallback: Attempting to close window after message.");
+      window.close();
+    };
+
+    // Add event listener for messages from the opener
+    window.addEventListener('message', handleMessage);
+
+    // Clean up the event listener when the component unmounts
     return () => {
-        console.log("AuthCallback component unmounted.");
+      console.log("AuthCallback component unmounted.");
+      window.removeEventListener('message', handleMessage);
     };
   }, []); // Run once on mount
 
