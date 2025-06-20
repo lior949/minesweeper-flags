@@ -336,6 +336,22 @@ const checkGameOver = (scores) => {
     return scores[1] >= 26 || scores[2] >= 26;
 };
 
+// Helper function to check if a game is truly "active" in memory
+// A game is considered "active" in memory if both players have non-null socket IDs
+// AND those socket IDs match their current entries in userSocketMap.
+const isGameActiveInMemory = (game) => {
+    if (!game || !game.players || game.players.length !== 2) return false;
+
+    const player1 = game.players.find(p => p.number === 1);
+    const player2 = game.players.find(p => p.number === 2);
+
+    const player1ConnectedAndActive = player1 && player1.socketId && userSocketMap[player1.userId] === player1.socketId;
+    const player2ConnectedAndActive = player2 && player2.socketId && userSocketMap[player2.userId] === player2.socketId;
+
+    return player1ConnectedAndActive && player2ConnectedAndActive;
+};
+
+
 // === Socket.IO Connection and Game Events ===
 io.on("connection", (socket) => {
   console.log(`Socket Connected: ${socket.id}`);
@@ -528,6 +544,11 @@ io.on("connection", (socket) => {
 
         gamesQuerySnapshot.forEach(doc => {
             const gameData = doc.data();
+            // --- FIX: Skip malformed documents without gameId ---
+            if (!gameData || !gameData.gameId) {
+                console.warn(`[Request Unfinished Games] Skipping invalid Firestore document: ${doc.id} (no gameId or empty data).`);
+                return; // Skip to next document
+            }
             console.log(`[Request Unfinished Games] Inspecting Firestore game: ${gameData.gameId}, Status: ${gameData.status}`);
             console.log(`[Request Unfinished Games] Player1: ${gameData.player1_userId}, Player2: ${gameData.player2_userId}`);
 
@@ -535,10 +556,9 @@ io.on("connection", (socket) => {
             const isPlayer2 = gameData.player2_userId === userId;
 
             if (isPlayer1 || isPlayer2) {
-                // Check if this game is currently active in memory and fully connected for *this user*
                 const gameInMemory = games[gameData.gameId];
-                const isFullyActiveWithCurrentSocket = gameInMemory && 
-                                      gameInMemory.players.some(p => p.userId === userId && p.socketId === userSocketMap[userId]);
+                // --- FIX: Use the new helper to accurately determine if the game is truly active in memory ---
+                const isActuallyFullyActive = isGameActiveInMemory(gameInMemory);
 
                 console.log(`[Request Unfinished Games] User ${userId} is participant in ${gameData.gameId}.`);
                 console.log(`[Request Unfinished Games] Game in memory (games[gameData.gameId]): ${!!gameInMemory}`);
@@ -546,10 +566,10 @@ io.on("connection", (socket) => {
                     console.log(`[Request Unfinished Games] Game ${gameData.gameId} players in memory: ${JSON.stringify(gameInMemory.players.map(p => ({ userId: p.userId, socketId: p.socketId })))}`);
                 }
                 console.log(`[Request Unfinished Games] Current userSocketMap[userId]: ${userSocketMap[userId]}`);
-                console.log(`[Request Unfinished Games] Is fully active with current socket? ${isFullyActiveWithCurrentSocket}`);
+                console.log(`[Request Unfinished Games] Is actually fully active (helper check)? ${isActuallyFullyActive}`);
 
 
-                if (!isFullyActiveWithCurrentSocket) { // Only add to unfinished if not already fully active
+                if (!isActuallyFullyActive) { // Only add to unfinished if not fully active in memory with both players
                     unfinishedGames.push({
                         gameId: gameData.gameId,
                         board: gameData.board, // Send serialized board
@@ -793,7 +813,7 @@ io.on("connection", (socket) => {
       try {
           const serializedBoard = JSON.stringify(game.board);
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-              gameId: game.gameId,
+              gameId: game.gameId, // <-- ensure gameId is always explicitly set
               board: serializedBoard,
               player1_userId: inviter.userId,
               player2_userId: responder.userId,
