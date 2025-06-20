@@ -2,7 +2,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import AuthCallback from ".components/AuthCallback"; // NEW: Import AuthCallback component
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css";
 
