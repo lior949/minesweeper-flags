@@ -110,29 +110,14 @@ function App() {
 
     socket.on("join-error", (msg) => {
       setMessage(msg); // Display error messages in UI, not alert
-      // Do NOT force reload here to prevent loops. Guide user to re-login if needed.
       console.error("Join Error:", msg);
-      // If the error is "Authentication required", and we are loggedIn, it's a server sync issue.
-      // We might need to consider forcing a relogin or just retry join-lobby
-      if (msg.includes("Authentication required") && loggedIn) {
-          console.warn("Client is logged in but server says authentication required for join. Retrying lobby join.");
-          // A brief delay before retrying can help.
-          setTimeout(() => {
-            if (loggedIn && name.trim() && authChecked && socketConnected) { // Check all flags again
-                socket.emit("join-lobby", name.trim());
-            }
-          }, 1000); // Wait 1 second before attempting to re-join
-      } else {
-        // Not logged in or different error, suggest manual logout/login
-        setMessage(msg + " Please try logging out and logging back in.");
-      }
     });
 
     socket.on("lobby-joined", (userName) => {
       setLoggedIn(true); // Confirm successful lobby join.
       setName(userName); // Update name, potentially with the server-validated name.
       setMessage(""); // Clear any previous messages
-      setSocketReady(true); // Confirm socket is ready after successful lobby join (redundant if authenticated-socket-ready is used, but safe)
+      // setSocketReady(true); // No longer needed here, `authenticated-socket-ready` handles it
       console.log(`Frontend: Lobby joined successfully as ${userName}!`);
       // Request unfinished games here to ensure it's fetched after a successful lobby join event
       socket.emit("request-unfinished-games");
