@@ -56,7 +56,7 @@ router.get('/api/get-client-ip', async (req, res) => {
             clientIp = clientIp[0];
         }
 
-        // Clean up clientIp if it includes port (e.g., '::1' or '::ffff:127.0.0.1')
+        // If clientIp is an IPv6 address like '::1' or '::ffff:127.0.0.1', or includes port
         if (clientIp && clientIp.includes(':') && !clientIp.startsWith('::')) { // IPv6 with port
             clientIp = clientIp.split(':').slice(0, -1).join(':');
         }
@@ -399,7 +399,7 @@ app.get("/login-failed", (req, res) => {
 
 // Global Game Data Structures
 let players = []; // Lobby players: [{ id: socket.id, userId, name }]
-let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver }
+let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile }
 
 // Helper to generate a new Minesweeper board
 const generateBoard = () => {
@@ -538,6 +538,7 @@ io.on("connection", (socket) => {
                         bombsUsed: gameData.bombsUsed,
                         turn: gameData.turn,
                         gameOver: gameData.gameOver,
+                        lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile
                         players: [] // Will be populated with proper player objects
                     };
 
@@ -579,6 +580,7 @@ io.on("connection", (socket) => {
                             scores: game.scores,
                             bombsUsed: game.bombsUsed,
                             gameOver: game.gameOver,
+                            lastClickedTile: game.lastClickedTile, // Include lastClickedTile
                             opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                         });
                         console.log(`Emitted game-start to reconnected user ${playerInGame.name} for game ${gameId}.`);
@@ -612,6 +614,7 @@ io.on("connection", (socket) => {
                     scores: game.scores,
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
+                    lastClickedTile: game.lastClickedTile, // Include lastClickedTile
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
                 console.log(`Re-sent active game state for game ${gameId} to ${playerInGame.name}.`);
@@ -772,7 +775,7 @@ socket.on("resume-game", async ({ gameId }) => {
       // it means they are successfully connected/reconnected to their game slot.
       if (currentPlayerInGame.socketId === socket.id) {
           // Emit the game state to the resuming player
-          socket.emit("game-start", {
+          io.to(currentPlayerInGame.socketId).emit("game-start", {
               gameId: existingGame.gameId,
               playerNumber: currentPlayerNumber, // Use the derived number
               board: JSON.stringify(existingGame.board),
@@ -780,6 +783,7 @@ socket.on("resume-game", async ({ gameId }) => {
               scores: existingGame.scores,
               bombsUsed: existingGame.bombsUsed,
               gameOver: existingGame.gameOver,
+              lastClickedTile: existingGame.lastClickedTile, // Include lastClickedTile
               opponentName: opponentName // Use the derived name
           });
           console.log(`User ${userName} (re)connected to game ${gameId} from in-memory state.`);
@@ -810,6 +814,7 @@ socket.on("resume-game", async ({ gameId }) => {
       bombsUsed: gameData.bombsUsed,
       turn: gameData.turn,
       gameOver: gameData.gameOver,
+      lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile from Firestore
       players: [] // Will populate based on who is resuming and who the opponent is
     };
 
@@ -864,6 +869,7 @@ socket.on("resume-game", async ({ gameId }) => {
         scores: game.scores,
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
+        lastClickedTile: game.lastClickedTile, // Include lastClickedTile
         opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent"
       });
       console.log(`User ${userName} successfully resumed game ${gameId}.`);
@@ -944,6 +950,7 @@ socket.on("resume-game", async ({ gameId }) => {
       const bombsUsed = { 1: false, 2: false };
       const turn = 1;
       const gameOver = false;
+      const lastClickedTile = { 1: null, 2: null }; // Initialize lastClickedTile for new game
 
       const game = {
         gameId,
@@ -957,6 +964,7 @@ socket.on("resume-game", async ({ gameId }) => {
         scores,
         bombsUsed,
         gameOver,
+        lastClickedTile, // Include lastClickedTile in in-memory game object
       };
       games[gameId] = game;
 
@@ -979,6 +987,7 @@ socket.on("resume-game", async ({ gameId }) => {
               scores: game.scores,
               bombsUsed: game.bombsUsed,
               gameOver: game.gameOver,
+              lastClickedTile: game.lastClickedTile, // Save lastClickedTile to Firestore
               status: 'active', // Mark as active
               lastUpdated: Timestamp.now(),
               winnerId: null,
@@ -1008,6 +1017,7 @@ socket.on("resume-game", async ({ gameId }) => {
         scores: game.scores,
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
+        lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
         opponentName: respondingPlayer.name,
       });
       io.to(respondingPlayer.id).emit("game-start", {
@@ -1018,6 +1028,7 @@ socket.on("resume-game", async ({ gameId }) => {
         scores: game.scores,
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
+        lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
         opponentName: inviterPlayer.name,
       });
 
@@ -1061,6 +1072,9 @@ socket.on("resume-game", async ({ gameId }) => {
         return;
     }
 
+    // Update last clicked tile for the current player
+    game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
+
     // --- Start of Re-ordered and Corrected Logic ---
     if (tile.isMine) {
       tile.revealed = true;
@@ -1078,7 +1092,8 @@ socket.on("resume-game", async ({ gameId }) => {
                   gameOver: true,
                   lastUpdated: Timestamp.now(),
                   winnerId: game.scores[1] > game.scores[2] ? game.players[0].userId : game.players[1].userId, // Assuming player 1 is index 0, player 2 is index 1
-                  loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId
+                  loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId,
+                  lastClickedTile: game.lastClickedTile, // Save lastClickedTile
               }, { merge: true });
               console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
           } catch (error) {
@@ -1104,6 +1119,7 @@ socket.on("resume-game", async ({ gameId }) => {
         game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
         game.turn = 1; // Reset turn to player 1
         game.gameOver = false; // Game is no longer over
+        game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
 
         // Ensure userGameMap is still set for both players if game restarts but isn't completed
         game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1117,6 +1133,7 @@ socket.on("resume-game", async ({ gameId }) => {
               bombsUsed: game.bombsUsed,
               turn: game.turn,
               gameOver: game.gameOver,
+              lastClickedTile: game.lastClickedTile, // Save lastClickedTile
               status: 'active', // Game is active after restart
               lastUpdated: Timestamp.now(),
               winnerId: null,
@@ -1138,6 +1155,7 @@ socket.on("resume-game", async ({ gameId }) => {
                     scores: game.scores,
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
+                    lastClickedTile: game.lastClickedTile, // Include lastClickedTile
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
             } else {
@@ -1165,6 +1183,7 @@ socket.on("resume-game", async ({ gameId }) => {
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
             status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
@@ -1186,6 +1205,7 @@ socket.on("resume-game", async ({ gameId }) => {
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
+                lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
             });
         } else {
              console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send board update.`);
@@ -1271,6 +1291,9 @@ socket.on("resume-game", async ({ gameId }) => {
       return;
     }
 
+    // Update last clicked tile for the current player using bomb center
+    game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
+
 
     game.bombsUsed[player.number] = true;
     revealArea(game.board, x, y, player.number, game.scores);
@@ -1284,7 +1307,8 @@ socket.on("resume-game", async ({ gameId }) => {
                 gameOver: true,
                 lastUpdated: Timestamp.now(),
                 winnerId: game.scores[1] > game.scores[2] ? game.players[0].userId : game.players[1].userId, // Assuming player 1 is index 0, player 2 is index 1
-                loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId
+                loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId,
+                lastClickedTile: game.lastClickedTile, // Save lastClickedTile
             }, { merge: true });
             console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
         } catch (error) {
@@ -1309,6 +1333,7 @@ socket.on("resume-game", async ({ gameId }) => {
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
             status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
@@ -1330,6 +1355,7 @@ socket.on("resume-game", async ({ gameId }) => {
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
+                lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
             });
         }
     });
@@ -1352,6 +1378,7 @@ socket.on("resume-game", async ({ gameId }) => {
     game.bombsUsed = { 1: false, 2: false };
     game.turn = 1;
     game.gameOver = false;
+    game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
 
     // Ensure userGameMap entries are still there for both players since the game is restarting, not ending
     game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1366,6 +1393,7 @@ socket.on("resume-game", async ({ gameId }) => {
             bombsUsed: game.bombsUsed,
             turn: game.turn,
             gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
             status: 'active', // Game is active after restart
             lastUpdated: Timestamp.now(),
             winnerId: null,
@@ -1387,6 +1415,7 @@ socket.on("resume-game", async ({ gameId }) => {
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
+                lastClickedTile: game.lastClickedTile, // Include lastClickedTile
                 opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
             });
         }
