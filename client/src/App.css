@@ -121,7 +121,7 @@ body {
 }
 
 .tile.hidden {
-  background-color: #4a4a4a;
+  background-color: #0000FF; /* Changed to blue */
   border: 2px solid #666;
   color: transparent; /* Hide text until revealed */
   /* Added transition specifically for the hidden state */
@@ -129,14 +129,14 @@ body {
 }
 
 .tile.hidden:hover {
-  background-color: #6a6a6a; /* Highlight on hover */
+  background-color: #3333FF; /* Slightly lighter blue on hover */
   border-color: #888;
 }
 
 .tile.revealed {
-  background-color: #333;
+  background-color: #FFFF00; /* Changed to yellow */
   border: 1px solid #555;
-  color: #eee; /* Default text color for revealed, non-mine tiles */
+  color: #333; /* Darker text color for better contrast on yellow */
   /* Ensure no transition applies when it becomes revealed, for instant change */
   transition: none;
 }
@@ -204,7 +204,7 @@ body {
 
 /* New CSS for bomb target area */
 .bomb-target-area {
-  outline: 2px dashed #ffff00; /* Yellow dashed border */
+  outline: 2px dashed #00FF00; /* Changed to bright green */
   outline-offset: -2px; /* Inset the outline */
 }
 
@@ -220,8 +220,8 @@ body {
 }
 
 .tile.highlighted-bomb-area {
-    border: 2px solid yellow; /* Example highlighting */
-    box-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
+    border: 2px solid #00FF00; /* Changed to bright green */
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.7); /* Changed to bright green glow */
 }
 
 /* NEW: Styles for last clicked tile highlighting */
