@@ -1385,69 +1385,71 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
   // Leave Game Event (Player voluntarily leaves)
-  socket.on("leave-game", async ({ gameId }) => {
-    const game = games[gameId];
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+socket.on("leave-game", async ({ gameId }) => {
+  const game = games[gameId];
+  const user = socket.request.session?.passport?.user || null;
+  const userId = user ? user.id : null;
 
-    if (game && userId) {
-      const playerIndex = game.players.findIndex(p => p.userId === userId);
-      if (playerIndex !== -1) {
-        // Remove from userGameMap
-        delete userGameMap[userId];
-        console.log(`User ${userId} (${game.players[playerIndex].name}) left game ${gameId}.`);
+  if (game && userId) {
+    const playerInGame = game.players.find(p => p.userId === userId);
+    if (playerInGame) {
+      // Remove from userGameMap for the leaving user only
+      delete userGameMap[userId];
+      console.log(`User ${userId} (${playerInGame.name}) left game ${gameId}.`);
 
-        // Remove the player from the game's player list in memory
-        game.players.splice(playerIndex, 1);
+      // Set the leaving player's socketId in the in-memory game to null,
+      // but do NOT remove them from game.players array completely.
+      // This preserves their slot for potential future resumption (by themselves or if game ends and needs historical data).
+      playerInGame.socketId = null;
 
-        if (game.players.length === 0) {
-          // If no players left in the game, delete the game from memory and Firestore
-          delete games[gameId];
-          try {
-              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
-                  status: 'completed', // Mark as completed if all players left
-                  lastUpdated: Timestamp.now()
-              }, { merge: true });
-              console.log(`Game ${gameId} status set to 'completed' in Firestore as all players left.`);
-          }
-           catch (error) {
-              console.error("Error updating game status to 'completed' on leave:", error);
-          }
-          console.log(`Game ${gameId} deleted from memory.`);
-        } else {
-          // Notify the remaining player if any (using their current socketId)
-          const remainingPlayer = game.players[0];
-          if (remainingPlayer && remainingPlayer.socketId) {
-             io.to(remainingPlayer.socketId).emit("opponent-left");
-             console.log(`Notified opponent ${remainingPlayer.name} that their partner left.`);
-          }
-          // Update game status in Firestore to 'waiting_for_resume'
-          try {
-              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true
-                  status: 'waiting_for_resume',
-                  lastUpdated: Timestamp.now()
-              }, { merge: true });
-              console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to leave.`);
-          } catch (error) {
-              console.error("Error updating game status to 'waiting_for_resume' on leave:", error);
-          }
-        }
+      // Notify the opponent if one exists and is still connected
+      const opponentPlayer = game.players.find(p => p.userId !== userId);
+      if (opponentPlayer && opponentPlayer.socketId) {
+          io.to(opponentPlayer.socketId).emit("opponent-left");
+          console.log(`Notified opponent ${opponentPlayer.name} that their partner left.`);
       }
-    }
-    // Attempt to re-add player to lobby list if they were logged in (all players now)
-    if (userId) {
-        // Ensure the player is in the global 'players' list and not marked as being in a game
-        let existingPlayerInLobby = players.find(p => p.userId === userId);
-        if (existingPlayerInLobby) {
-            existingPlayerInLobby.id = socket.id; // Update their socket if needed
-        } else {
-            const userNameForLobby = user ? user.displayName : `User_${userId.substring(0, 8)}`;
-            players.push({ id: socket.id, userId: userId, name: userNameForLobby });
+
+      // Always set game status in Firestore to 'waiting_for_resume' when a player voluntarily leaves.
+      // The game should only be 'completed' by explicit game over conditions (win/loss).
+      try {
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+            status: 'waiting_for_resume',
+            lastUpdated: Timestamp.now()
+        }, { merge: true });
+        console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to player leaving.`);
+      } catch (error) {
+        console.error("Error updating game status to 'waiting_for_resume' on leave:", error);
+      }
+    } else {
+        console.warn(`User ${userId} tried to leave game ${gameId} but not found in game.players.`);
+        // If user wasn't found in game.players but userGameMap pointed to it, clear it.
+        if (userGameMap[userId] === gameId) {
+            delete userGameMap[userId];
+            console.log(`Cleared stale userGameMap entry for ${userId} to game ${gameId}.`);
         }
     }
-    // Always update lobby list to reflect changes
-    emitLobbyPlayersList(); // Use the helper
-  });
+  } else {
+      console.warn(`Attempt to leave game failed: game ${gameId} not found or userId missing.`);
+  }
+
+  // Attempt to re-add player to lobby list if they were logged in (all players now)
+  // This logic should ensure the player is added to the lobby if they aren't already there
+  // and are not currently active in another game (userGameMap[userId] would be null now).
+  if (userId && !userGameMap[userId]) { // Only add to lobby if they successfully left their game and are not mapped to another
+      let existingPlayerInLobby = players.find(p => p.userId === userId);
+      if (existingPlayerInLobby) {
+          existingPlayerInLobby.id = socket.id; // Update their socket if needed
+          console.log(`User ${userName} updated in lobby players list with new socket.`);
+      } else {
+          const userNameForLobby = user ? user.displayName : `User_${userId.substring(0, 8)}`;
+          players.push({ id: socket.id, userId: userId, name: userNameForLobby });
+          console.log(`User ${userName} added to lobby players list.`);
+      }
+  }
+  // Always update lobby list to reflect changes
+  emitLobbyPlayersList(); // Use the helper
+});
+
 
 
 // Socket Disconnect Event (e.g., browser tab closed, network drop)
