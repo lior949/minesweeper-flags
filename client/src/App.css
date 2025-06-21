@@ -1,6 +1,6 @@
 body {
-  background-color: #222;
-  color: #eee;
+  background-color: #FFFFFF; /* Changed to white */
+  color: #000000; /* Changed to black */
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   margin: 0;
   padding: 0;
@@ -12,21 +12,27 @@ body {
   text-align: center;
 }
 
+.lobby h2, .lobby p, .lobby h3 { /* Ensure lobby text is dark */
+  color: #333;
+}
+
 .player-list {
   list-style: none;
   padding: 0;
   max-width: 300px;
   margin: 10px auto;
-  border: 1px solid #555;
+  border: 1px solid #AAA; /* Lighter border */
   border-radius: 6px;
-  background: #333;
+  background: #E0E0E0; /* Lighter background */
 }
 
 .player-item {
   padding: 8px 12px;
-  border-bottom: 1px solid #555;
+  border-bottom: 1px solid #BBB; /* Lighter border */
   cursor: pointer;
   transition: background 0.2s;
+  background: #F0F0F0; /* Very light background */
+  color: #333; /* Dark text for player names */
 }
 
 .player-item:last-child {
@@ -34,17 +40,18 @@ body {
 }
 
 .player-item:hover {
-  background: #555;
+  background: #D0D0D0; /* Slightly darker light gray on hover */
 }
 
 .invite-popup {
   margin-top: 20px;
-  background: #444;
+  background: #F0F0F0; /* Lighter background */
   border-radius: 8px;
   padding: 10px;
   max-width: 300px;
   margin-left: auto;
   margin-right: auto;
+  color: #333; /* Dark text for invite popup */
 }
 
 .invite-popup button {
@@ -99,7 +106,7 @@ body {
 .grid {
   display: grid;
   gap: 2px;
-  border: 2px solid #555;
+  border: 2px solid #AAA; /* Lighter border for grid */
   width: fit-content;
   margin: 20px auto;
   border-radius: 8px;
@@ -121,22 +128,22 @@ body {
 }
 
 .tile.hidden {
-  background-color: #0000FF; /* Changed to blue */
-  border: 2px solid #666;
+  background-color: #ADD8E6; /* Changed to Light Blue */
+  border: 2px solid #87CEEB; /* Sky Blue border */
   color: transparent; /* Hide text until revealed */
   /* Added transition specifically for the hidden state */
   transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
 .tile.hidden:hover {
-  background-color: #3333FF; /* Slightly lighter blue on hover */
-  border-color: #888;
+  background-color: #90CAF9; /* Lighter blue on hover */
+  border-color: #A0D0F0; /* Slightly lighter border on hover */
 }
 
 /* NEW: More specific rule for revealed tiles */
 .app-game-container .tile.revealed {
   background-color: #FFFF00; /* Changed to yellow */
-  border: 1px solid #555;
+  border: 1px solid #CCC; /* Lighter border on yellow */
   color: #333; /* Darker text color for better contrast on yellow */
   /* Ensure no transition applies when it becomes revealed, for instant change */
   transition: none;
@@ -205,7 +212,7 @@ body {
 
 /* New CSS for bomb target area */
 .bomb-target-area {
-  outline: 2px dashed #00FF00; /* Changed to bright green */
+  outline: 2px dashed #FF4500; /* Changed to OrangeRed */
   outline-offset: -2px; /* Inset the outline */
 }
 
@@ -221,22 +228,22 @@ body {
 }
 
 .tile.highlighted-bomb-area {
-    border: 2px solid #00FF00; /* Changed to bright green */
-    box-shadow: 0 0 10px rgba(0, 255, 0, 0.7); /* Changed to bright green glow */
+    border: 2px solid #FF4500; /* Changed to OrangeRed */
+    box-shadow: 0 0 10px rgba(255, 69, 0, 0.7); /* Changed to OrangeRed glow */
 }
 
 /* NEW: Styles for last clicked tile highlighting */
 .tile.last-clicked-p1 {
-    background-color: #6a0000; /* Darker red background */
-    border: 2px solid red; /* Red border */
-    box-shadow: 0 0 8px rgba(255, 0, 0, 0.6); /* Red glow */
+    background-color: #FFA07A; /* Light Salmon, softer red */
+    border: 2px solid #FF6347; /* Tomato, a vibrant red */
+    box-shadow: 0 0 8px rgba(255, 99, 71, 0.6); /* Red glow */
     animation: pulse-red 1s infinite alternate; /* Subtle pulse animation */
 }
 
 .tile.last-clicked-p2 {
-    background-color: #00006a; /* Darker blue background */
-    border: 2px solid blue; /* Blue border */
-    box-shadow: 0 0 8px rgba(0, 0, 255, 0.6); /* Blue glow */
+    background-color: #87CEFA; /* Light Sky Blue, softer blue */
+    border: 2px solid #4682B4; /* Steel Blue, a vibrant blue */
+    box-shadow: 0 0 8px rgba(70, 130, 180, 0.6); /* Blue glow */
     animation: pulse-blue 1s infinite alternate; /* Subtle pulse animation */
 }
 
