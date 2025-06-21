@@ -237,19 +237,20 @@ function App() {
 
             socketRef.current.on("opponent-left", () => {
               showMessage("Opponent left the game. Returning to lobby.", true);
-              setGameId(null);
-              setPlayerNumber(null);
-              setBoard([]);
-              setTurn(null);
-              setScores({ 1: 0, 2: 0 });
-              setBombsUsed({ 1: false, 2: false });
-              setGameOver(false);
-              setOpponentName("");
-              setBombMode(false);
-              setLastClickedTile({ 1: null, 2: null });
-              if (socketRef.current) { // Ensure socket is still connected before emitting
-                socketRef.current.emit("request-unfinished-games");
-              }
+              // setGameId(null);
+              // setPlayerNumber(null);
+              // setBoard([]);
+              // setTurn(null);
+              // setScores({ 1: 0, 2: 0 });
+              // setBombsUsed({ 1: false, 2: false });
+              // setGameOver(false);
+              // setOpponentName("");
+              // setBombMode(false);
+              // setLastClickedTile({ 1: null, 2: null });
+              // if (socketRef.current) { // Ensure socket is still connected before emitting
+              //   socketRef.current.emit("request-unfinished-games");
+              // }
+		console.log("Opponent left. Player remains in game state.");
             });
 
             socketRef.current.on("bomb-error", (msg) => {
