@@ -223,3 +223,29 @@ body {
     border: 2px solid yellow; /* Example highlighting */
     box-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
 }
+
+/* NEW: Styles for last clicked tile highlighting */
+.tile.last-clicked-p1 {
+    background-color: #6a0000; /* Darker red background */
+    border: 2px solid red; /* Red border */
+    box-shadow: 0 0 8px rgba(255, 0, 0, 0.6); /* Red glow */
+    animation: pulse-red 1s infinite alternate; /* Subtle pulse animation */
+}
+
+.tile.last-clicked-p2 {
+    background-color: #00006a; /* Darker blue background */
+    border: 2px solid blue; /* Blue border */
+    box-shadow: 0 0 8px rgba(0, 0, 255, 0.6); /* Blue glow */
+    animation: pulse-blue 1s infinite alternate; /* Subtle pulse animation */
+}
+
+/* Keyframes for a subtle pulsing glow on last clicked tiles */
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 8px rgba(255, 0, 0, 0.6); }
+    100% { box-shadow: 0 0 15px rgba(255, 0, 0, 1); }
+}
+
+@keyframes pulse-blue {
+    0% { box-shadow: 0 0 8px rgba(0, 0, 255, 0.6); }
+    100% { box-shadow: 0 0 15px rgba(0, 0, 255, 1); }
+}
