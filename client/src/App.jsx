@@ -236,7 +236,7 @@ function App() {
             });
 
             socketRef.current.on("opponent-left", () => {
-              showMessage("Opponent left the game. Returning to lobby.", true);
+              showMessage("Opponent left the game.", true);
               // setGameId(null);
               // setPlayerNumber(null);
               // setBoard([]);
