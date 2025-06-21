@@ -663,6 +663,8 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
+	    {!gameId && ( // Only show lobby elements if not in a game
+          <>
         <h2>Lobby - Online Players</h2>
         <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
 		<button onClick={logout} className="bomb-button">Logout</button>
@@ -704,6 +706,8 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                 </ul>
             )}
         </div>
+		  </>
+)}
 
         {gameId && (
             <div className="app-game-container">
