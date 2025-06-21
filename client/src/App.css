@@ -1,10 +1,16 @@
-body {
-  background-color: #FFFFFF; /* Changed to white */
-  color: #000000; /* Changed to black */
+html, body {
+  background-color: #FFFFFF !important; /* Force white background for the entire page */
+  color: #000000 !important; /* Force black text color */
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   margin: 0;
   padding: 0;
   user-select: none;
+}
+
+/* Ensure the main app container also uses the white background */
+.app-container {
+    background-color: #FFFFFF;
+    color: #000000; /* Default text color for the container */
 }
 
 .lobby {
@@ -75,6 +81,23 @@ body {
   align-items: center;
   margin-bottom: 10px;
 }
+
+/* Specific styling for elements within the game container */
+.app-game-container h1,
+.app-game-container h2,
+.app-game-container p,
+.app-game-container .scores-display,
+.app-game-container .mine-count-display {
+  color: #333333; /* Dark gray for text for better readability on white */
+}
+
+.app-game-container .app-message {
+  color: red; /* Keep error messages red */
+}
+.app-game-container .app-message[style*="color: green"] {
+  color: green; /* Keep success messages green (ensure contrast) */
+}
+
 
 .bomb-button {
   background-color: #aa3333;
