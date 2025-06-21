@@ -1,10 +1,10 @@
 // App.jsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
 import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
-import "./App.css";
+import "./App.css"; // Ensure you have App.css for styling
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
@@ -85,13 +85,71 @@ function App() {
   const [turn, setTurn] = useState(null);
   const [scores, setScores] = useState({ 1: 0, 2: 0 });
   const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false });
-  const [bombMode, setBombMode] = useState(false);
+  const [bombMode, setBombMode] = useState(false); // Backend's waitingForBombCenter
   const [gameOver, setGameOver] = useState(false);
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
   const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // NEW: Track last clicked tile for each player
   const [unrevealedMines, setUnrevealedMines] = useState(0); // NEW: State to store unrevealed mines count
+
+  // NEW: State for bomb highlighting
+  const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
+  const [highlightedBombArea, setHighlightedBombArea] = useState([]); // Stores [x,y] coordinates for highlighted tiles
+
+  // Constants for board dimensions
+  const WIDTH = 16;
+  const HEIGHT = 16;
+
+
+  // --- Utility Functions ---
+
+  // Helper to get coordinates from a mouse event (e.g., click or move on grid)
+  const getTileCoordinates = (event) => {
+    const grid = event.currentTarget;
+    const { left, top, width, height } = grid.getBoundingClientRect();
+
+    // Calculate tile size dynamically
+    const tileWidth = width / WIDTH;
+    const tileHeight = height / HEIGHT;
+
+    // Calculate mouse position relative to the grid
+    const mouseX = event.clientX - left;
+    const mouseY = event.clientY - top;
+
+    // Calculate tile coordinates
+    const x = Math.floor(mouseX / tileWidth);
+    const y = Math.floor(mouseY / tileHeight);
+
+    return { x, y };
+  };
+
+  // Helper function to calculate the 5x5 area around a center (cx, cy)
+  // Ensures the area stays within board boundaries (0 to WIDTH/HEIGHT - 1)
+  const calculateBombArea = useCallback((cx, cy) => {
+    const area = [];
+    // Bomb center must be between 3rd and 14th row and column (0-indexed: 2 to 13)
+    const MIN_COORD = 2;
+    const MAX_COORD_X = WIDTH - 3; // 16 - 3 = 13
+    const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
+
+    if (cx < MIN_COORD || cx > MAX_COORD_X || cy < MIN_COORD || cy > MAX_COORD_Y) {
+      return []; // Return empty if center is out of valid range for a 5x5 blast
+    }
+
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        // Ensure calculated tile is within actual board boundaries
+        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+          area.push({ x, y });
+        }
+      }
+    }
+    return area;
+  }, [WIDTH, HEIGHT]); // Depend on WIDTH and HEIGHT if they can change dynamically
+
 
   // --- Helper to display messages (replaces alert) ---
   const showMessage = (msg, isError = false) => {
@@ -154,12 +212,16 @@ function App() {
                 console.log(`Socket.IO client: Disconnected! Reason: ${reason}`);
                 setIsSocketConnected(false);
                 setMessage("Disconnected from server. Please refresh or try again.");
+                setIsBombHighlightActive(false); // Clear bomb highlight on disconnect
+                setHighlightedBombArea([]);
             });
 
             socketRef.current.on('connect_error', (error) => {
                 console.error("Socket.IO client: Connection error!", error);
                 setMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
                 setIsSocketConnected(false);
+                setIsBombHighlightActive(false); // Clear bomb highlight on error
+                setHighlightedBombArea([]);
             });
 
             // The 'authenticated-socket-ready' event from the server means Passport session is loaded
@@ -179,8 +241,9 @@ function App() {
                 setLoggedIn(false);
                 setName("");
                 setIsGuest(false); // Reset guest status on auth error
-                // window.location.reload(); // Hard reload for unauthenticated state - consider removing
               }
+              setIsBombHighlightActive(false); // Clear bomb highlight on error
+              setHighlightedBombArea([]);
             });
 
             socketRef.current.on("lobby-joined", (userName) => {
@@ -204,15 +267,18 @@ function App() {
             });
 
             socketRef.current.on("game-start", (data) => {
+              console.log("Game started:", data);
               setGameId(data.gameId);
               setPlayerNumber(data.playerNumber);
-              setBoard(JSON.parse(data.board));
+              setBoard(JSON.parse(data.board)); // Parse the board string back to an object
               setTurn(data.turn);
               setScores(data.scores);
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName);
-              setBombMode(false);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Ensure bomb highlighting is off
+              setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setMessage("");
               console.log("Frontend: Game started! My player number:", data.playerNumber);
@@ -225,37 +291,32 @@ function App() {
               setScores(game.scores);
               setBombsUsed(game.bombsUsed);
               setGameOver(game.gameOver);
-              setBombMode(false);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Exit bomb highlighting mode
+              setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
               setMessage("");
             });
 
             socketRef.current.on("wait-bomb-center", () => {
-              setBombMode(true);
+              setBombMode(true); // Backend signals to wait for center
               setMessage("Select 5x5 bomb center.");
+              setIsBombHighlightActive(true); // Activate bomb highlighting for mouse movement
             });
 
             socketRef.current.on("opponent-left", () => {
               showMessage("Opponent left the game.", true);
-              // setGameId(null);
-              // setPlayerNumber(null);
-              // setBoard([]);
-              // setTurn(null);
-              // setScores({ 1: 0, 2: 0 });
-              // setBombsUsed({ 1: false, 2: false });
-              // setGameOver(false);
-              // setOpponentName("");
-              // setBombMode(false);
-              // setLastClickedTile({ 1: null, 2: null });
-              // if (socketRef.current) { // Ensure socket is still connected before emitting
-              //   socketRef.current.emit("request-unfinished-games");
-              // }
-		console.log("Opponent left. Player remains in game state.");
+              console.log("Opponent left. Player remains in game state.");
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Clear bomb highlight on opponent left
+              setHighlightedBombArea([]);
             });
 
             socketRef.current.on("bomb-error", (msg) => {
               showMessage(msg, true);
-              setBombMode(false);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Clear bomb highlight on error
+              setHighlightedBombArea([]);
             });
 
             socketRef.current.on("receive-unfinished-games", (games) => {
@@ -281,7 +342,9 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName);
-              setBombMode(false);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Clear bomb highlight on restart
+              setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
             });
           } else {
@@ -411,22 +474,18 @@ function App() {
   // NEW: Function to handle Guest Login
   const loginAsGuest = async () => {
     let guestId;
-try {
-      // Attempt to get a 5-digit guest ID based on IP
-      const deviceUuid = getDeviceUuid();
-      guestId = await generate5DigitGuestId(deviceUuid);
-      // Prepend 'guest_' to distinguish from other user IDs on the backend if needed
-      guestId = `guest_${guestId}`;
-      
-      // Store the generated guest ID in localStorage for persistence across sessions
-      //localStorage.setItem('guestId', guestId);
-
+    try {
+        // Attempt to get a 5-digit guest ID based on UUID
+        const deviceUuid = getDeviceUuid();
+        guestId = await generate5DigitGuestId(deviceUuid);
+        // Prepend 'guest_' to distinguish from other user IDs on the backend if needed
+        guestId = `guest_${guestId}`;
+        
     } catch (error) {
-      console.error("Error generating guest ID based on IP:", error);
-      // Fallback: If IP-based ID generation fails, use a simple timestamp-based ID
+      console.error("Error generating guest ID based on device UUID:", error);
+      // Fallback: If ID generation fails, use a simple timestamp-based ID
       guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
-      //localStorage.setItem('guestId', guestId);
-showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}`, true);
+      showMessage(`Could not generate consistent guest ID. Using fallback ID: ${guestId}`, true);
     }
 
     try {
@@ -452,14 +511,12 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
         showMessage(`Guest login failed: ${errorData.message || response.statusText}`, true);
         setLoggedIn(false);
         setIsGuest(false);
-        localStorage.removeItem('guestId'); // Clear invalid guest ID
       }
     } catch (error) {
       console.error("Guest login fetch error:", error);
       showMessage(`Guest login failed: ${error.message}`, true);
       setLoggedIn(false);
       setIsGuest(false);
-      localStorage.removeItem('guestId');
     }
   };
 
@@ -484,30 +541,33 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
   };
 
   const handleClick = (x, y) => {
-    if (!gameId || !socketRef.current) return;
-    if (bombMode) {
-      const MIN_COORD = 2;
-      const MAX_COORD_X = 13;
-      const MAX_COORD_Y = 13;
+    if (!gameId || gameOver || !socketRef.current || !socketRef.current.connected) return;
+
+    // If waiting for bomb center, emit bomb-center event
+    if (bombMode) { // bombMode is true when backend sent 'wait-bomb-center'
+      const MIN_COORD = 2; // Hardcoded in original, keep for now
+      const MAX_COORD_X = WIDTH - 3; // Use WIDTH constant
+      const MAX_COORD_Y = HEIGHT - 3; // Use HEIGHT constant
 
       if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
         showMessage("Bomb center must be within the 12x12 area.", true);
         return;
       }
 
+      // Check if bomb area is already fully revealed (client-side check for user feedback)
       let allTilesRevealed = true;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
           const checkX = x + dx;
           const checkY = y + dy;
-          if (checkX >= 0 && checkX < board[0].length && checkY >= 0 && checkY < board.length) {
+          if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) { // Use WIDTH/HEIGHT constants
             if (!board[checkY][checkX].revealed) {
               allTilesRevealed = false;
               break;
             }
           } else {
-            allTilesRevealed = false;
-            break;
+              allTilesRevealed = false; // Treat out-of-bounds as not fully revealed for bomb purpose
+              break;
           }
         }
         if (!allTilesRevealed) break;
@@ -520,34 +580,45 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
 
       setMessage("");
       socketRef.current.emit("bomb-center", { gameId, x, y });
+      setBombMode(false); // Exit bomb selection mode
+      setIsBombHighlightActive(false); // Turn off highlighting after selection
+      setHighlightedBombArea([]); // Clear highlighting
     } else if (playerNumber === turn && !gameOver) {
       setMessage("");
       socketRef.current.emit("tile-click", { gameId, x, y });
     }
   };
 
-  const useBomb = () => {
-    if (!socketRef.current || !gameId || gameOver || bombsUsed[playerNumber]) {
+  const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
+    if (!socketRef.current || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
       if (bombsUsed[playerNumber]) {
         showMessage("You have already used your bomb!", true);
-      } else if (!gameId || gameOver) {
-        // Can add more specific message if not in game or game over
-        showMessage("Cannot use bomb now.", true);
+      } else if (gameOver) {
+        showMessage("Game is over, cannot use bomb.", true);
+      } else if (!gameId) {
+        showMessage("Not in a game to use bomb.", true);
+      } else if (playerNumber !== turn) {
+        showMessage("It's not your turn to use the bomb!", true);
       }
       return;
     }
 
-    // Logic for using bomb (if behind in score) or cancelling bomb mode
-    if (bombMode) {
-      setBombMode(false);
-      setMessage("");
-    } else if (scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+    // Only allow bomb usage if player is behind in score
+    if (scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
       socketRef.current.emit("use-bomb", { gameId });
+      // When 'use-bomb' is emitted, we immediately activate visual highlighting
+      setIsBombHighlightActive(true); 
     } else {
       showMessage("You can only use the bomb when you are behind in score!", true);
     }
   };
 
+  const handleCancelBomb = () => { // New function for cancelling bomb mode
+    setBombMode(false); // Reset backend's waitingForBombCenter state
+    setIsBombHighlightActive(false); // Deactivate visual bomb highlighting
+    setHighlightedBombArea([]); // Clear highlights
+    setMessage("Bomb selection cancelled.");
+  };
 
   const backToLobby = () => {
     if (gameId && socketRef.current) {
@@ -560,7 +631,9 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
     setTurn(null);
     setScores({ 1: 0, 2: 0 });
     setBombsUsed({ 1: false, 2: false });
-    setBombMode(false);
+    setBombMode(false); // Reset backend's bombMode state
+    setIsBombHighlightActive(false); // Clear bomb highlight on leaving game
+    setHighlightedBombArea([]); // Clear highlights
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
@@ -573,38 +646,58 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
 };
 
   const logout = async () => {
-  try {
-    await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
-      method: "GET",
-      credentials: "include",
-    });
+    try {
+      await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
+        method: "GET",
+        credentials: "include",
+      });
 
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+
+      setLoggedIn(false);
+      setName("");
+      setIsGuest(false); // Reset guest status on logout
+      localStorage.removeItem('guestDeviceId'); // Clear persistent guest ID (was 'guestId')
+      setGameId(null);
+      setPlayerNumber(null);
+      setBoard([]);
+      setTurn(null);
+      setScores({ 1: 0, 2: 0 });
+      setBombsUsed({ 1: false, 2: false });
+      setBombMode(false); // Reset backend's bombMode state
+      setIsBombHighlightActive(false); // Clear bomb highlight on logout
+      setHighlightedBombArea([]); // Clear highlights
+      setGameOver(false);
+      setOpponentName("");
+      setInvite(null);
+      setLastClickedTile({ 1: null, 2: null });
+    } catch (err) {
+      console.error("Logout failed", err);
+      showMessage("Logout failed. Please try again.", true);
     }
+  };
 
-    setLoggedIn(false);
-    setName("");
-    setIsGuest(false); // Reset guest status on logout
-    localStorage.removeItem('guestId'); // Clear persistent guest ID
-    setGameId(null);
-    setPlayerNumber(null);
-    setBoard([]);
-    setTurn(null);
-    setScores({ 1: 0, 2: 0 });
-    setBombsUsed({ 1: false, 2: false });
-    setBombMode(false);
-    setGameOver(false);
-    setOpponentName("");
-    setInvite(null);
-    setLastClickedTile({ 1: null, 2: null });
-	// window.location.reload();
-  } catch (err) {
-    console.error("Logout failed", err);
-    showMessage("Logout failed. Please try again.", true);
-  }
-};
+  // NEW: Mouse movement handler for bomb highlighting
+  const handleMouseMoveOnGrid = useCallback((event) => {
+    // Only highlight if bomb mode is active and board data is loaded
+    if (!isBombHighlightActive || !board.length || !Array.isArray(board[0])) {
+      setHighlightedBombArea([]); // Ensure no highlights if mode is off or board is not ready
+      return;
+    }
+    const { x, y } = getTileCoordinates(event);
+    setHighlightedBombArea(calculateBombArea(x, y));
+  }, [isBombHighlightActive, board.length, board, calculateBombArea]); // Add board to dependencies
+
+  // NEW: Mouse leave handler for grid
+  const handleMouseLeaveGrid = useCallback(() => {
+    if (isBombHighlightActive) {
+      setHighlightedBombArea([]); // Clear highlights when mouse leaves grid
+    }
+  }, [isBombHighlightActive]);
+
 
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
@@ -664,49 +757,49 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
 	    {!gameId && ( // Only show lobby elements if not in a game
-          <>
-        <h2>Lobby - Online Players</h2>
-        <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
-		<button onClick={logout} className="bomb-button">Logout</button>
-        {playersList.length === 0 && <p>No other players online</p>}
-        <ul className="player-list">
-          {playersList.map((p) => (
-            <li
-              key={p.id}
-              className="player-item"
-              onDoubleClick={() => invitePlayer(p.id)}
-              title="Double-click to invite"
-            >
-              {p.name}
-            </li>
-          ))}
-        </ul>
-        {invite && (
-          <div className="invite-popup">
-            <p>
-              Invitation from <b>{invite.fromName}</b>
-            </p>
-            <button onClick={() => respondInvite(true)}>Accept</button>
-            <button onClick={() => respondInvite(false)}>Reject</button>
-          </div>
-        )}
-
-        <div className="unfinished-games-section">
-            <h3>Your Unfinished Games</h3>
-            {unfinishedGames.length === 0 ? (
-                <p>No unfinished games found.</p>
-            ) : (
-                <ul className="unfinished-game-list">
-                    {unfinishedGames.map(game => (
-                        <li key={game.gameId} className="unfinished-game-item">
-                            Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - Last updated: {game.lastUpdated}
-                            <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
-                        </li>
-                    ))}
-                </ul>
+            <>
+            <h2>Lobby - Online Players</h2>
+            <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
+            <button onClick={logout} className="bomb-button">Logout</button>
+            {playersList.length === 0 && <p>No other players online</p>}
+            <ul className="player-list">
+              {playersList.map((p) => (
+                <li
+                  key={p.id}
+                  className="player-item"
+                  onDoubleClick={() => invitePlayer(p.id)}
+                  title="Double-click to invite"
+                >
+                  {p.name}
+                </li>
+              ))}
+            </ul>
+            {invite && (
+              <div className="invite-popup">
+                <p>
+                  Invitation from <b>{invite.fromName}</b>
+                </p>
+                <button onClick={() => respondInvite(true)}>Accept</button>
+                <button onClick={() => respondInvite(false)}>Reject</button>
+              </div>
             )}
-        </div>
-		  </>
+
+            <div className="unfinished-games-section">
+                <h3>Your Unfinished Games</h3>
+                {unfinishedGames.length === 0 ? (
+                    <p>No unfinished games found.</p>
+                ) : (
+                    <ul className="unfinished-game-list">
+                        {unfinishedGames.map(game => (
+                            <li key={game.gameId} className="unfinished-game-item">
+                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - Last updated: {game.lastUpdated}
+                                <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+		      </>
 )}
 
         {gameId && (
@@ -717,10 +810,16 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                       !bombsUsed[playerNumber] &&
                       scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
                       !gameOver && (
-                        <button className="bomb-button" onClick={useBomb}>
-                            {bombMode ? "Cancel Bomb" : "Use Bomb"}
+                        <button className="bomb-button" onClick={handleUseBombClick}> {/* Changed to new handler */}
+                            Use Bomb
                         </button>
                       )}
+                    {/* NEW: Display Cancel Bomb button if bombMode is active for selection */}
+                    {bombMode && ( // bombMode means waiting for backend 'wait-bomb-center'
+                      <button className="bomb-button" onClick={handleCancelBomb}> {/* New handler for cancel */}
+                          Cancel Bomb
+                      </button>
+                    )}
                 </div>
 
                 <h2>
@@ -747,7 +846,7 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                 {gameOver && (
                     <>
                         <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })}> {/* Use socketRef.current */}
-                          Restart Game
+                            Restart Game
                         </button>
                     </>
                 )}
@@ -757,23 +856,32 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                     style={{
                       gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
                     }}
+                    onMouseMove={handleMouseMoveOnGrid} {/* Apply new mouse move handler */}
+                    onMouseLeave={handleMouseLeaveGrid} {/* Apply new mouse leave handler */}
                 >
                     {board.flatMap((row, y) =>
-                      row.map((tile, x) => (
-                        <div
-                          key={`${x}-${y}`}
-                          className={`tile ${
-                            tile.revealed ? "revealed" : "hidden"
-                          } ${tile.isMine && tile.revealed ? "mine" : ""} ${
-                            lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
-                          } ${
-                            lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
-                          }`}
-                          onClick={() => handleClick(x, y)}
-                        >
-                          {renderTile(tile)}
-                        </div>
-                      ))
+                      row.map((tile, x) => {
+                        // Check if the current tile is part of the highlighted bomb area
+                        const isHighlighted = highlightedBombArea.some(
+                            (coord) => coord.x === x && coord.y === y
+                        );
+                        return (
+                          <div
+                            key={`${x}-${y}`}
+                            className={`tile ${
+                              tile.revealed ? "revealed" : "hidden"
+                            } ${tile.isMine && tile.revealed ? "mine" : ""} ${
+                              lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
+                            } ${
+                              lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                            } ${isHighlighted ? "highlighted-bomb-area" : "" /* Apply highlight class */
+                            }`}
+                            onClick={() => handleClick(x, y)}
+                          >
+                            {renderTile(tile)}
+                          </div>
+                        );
+                      })
                     )}
                 </div>
             </div>
