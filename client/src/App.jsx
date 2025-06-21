@@ -91,6 +91,7 @@ function App() {
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
   const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // NEW: Track last clicked tile for each player
+  const [unrevealedMines, setUnrevealedMines] = useState(0); // NEW: State to store unrevealed mines count
 
   // --- Helper to display messages (replaces alert) ---
   const showMessage = (msg, isError = false) => {
@@ -379,6 +380,32 @@ function App() {
       window.removeEventListener('message', handleAuthMessage); // Clean up message listener
     };
   }, [loggedIn, name]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
+
+  // NEW useEffect to calculate unrevealed mines whenever the board changes
+  useEffect(() => {
+    if (board && board.length > 0) {
+      let totalMines = 0;
+      let revealedMines = 0;
+      board.forEach(row => {
+        row.forEach(tile => {
+          if (tile.isMine) {
+            totalMines++;
+            // A mine is "revealed" if it's visible on the board (e.g., clicked or part of an explosion)
+            // The `tile.revealed` property indicates if the tile state has been changed to revealed.
+            if (tile.revealed) {
+              revealedMines++;
+            }
+          }
+        });
+      });
+      // The number of unrevealed mines is the total minus those that have been revealed.
+      // This implies that flags are not explicitly tracked as "revealed" for this count,
+      // only actual mine exposure.
+      setUnrevealedMines(totalMines - revealedMines);
+    } else {
+      setUnrevealedMines(0); // Reset if board is empty or game not started
+    }
+  }, [board]);
 
   // NEW: Function to handle Guest Login
   const loginAsGuest = async () => {
@@ -701,6 +728,10 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 <p>
                     Score � {scores[1]} | 🔵 {scores[2]}
+                </p>
+		{/* NEW: Display unrevealed mines count */}
+                <p className="mine-count-display">
+                    Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                 </p>
 
                 {gameOver && (
