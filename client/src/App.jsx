@@ -732,7 +732,7 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                 </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 <p>
-                    Score � {scores[1]} | 🔵 {scores[2]}
+                    Score 🔴 {scores[1]} | 🔵 {scores[2]}
                 </p>
 		{/* NEW: Display unrevealed mines count */}
                 <p className="mine-count-display">
