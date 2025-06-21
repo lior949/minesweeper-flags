@@ -218,3 +218,8 @@ body {
     0%, 100% { opacity: 1; color: blue; }
     50% { opacity: 0.5; color: darkblue; }
 }
+
+.tile.highlighted-bomb-area {
+    border: 2px solid yellow; /* Example highlighting */
+    box-shadow: 0 0 10px rgba(255, 255, 0, 0.7);
+}
