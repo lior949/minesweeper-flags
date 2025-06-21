@@ -673,6 +673,7 @@ io.on("connection", (socket) => {
 
     try {
         const gamesQuery = await db.collection(GAMES_COLLECTION_PATH)
+            .where('gameOver', '==', false) // Only fetch games that are NOT over
             .where('status', 'in', ['active', 'waiting_for_resume']) // Fetch active or waiting games
             .get();
 
@@ -1070,9 +1071,21 @@ socket.on("resume-game", async ({ gameId }) => {
 
       if (checkGameOver(game.scores)) {
           game.gameOver = true;
-          console.log(`[Game Over] Game ${gameId} ended. Final Scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
+          // NEW: Set game status to 'completed' in Firestore and clear userGameMap
+          try {
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                  status: 'completed', // Game is completed
+                  gameOver: true,
+                  lastUpdated: Timestamp.now(),
+                  winnerId: game.scores[1] > game.scores[2] ? game.players[0].userId : game.players[1].userId, // Assuming player 1 is index 0, player 2 is index 1
+                  loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId
+              }, { merge: true });
+              console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
+          } catch (error) {
+              console.error("Error setting game status to 'completed' on mine reveal:", error);
+          }
           // Clear userGameMap for both players when game is over
-          game.players.forEach(p => delete userGameMap[p.userId]); // <--- ADDED THIS LINE
+          game.players.forEach(p => delete userGameMap[p.userId]); 
           emitLobbyPlayersList(); // Update lobby list
       }
       // Turn does NOT switch if a mine is revealed.
@@ -1081,14 +1094,6 @@ socket.on("resume-game", async ({ gameId }) => {
     } else { // This block handles non-mine tiles
       const isBlankTile = tile.adjacentMines === 0;
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
-
-      // Debug logs removed as requested in previous turn after confirmation
-      // console.log(`[Tile Click Debug] Tile at (${x},${y}).`);
-      // console.log(`[Tile Click Debug] tile.isMine: ${tile.isMine}, tile.adjacentMines: ${tile.adjacentMines}, tile.revealed: ${tile.revealed}`);
-      // console.log(`[Tile Click Debug] Current scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
-      // console.log(`[Tile Click Debug] isBlankTile (calculated from adjacentMines): ${isBlankTile}`);
-      // console.log(`[Tile Click Debug] noFlagsRevealedYet (calculated from scores): ${noFlagsRevealedYet}`);
-      // console.log(`[Tile Click Debug] Combined restart condition (isBlankTile && noFlagsRevealedYet): ${isBlankTile && noFlagsRevealedYet}`);
 
       if (isBlankTile && noFlagsRevealedYet) {
         console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
@@ -1101,7 +1106,7 @@ socket.on("resume-game", async ({ gameId }) => {
         game.gameOver = false; // Game is no longer over
 
         // Ensure userGameMap is still set for both players if game restarts but isn't completed
-        game.players.forEach(p => userGameMap[p.userId] = gameId); // <--- ADDED THIS LINE
+        game.players.forEach(p => userGameMap[p.userId] = gameId); 
         emitLobbyPlayersList(); // Update lobby list to ensure players stay 'in game'
 
         try {
@@ -1152,17 +1157,20 @@ socket.on("resume-game", async ({ gameId }) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board);
+        // NEW: Conditionally set status to 'completed' if gameOver is true, otherwise 'active'
+        const newStatus = game.gameOver ? 'completed' : 'active';
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
+            status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
             loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null
         }, { merge: true });
-        console.log(`Game ${gameId} updated in Firestore (tile-click).`);
+        console.log(`Game ${gameId} updated in Firestore (tile-click). Status: ${newStatus}`);
     } catch (error) {
         console.error("Error updating game in Firestore (tile-click):", error);
     }
@@ -1269,8 +1277,21 @@ socket.on("resume-game", async ({ gameId }) => {
 
     if (checkGameOver(game.scores)) {
         game.gameOver = true;
+        // NEW: Set game status to 'completed' in Firestore and clear userGameMap
+        try {
+            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                status: 'completed', // Game is completed
+                gameOver: true,
+                lastUpdated: Timestamp.now(),
+                winnerId: game.scores[1] > game.scores[2] ? game.players[0].userId : game.players[1].userId, // Assuming player 1 is index 0, player 2 is index 1
+                loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId
+            }, { merge: true });
+            console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
+        } catch (error) {
+            console.error("Error setting game status to 'completed' on bomb usage:", error);
+        }
         // Clear userGameMap for both players when game is over
-        game.players.forEach(p => delete userGameMap[p.userId]); // <--- ADDED THIS LINE
+        game.players.forEach(p => delete userGameMap[p.userId]); 
         emitLobbyPlayersList(); // Update lobby list
     }
     else game.turn = game.turn === 1 ? 2 : 1;
@@ -1280,17 +1301,20 @@ socket.on("resume-game", async ({ gameId }) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
+        // NEW: Conditionally set status to 'completed' if gameOver is true, otherwise 'active'
+        const newStatus = game.gameOver ? 'completed' : 'active';
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
+            status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
             loserId: game.gameOver ? (game.scores[1] < game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null
         }, { merge: true });
-        console.log(`Game ${gameId} updated in Firestore (bomb-center).`);
+        console.log(`Game ${gameId} updated in Firestore (bomb-center). Status: ${newStatus}`);
     } catch (error) {
         console.error("Error updating game in Firestore (bomb-center):", error); // Log the full error object
     }
@@ -1330,7 +1354,7 @@ socket.on("resume-game", async ({ gameId }) => {
     game.gameOver = false;
 
     // Ensure userGameMap entries are still there for both players since the game is restarting, not ending
-    game.players.forEach(p => userGameMap[p.userId] = gameId); // <--- ADDED THIS LINE
+    game.players.forEach(p => userGameMap[p.userId] = gameId); 
     emitLobbyPlayersList(); // Update lobby list
 
     // Update game state in Firestore
