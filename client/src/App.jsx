@@ -739,11 +739,13 @@ showMessage(`Could not generate IP-based guest ID. Using fallback ID: ${guestId}
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                 </p>
 
+		{/* NEW: Back to Lobby button always visible when in game */}
+                <button className="bomb-button" onClick={backToLobby}>
+                    Back to Lobby
+                </button>
+
                 {gameOver && (
                     <>
-                        <button className="bomb-button" onClick={backToLobby}>
-                          Back to Lobby
-                        </button>
                         <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })}> {/* Use socketRef.current */}
                           Restart Game
                         </button>
