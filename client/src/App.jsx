@@ -856,8 +856,8 @@ function App() {
                     style={{
                       gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
                     }}
-                    onMouseMove={handleMouseMoveOnGrid} {/* Apply new mouse move handler */}
-                    onMouseLeave={handleMouseLeaveGrid} {/* Apply new mouse leave handler */}
+                    onMouseMove={handleMouseMoveOnGrid}
+                    onMouseLeave={handleMouseLeaveGrid}
                 >
                     {board.flatMap((row, y) =>
                       row.map((tile, x) => {
