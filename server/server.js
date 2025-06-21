@@ -496,12 +496,7 @@ const emitLobbyPlayersList = () => {
     console.log(`[emitLobbyPlayersList] Full 'players' array before filtering: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
     console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
 
-    // Filter players to show only those NOT currently in an active game
-    const lobbyPlayers = players.filter(p => {
-        const isInGame = !!userGameMap[p.userId]; // Ensure boolean conversion
-        console.log(`[emitLobbyPlayersList Filter] Player ${p.name} (userId: ${p.userId}, socketId: ${p.id}). Is In Game: ${isInGame}`);
-        return !isInGame;
-    });
+    const lobbyPlayers = players;
     io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
     console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}. Visible players: ${JSON.stringify(lobbyPlayers.map(p => p.name))}`);
 };
