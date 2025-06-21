@@ -747,68 +747,54 @@ socket.on("resume-game", async ({ gameId }) => {
     const opponentUserId = gameData.player1_userId === userId ? gameData.player2_userId : gameData.player1_userId;
     const opponentName = gameData.player1_userId === userId ? gameData.player2_name : gameData.player1_name;
 
-    // IMPORTANT: Check if the game is already in memory AND if the *other* player is active with a socket.
-    // This is to prevent a user from "resuming" a game that their opponent is currently playing.
+    // Check if the game is already in memory
     if (games[gameId]) {
       const existingGame = games[gameId];
-      const playerInExistingGame = existingGame.players.find(p => p.userId === userId);
-      const opponentInExistingGame = existingGame.players.find(op => op.userId === opponentUserId);
 
-      if (playerInExistingGame && playerInExistingGame.socketId === socket.id) {
-        // Player is trying to resume a game they are already actively connected to with this socket.
-        // Just re-send the current state.
-        socket.emit("game-start", {
-          gameId: existingGame.gameId,
-          playerNumber: currentPlayerNumber,
-          board: JSON.stringify(existingGame.board),
-          turn: existingGame.turn,
-          scores: existingGame.scores,
-          bombsUsed: existingGame.bombsUsed,
-          gameOver: existingGame.gameOver,
-          opponentName: opponentName
-        });
-        console.log(`User ${userName} re-sent active game state for game ${gameId}.`);
-        return;
-      } 
-      // This is the problematic condition for "game is currently active with another player or your other session."
-      // It should specifically check if the *opponent* has an active socket,
-      // or if *this user* has another *active* socket already connected to the game.
-      else if (opponentInExistingGame && opponentInExistingGame.socketId) {
-          // If opponent is connected to this game, prevent current user from resuming it.
-          // This ensures only one person can actively play in the opponent's spot.
-          socket.emit("join-error", "Game is currently active with your opponent.");
-          console.warn(`User ${userName} tried to resume game ${gameId} but opponent is already active.`);
+      // Step 1: Update the in-memory game's player socket IDs based on the global userSocketMap.
+      // This ensures the most current connection status for both players.
+      existingGame.players.forEach(player => {
+          player.socketId = userSocketMap[player.userId] || null;
+      });
+
+      const currentPlayerInGame = existingGame.players.find(p => p.userId === userId);
+      const opponentPlayerInGame = existingGame.players.find(op => op.userId !== userId);
+
+      // Verify current player's presence in the in-memory game's player list
+      if (!currentPlayerInGame) {
+          socket.emit("join-error", "Internal error: You are a participant but not found in in-memory game players.");
+          console.error(`Error: User ${userId} is a game participant but not in existingGame.players array.`);
           return;
       }
-      // If the game is in memory, and this user is part of it, but their socketId is null or different,
-      // it means they were disconnected and are now reconnecting.
-      else if (playerInExistingGame && playerInExistingGame.socketId !== socket.id) {
-          playerInExistingGame.socketId = socket.id; // Update to new socket ID
-          // The userSocketMap was updated at the start of the function.
-          
+
+      // If the current player's socket is now correctly set to the active socket,
+      // it means they are successfully connected/reconnected to their game slot.
+      if (currentPlayerInGame.socketId === socket.id) {
+          // Emit the game state to the resuming player
           socket.emit("game-start", {
               gameId: existingGame.gameId,
-              playerNumber: currentPlayerNumber,
+              playerNumber: currentPlayerNumber, // Use the derived number
               board: JSON.stringify(existingGame.board),
               turn: existingGame.turn,
               scores: existingGame.scores,
               bombsUsed: existingGame.bombsUsed,
               gameOver: existingGame.gameOver,
-              opponentName: opponentName
+              opponentName: opponentName // Use the derived name
           });
-          console.log(`User ${userName} reconnected socket for active in-memory game ${gameId}.`);
-          // Notify opponent that their partner reconnected
-          if (opponentInExistingGame && opponentInExistingGame.socketId) {
-              io.to(opponentInExistingGame.socketId).emit("opponent-reconnected", { name: userName });
+          console.log(`User ${userName} (re)connected to game ${gameId} from in-memory state.`);
+
+          // Notify the opponent if they are also connected with an active socket
+          if (opponentPlayerInGame && opponentPlayerInGame.socketId) {
+              io.to(opponentPlayerInGame.socketId).emit("opponent-reconnected", { name: userName });
           }
+          return; // Successful resumption, exit
+      } else {
+          // This case implies the user's userId is mapped to a different active socket
+          // for this game, indicating another active session/tab for the same user.
+          socket.emit("join-error", "Your game session is active on another connection or tab.");
+          console.warn(`User ${userName} tried to resume game ${gameId}, but their socket ID does not match the active one in memory or userSocketMap.`);
           return;
       }
-       // If game is in memory, but neither player is connected with current socket or opponent is not connected
-       // and current player is not resuming as a new session from an existing game instance.
-       // This branch might catch cases where the game state is genuinely messed up or misidentified.
-       // For now, let's keep it simple and assume the above conditions cover valid active games.
-       // If we reach here, it implies the game is in memory but no active player is currently controlling it
-       // which means it's available for this user to take over if they are part of it.
     }
 
 
@@ -900,7 +886,6 @@ socket.on("resume-game", async ({ gameId }) => {
     }
   }
 });
-
 
   // Invite Player Event
   socket.on("invite-player", (targetSocketId) => {
@@ -1384,7 +1369,8 @@ socket.on("resume-game", async ({ gameId }) => {
     });
   });
 
-  // Leave Game Event (Player voluntarily leaves)
+ // Leave Game Event (Player voluntarily leaves)
+// Leave Game Event (Player voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
   const game = games[gameId];
   const user = socket.request.session?.passport?.user || null;
@@ -1476,9 +1462,7 @@ socket.on("disconnect", async () => {
   // The previous filter logic: `!(p.id === socket.id || (disconnectedUserId && p.userId === disconnectedUserId && !userGameMap[disconnectedUserId]))`
   // This logic removes a player if their socket ID matches OR if their userId matches AND they are NOT in a game.
   // This is okay if 'players' represents lobby + available-for-game players.
-  // If 'players' should contain ALL online users (including those in a game), this filter is too aggressive.
-  // For this fix, let's assume 'players' should only list users available for new games/lobby.
-  // If 'players' should contain all online users for inviting purposes, then this filter should be adjusted
+  // If 'players' should contain ALL online users for inviting purposes, then this filter should be adjusted
   // to only remove truly offline users.
   players = players.filter(p => !(p.id === socket.id && p.userId === disconnectedUserId) && userSocketMap[p.userId] !== undefined); // Only remove if socket matches and they are truly offline (no new socket)
   console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
