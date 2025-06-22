@@ -1,10 +1,12 @@
 // App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
-import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
-import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
-import "./App.css"; // Ensure you have App.css for styling
+// These components are expected to be in separate files as per your previous structure.
+// If they are not, you will need to create them or inline their logic.
+import GoogleLogin from "./GoogleLogin"; 
+import FacebookLogin from "./FacebookLogin"; 
+import AuthCallback from "./AuthCallback"; 
+import "./App.css"; // Correctly import App.css again
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
@@ -54,7 +56,7 @@ const getDeviceUuid = () => {
 };
 
 function App() {
-  // NEW: Determine if this is the OAuth callback window
+  // Determine if this is the OAuth callback window
   const isAuthCallback = window.location.pathname === '/auth/callback';
 
   // If this is the AuthCallback window, render only the AuthCallback component
@@ -320,12 +322,9 @@ function App() {
             });
 
             socketRef.current.on("receive-unfinished-games", (games) => {
-              const deserializedGames = games.map(game => ({
-                  ...game,
-                  board: JSON.parse(game.board)
-              }));
-              setUnfinishedGames(deserializedGames);
-              console.log("Received unfinished games:", deserializedGames);
+              // Now `game.scores` will be directly available from the server
+              setUnfinishedGames(games); 
+              console.log("Received unfinished games:", games);
             });
 
             socketRef.current.on("opponent-reconnected", ({ name }) => {
@@ -445,7 +444,7 @@ function App() {
     };
   }, [loggedIn, name]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
 
-  // NEW useEffect to calculate unrevealed mines whenever the board changes
+  // useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
     if (board && board.length > 0) {
       let totalMines = 0;
@@ -471,7 +470,7 @@ function App() {
     }
   }, [board]);
 
-  // NEW: Function to handle Guest Login
+  // Function to handle Guest Login
   const loginAsGuest = async () => {
     let guestId;
     try {
@@ -792,7 +791,9 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - Last updated: {game.lastUpdated}
+                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - 
+                                Score: 🔴 {game.scores[1]} | 🔵 {game.scores[2]} - 
+                                Last updated: {game.lastUpdated}
                                 <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
