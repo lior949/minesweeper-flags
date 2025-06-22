@@ -967,7 +967,7 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
   // Respond to Invite Event
-  socket.on("respond-invite", async ({ fromId, accept, withTimer }) => { // Changed to accept `withTimer`
+  socket.on("respond-invite", async ({ fromId, accept, withTimer = false }) => { // Changed to accept `withTimer` with default value
     const respondingUser = socket.request.session?.passport?.user || null;
     const respondingUserId = respondingUser ? respondingUser.id : null;
 
@@ -1802,7 +1802,7 @@ socket.on("disconnect", async () => { // Marked as async here
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
           status: 'waiting_for_resume', // Set game status to waiting_for_resume
           lastUpdated: Timestamp.now(),
-          // Ensure timer state is saved for timed games when a player disconnects
+          // Ensure timer state is saved when leaving for timed games
           isTimedGame: game.isTimedGame,
           playerTimes: game.playerTimes,
           lastMoveTime: game.lastMoveTime, // Keep lastMoveTime as is when disconnecting
