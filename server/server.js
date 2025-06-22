@@ -665,45 +665,49 @@ io.on("connection", (socket) => {
   });
 
   socket.on("request-unfinished-games", async () => {
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
+    const userName = user ? user.displayName : 'Unknown Player';
+
     if (!userId) {
-      console.log("Attempted to request unfinished games without authentication.");
-      return;
+        socket.emit("join-error", "Authentication required to fetch games.");
+        return;
     }
 
     try {
-      const unfinishedGamesSnapshot = await db.collection(GAMES_COLLECTION_PATH)
-        .where('status', 'in', ['active', 'waiting_for_resume']) // Filter by games that are active or waiting for resume
-        .where('player_user_ids', 'array-contains', userId) // Where current user is a participant
-        .orderBy('lastUpdated', 'desc') // Order by last updated to show recent ones first
-        .limit(10) // Limit to a reasonable number of games
-        .get();
+        const gamesQuery = await db.collection(GAMES_COLLECTION_PATH)
+            .where('gameOver', '==', false) // Only fetch games that are NOT over
+            .where('status', 'in', ['active', 'waiting_for_resume']) // Fetch active or waiting games
+            .get();
 
-      const gamesToSend = [];
-      unfinishedGamesSnapshot.forEach(doc => {
-        const gameData = doc.data();
-        const player1 = gameData.player1_name;
-        const player2 = gameData.player2_name;
-        const score1 = gameData.scores ? gameData.scores[1] : 0;
-        const score2 = gameData.scores ? gameData.scores[2] : 0;
-        const lastUpdated = gameData.lastUpdated ? gameData.lastUpdated.toDate().toISOString() : new Date().toISOString(); // Convert Timestamp to ISO string
+        let unfinishedGames = [];
 
-        // Construct the game object with necessary details for the frontend
-        gamesToSend.push({
-          gameId: gameData.gameId,
-          player1Name: player1,
-          player2Name: player2,
-          scores: { 1: score1, 2: score2 },
-          lastUpdated: lastUpdated,
-          // You might also include game.status if needed for display logic
+        gamesQuery.forEach(doc => {
+            const gameData = doc.data();
+            // Check if the current user is part of this game
+            const isPlayer1 = gameData.player1_userId === userId;
+            const isPlayer2 = gameData.player2_userId === userId;
+
+            if (isPlayer1 || isPlayer2) {
+                // Always add the game to the unfinishedGames list if the current user is a participant
+                // and the game is active or waiting for resume, regardless of current socket activity.
+                unfinishedGames.push({
+                    gameId: gameData.gameId,
+                    board: gameData.board, // Send serialized board for potential client-side preview
+                    opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
+                    myPlayerNumber: isPlayer1 ? 1 : 2,
+                    status: gameData.status,
+                    lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
+                });
+            }
         });
-      });
 
-      console.log(`Sending ${gamesToSend.length} unfinished games to ${userName}.`);
-      socket.emit("unfinished-games", gamesToSend);
+        socket.emit("receive-unfinished-games", unfinishedGames);
+        console.log(`Sent ${unfinishedGames.length} unfinished games to user ${userName}.`);
+
     } catch (error) {
-      console.error("Error fetching unfinished games:", error);
-      // Optionally emit an error to the client
-      socket.emit("game-error", "Failed to load unfinished games.");
+        console.error("Error fetching unfinished games for user:", userId, error);
+        socket.emit("join-error", "Failed to load your unfinished games.");
     }
   });
 
@@ -1419,6 +1423,7 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
  // Leave Game Event (Player voluntarily leaves)
+// Leave Game Event (Player voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
   const game = games[gameId];
   const user = socket.request.session?.passport?.user || null;
