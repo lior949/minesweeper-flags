@@ -1768,7 +1768,7 @@ socket.on("leave-game", async ({ gameId }) => {
 
 
 // Socket Disconnect Event (e.g., browser tab closed, network drop)
-socket.on("disconnect", async () => {
+socket.on("disconnect", async () => { // Marked as async here
   console.log(`[Disconnect] Socket disconnected: ${socket.id}`);
   const user = socket.request.session?.passport?.user || null;
   const disconnectedUserId = user ? user.id : null;
