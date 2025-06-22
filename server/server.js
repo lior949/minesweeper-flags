@@ -657,6 +657,28 @@ const removeGameObserver = (gameId) => {
   }
 };
 
+// Helper to update all connected clients with the current list of players
+  const updatePlayerList = () => {
+    // Filter out users who are currently in a game (players) or are observers
+    // These users should not appear as 'available' in the lobby for new invites/find game.
+    // Instead, they might appear in 'observable games'.
+    const onlinePlayers = Object.keys(userSocketMap).map(id => {
+        const s = io.sockets.sockets.get(userSocketMap[id]);
+        if (s && !userGameMap[id]) { // Only include if socket exists and user is NOT in a game
+            return {
+                userId: id,
+                name: s.displayName,
+                socketId: s.id,
+                isGuest: s.isGuest || false
+            };
+        }
+        return null;
+    }).filter(p => p !== null); // Filter out null entries
+
+    io.emit("players-list", onlinePlayers);
+    console.log("Player list updated. Current lobby players:", onlinePlayers.map(p => p.name));
+  };
+
 
 // === Socket.IO Logic ===
 io.on("connection", async (socket) => {
@@ -844,28 +866,6 @@ io.on("connection", async (socket) => {
     socket.emit("auth-success", { user: { id: userId, displayName: userName, isGuest: isGuestUser }, unfinishedGames });
     updatePlayerList();
   });
-
-  // Helper to update all connected clients with the current list of players
-  const updatePlayerList = () => {
-    // Filter out users who are currently in a game (players) or are observers
-    // These users should not appear as 'available' in the lobby for new invites/find game.
-    // Instead, they might appear in 'observable games'.
-    const onlinePlayers = Object.keys(userSocketMap).map(id => {
-        const s = io.sockets.sockets.get(userSocketMap[id]);
-        if (s && !userGameMap[id]) { // Only include if socket exists and user is NOT in a game
-            return {
-                userId: id,
-                name: s.displayName,
-                socketId: s.id,
-                isGuest: s.isGuest || false
-            };
-        }
-        return null;
-    }).filter(p => p !== null); // Filter out null entries
-
-    io.emit("players-list", onlinePlayers);
-    console.log("Player list updated. Current lobby players:", onlinePlayers.map(p => p.name));
-  };
 
 
   // Handle game creation
