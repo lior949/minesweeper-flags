@@ -599,6 +599,7 @@ function App() {
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current) {
+	console.log("Client: Emitting 'respond-invite' with data:", { gameId: invite.gameId, accept }); // ADD THIS
         socketRef.current.emit("respond-invite", { gameId: invite.gameId, accept });
         setInvite(null);
         setMessage("");
