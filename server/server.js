@@ -1481,7 +1481,7 @@ socket.on("disconnect", async () => {
       console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not found in Firestore. Clearing userGameMap.`);
     }
   }
-});
+}));
 
 app.use("/", router); // Use the router for your routes
 
