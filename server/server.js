@@ -697,7 +697,9 @@ io.on("connection", (socket) => {
                     opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
                     myPlayerNumber: isPlayer1 ? 1 : 2,
                     status: gameData.status,
-                    lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
+                    lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A',
+                    // Include scores for display in the lobby
+                    scores: gameData.scores
                 });
             }
         });
@@ -1423,7 +1425,6 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
  // Leave Game Event (Player voluntarily leaves)
-// Leave Game Event (Player voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
   const game = games[gameId];
   const user = socket.request.session?.passport?.user || null;
