@@ -516,7 +516,6 @@ function countUnrevealedMines(board) {
 
 // NEW: Firestore Observer Setup
 // Map to store unsubscribe functions for each game observer
-const activeGameObservers = {};
 
 // Function to set up a Firestore observer for a given gameId
 const setupGameObserver = (gameId, ioInstance) => {
