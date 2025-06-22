@@ -80,14 +80,14 @@ function App() {
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
-  const [playerNumber, setPlayerNumber] = useState(null); // null if observer
+  const [playerNumber, setPlayerNumber] = useState(null);
   const [board, setBoard] = useState([]);
   const [turn, setTurn] = useState(null);
   const [scores, setScores] = useState({ 1: 0, 2: 0 });
   const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false });
   const [bombMode, setBombMode] = useState(false); // Backend's waitingForBombCenter
   const [gameOver, setGameOver] = useState(false);
-  const [opponentName, setOpponentName] = useState(""); // Player name if player, "P1 vs P2" if observer
+  const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
   const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // NEW: Track last clicked tile for each player
@@ -96,11 +96,6 @@ function App() {
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
   const [highlightedBombArea, setHighlightedBombArea] = useState([]); // Stores [x,y] coordinates for highlighted tiles
-
-  // NEW: Observer States
-  const [observableGames, setObservableGames] = useState([]); // List of games available for observation
-  const [isObserver, setIsObserver] = useState(false); // True if current user is an observer
-
 
   // Constants for board dimensions
   const WIDTH = 16;
@@ -237,8 +232,6 @@ function App() {
                 if (loggedIn && name) { // Ensure loggedIn state and name exist
                   socketRef.current.emit("join-lobby", name);
                 }
-                // NEW: Also request observable games when authenticated socket is ready
-                socketRef.current.emit("request-observable-games");
             });
 
             socketRef.current.on("join-error", (msg) => {
@@ -274,70 +267,36 @@ function App() {
             });
 
             socketRef.current.on("game-start", (data) => {
-              console.log("Game started/resumed (game-start event):", data);
+              //console.log("Game started:", data);
               setGameId(data.gameId);
+              setPlayerNumber(data.playerNumber);
               setBoard(JSON.parse(data.board)); // Parse the board string back to an object
               setTurn(data.turn);
               setScores(data.scores);
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
+              setOpponentName(data.opponentName);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Ensure bomb highlighting is off
+              setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setMessage("");
-              setUnfinishedGames([]); // Clear unfinished games list as one is active
-              setObservableGames([]); // Clear observable games list as user is now in a game
-
-              // NEW: Handle observer state based on data from server
-              if (data.isObserver) {
-                  setIsObserver(true);
-                  setPlayerNumber(null); // Observers don't have a player number
-                  setOpponentName(data.opponentName); // Should be "P1 vs P2" string
-                  // Disable bomb UI for observers
-                  setBombsUsed({ 1: true, 2: true }); 
-                  showMessage(`You are now observing game ${data.gameId}.`);
-              } else {
-                  setIsObserver(false);
-                  setPlayerNumber(data.playerNumber); // Player's own number
-                  setOpponentName(data.opponentName); // Opponent's name
-                  console.log("Frontend: Game started! My player number:", data.playerNumber);
-              }
+              console.log("Frontend: Game started! My player number:", data.playerNumber);
+              setUnfinishedGames([]);
             });
 
-            // NEW: Unified game state update for players and observers
-            socketRef.current.on("game-state-update", (game) => {
-              console.log("Game state updated (game-state-update event):", game);
-              setBoard(game.board); // Board is already an object, no need to parse
+            socketRef.current.on("board-update", (game) => {
+              setBoard(JSON.parse(game.board));
               setTurn(game.turn);
               setScores(game.scores);
               setBombsUsed(game.bombsUsed);
               setGameOver(game.gameOver);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Exit bomb highlighting mode
+              setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
-              setUnrevealedMines(game.unrevealedMines);
-              // Update opponentName for observers if player names are available
-              if (game.player1Name && game.player2Name && isObserver) {
-                  setOpponentName(`${game.player1Name} vs ${game.player2Name}`);
-              }
-
-              // Handle bomb mode activation/deactivation
-              if (game.waitingForBombCenter && !isBombHighlightActive) {
-                  setBombMode(true);
-                  setIsBombHighlightActive(true);
-                  setMessage("Select 5x5 bomb center.");
-              } else if (!game.waitingForBombCenter && isBombHighlightActive) {
-                  setBombMode(false);
-                  setIsBombHighlightActive(false);
-                  setHighlightedBombArea([]);
-                  setMessage(""); // Clear bomb message
-              }
-
-              if (game.gameOver) {
-                setMessage("Game Over!");
-              } else if (!isObserver && game.turn === playerNumber) { // Only show turn message to players
-                setMessage("Your turn!");
-              } else if (!isObserver) { // Only show turn message to players
-                setMessage(`${opponentName}'s turn.`);
-              }
+              setMessage("");
             });
-
 
             socketRef.current.on("wait-bomb-center", () => {
               setBombMode(true); // Backend signals to wait for center
@@ -346,12 +305,11 @@ function App() {
             });
 
             socketRef.current.on("opponent-left", () => {
-              showMessage("Opponent left the game. Game paused, can be resumed from 'Unfinished Games'.", true);
+              showMessage("Opponent left the game.", true);
               console.log("Opponent left. Player remains in game state.");
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on opponent left
               setHighlightedBombArea([]);
-              setGameOver(true); // Indicate game is "over" for this player's session until resumed
             });
 
             socketRef.current.on("bomb-error", (msg) => {
@@ -362,9 +320,12 @@ function App() {
             });
 
             socketRef.current.on("receive-unfinished-games", (games) => {
-              // No need to JSON.parse board here, server sends simplified data
-              setUnfinishedGames(games);
-              console.log("Received unfinished games:", games);
+              const deserializedGames = games.map(game => ({
+                  ...game,
+                  board: JSON.parse(game.board)
+              }));
+              setUnfinishedGames(deserializedGames);
+              console.log("Received unfinished games:", deserializedGames);
             });
 
             socketRef.current.on("opponent-reconnected", ({ name }) => {
@@ -372,9 +333,9 @@ function App() {
             });
 
             socketRef.current.on("game-restarted", (data) => {
-              showMessage("Game restarted!", false); // Simpler message, removed "first click on blank tile"
+              showMessage("Game restarted due to first click on blank tile!", false);
               setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber); // Player's own number
+              setPlayerNumber(data.playerNumber);
               setBoard(JSON.parse(data.board));
               setTurn(data.turn);
               setScores(data.scores);
@@ -385,34 +346,12 @@ function App() {
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
-              setIsObserver(false); // Ensure observer state is reset on restart
             });
-
-            // NEW: Observer specific events
-            socketRef.current.on("receive-observable-games", (games) => {
-                setObservableGames(games);
-                console.log("Received observable games:", games);
-            });
-            socketRef.current.on("observer-joined", ({ name: observerName }) => {
-                showMessage(`${observerName} is now observing.`);
-            });
-            socketRef.current.on("observer-left", ({ name: observerName }) => {
-                showMessage(`${observerName} has stopped observing.`);
-            });
-            socketRef.current.on("player-disconnected", ({ name: playerName }) => {
-                showMessage(`Player ${playerName} has disconnected from the game you are observing.`);
-            });
-
-
           } else {
             console.log("Frontend: Socket.IO already initialized. Re-emitting join-lobby.");
             // If already initialized, just re-emit join-lobby to ensure backend registers current socket
             if (loggedIn && name) { // Only re-emit if already logged in and name is set
                 socketRef.current.emit("join-lobby", name);
-            }
-            // NEW: Also request observable games if socket already initialized and logged in
-            if (loggedIn) {
-                socketRef.current.emit("request-observable-games");
             }
           }
 
@@ -491,24 +430,20 @@ function App() {
         socketRef.current.off("game-invite");
         socketRef.current.off("invite-rejected");
         socketRef.current.off("game-start");
-        socketRef.current.off("game-state-update"); // NEW
+        socketRef.current.off("board-update");
         socketRef.current.off("wait-bomb-center");
         socketRef.current.off("opponent-left");
         socketRef.current.off("bomb-error");
         socketRef.current.off("receive-unfinished-games");
         socketRef.current.off("opponent-reconnected");
         socketRef.current.off("game-restarted");
-        socketRef.current.off("receive-observable-games"); // NEW
-        socketRef.current.off("observer-joined"); // NEW
-        socketRef.current.off("observer-left"); // NEW
-        socketRef.current.off("player-disconnected"); // NEW
 
         socketRef.current.disconnect(); // Disconnect the socket
         socketRef.current = null; // Clear the ref
       }
       window.removeEventListener('message', handleAuthMessage); // Clean up message listener
     };
-  }, [loggedIn, name, isObserver]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
+  }, [loggedIn, name]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
@@ -590,7 +525,7 @@ function App() {
 
   const invitePlayer = (id) => {
     if (loggedIn && socketRef.current && id !== socketRef.current.id) {
-      socketRef.current.emit("invite-player", { targetSocketId: id });
+      socketRef.current.emit("invite-player", id);
       showMessage("Invitation sent.");
     } else {
         console.warn("Invite failed: Not logged in or socket not ready, or inviting self.");
@@ -599,19 +534,13 @@ function App() {
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current) {
-	console.log("Client: Emitting 'respond-invite' with data:", { gameId: invite.gameId, accept }); // ADD THIS
-        socketRef.current.emit("respond-invite", { gameId: invite.gameId, accept });
-        setInvite(null);
-        setMessage("");
+      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept });
+      setInvite(null);
+      setMessage("");
     }
-};
+  };
 
   const handleClick = (x, y) => {
-    // NEW: Prevent clicks if in observer mode
-    if (isObserver) {
-        showMessage("You are an observer, you cannot interact with the board.", true);
-        return;
-    }
     if (!gameId || gameOver || !socketRef.current || !socketRef.current.connected) return;
 
     // If waiting for bomb center, emit bomb-center event
@@ -661,11 +590,6 @@ function App() {
   };
 
   const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
-    // NEW: Prevent bomb use if in observer mode
-    if (isObserver) {
-        showMessage("You are an observer, you cannot use the bomb.", true);
-        return;
-    }
     if (!socketRef.current || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
       if (bombsUsed[playerNumber]) {
         showMessage("You have already used your bomb!", true);
@@ -690,10 +614,6 @@ function App() {
   };
 
   const handleCancelBomb = () => { // New function for cancelling bomb mode
-    // NEW: Prevent bomb cancel if in observer mode (though button should be hidden)
-    if (isObserver) {
-        return;
-    }
     setBombMode(false); // Reset backend's waitingForBombCenter state
     setIsBombHighlightActive(false); // Deactivate visual bomb highlighting
     setHighlightedBombArea([]); // Clear highlights
@@ -702,12 +622,7 @@ function App() {
 
   const backToLobby = () => {
     if (gameId && socketRef.current) {
-        // NEW: Check if current user is an observer
-        if (isObserver) {
-            socketRef.current.emit("leave-observer-game", { gameId });
-        } else {
-            socketRef.current.emit("leave-game", { gameId });
-        }
+        socketRef.current.emit("leave-game", { gameId });
     }
 
     setGameId(null);
@@ -725,10 +640,8 @@ function App() {
     setMessage("");
     setUnfinishedGames([]);
     setLastClickedTile({ 1: null, 2: null });
-    setIsObserver(false); // NEW: Reset observer state
     if (socketRef.current) { // Ensure socket is still available before emitting
       socketRef.current.emit("request-unfinished-games");
-      socketRef.current.emit("request-observable-games"); // NEW: Request observable games on returning to lobby
     }
 };
 
@@ -761,9 +674,6 @@ function App() {
       setOpponentName("");
       setInvite(null);
       setLastClickedTile({ 1: null, 2: null });
-      setUnfinishedGames([]); // Clear on logout
-      setObservableGames([]); // NEW: Clear on logout
-      setIsObserver(false); // NEW: Reset observer state
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -810,13 +720,6 @@ function App() {
     }
   };
 
-  // NEW: Function to join a game as an observer
-  const joinObserverGame = (gameIdToObserve) => {
-      if (gameIdToObserve && socketRef.current) {
-          socketRef.current.emit("join-observer-game", { gameId: gameIdToObserve });
-          showMessage(`Attempting to observe game ${gameIdToObserve}...`);
-      }
-  };
 
   // --- Conditional Rendering based on App State ---
 
@@ -864,7 +767,7 @@ function App() {
                 <li
                   key={p.id}
                   className="player-item"
-                  onDoubleClick={() => invitePlayer(p.socketId)}
+                  onDoubleClick={() => invitePlayer(p.id)}
                   title="Double-click to invite"
                 >
                   {p.name}
@@ -889,25 +792,8 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                score: {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} - Last updated: {game.lastUpdated}
+                                score: 🔴 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🔵 - Last updated: {game.lastUpdated}
                                 <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
-
-            {/* NEW: Observable Games Section */}
-            <div className="observable-games-section">
-                <h3>Observable Games</h3>
-                {observableGames.length === 0 ? (
-                    <p>No games currently available for observation.</p>
-                ) : (
-                    <ul className="observable-game-list">
-                        {observableGames.map(game => (
-                            <li key={game.gameId} className="observable-game-item">
-                                {game.player1_name || "Player 1"} vs {game.player2_name || "Player 2"} - Scores: {game.scores?.[1] || 0} | {game.scores?.[2] || 0} (Last Updated: {game.lastUpdated ? new Date(game.lastUpdated).toLocaleString() : 'N/A'})
-                                <button onClick={() => joinObserverGame(game.gameId)} className="bomb-button">Observe</button>
                             </li>
                         ))}
                     </ul>
@@ -923,13 +809,13 @@ function App() {
                     {playerNumber &&
                       !bombsUsed[playerNumber] &&
                       scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
-                      !gameOver && !isObserver && ( // NEW: Hide bomb button if observer
+                      !gameOver && (
                         <button className="bomb-button" onClick={handleUseBombClick}> {/* Changed to new handler */}
                             Use Bomb
                         </button>
                       )}
-                    {/* NEW: Display Cancel Bomb button if bombMode is active for selection, and not observer */}
-                    {bombMode && !isObserver && ( 
+                    {/* NEW: Display Cancel Bomb button if bombMode is active for selection */}
+                    {bombMode && ( // bombMode means waiting for backend 'wait-bomb-center'
                       <button className="bomb-button" onClick={handleCancelBomb}> {/* New handler for cancel */}
                           Cancel Bomb
                       </button>
@@ -937,7 +823,7 @@ function App() {
                 </div>
 
                 <h2>
-                    {isObserver ? `Observing: ${opponentName}` : `You are Player ${playerNumber} (vs. ${opponentName})`}
+                    You are Player {playerNumber} (vs. {opponentName})
                 </h2>
                 <p>
                     {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
@@ -957,7 +843,7 @@ function App() {
                     Back to Lobby
                 </button>
 
-                {gameOver && !isObserver && ( // NEW: Only allow players to restart
+                {gameOver && (
                     <>
                         <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })}> {/* Use socketRef.current */}
                             Restart Game
