@@ -1,298 +1,10 @@
 // App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
-// The following imports are removed as their logic is now inlined in App.jsx
-// import GoogleLogin from "./GoogleLogin"; 
-// import FacebookLogin from "./FacebookLogin"; 
-// import AuthCallback from "./AuthCallback"; 
-// import "./App.css"; // This import is being removed by embedding CSS directly
-
-function App() {
-  // Inline CSS for the application
-  const appCss = `
-    body {
-      background-color: #222;
-      color: #eee;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      padding: 0;
-      user-select: none;
-    }
-
-    .lobby {
-      padding: 20px;
-      text-align: center;
-    }
-
-    .player-list {
-      list-style: none;
-      padding: 0;
-      max-width: 300px;
-      margin: 10px auto;
-      border: 1px solid #555;
-      border-radius: 6px;
-      background: #333;
-    }
-
-    .player-item {
-      padding: 8px 12px;
-      border-bottom: 1px solid #555;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .player-item:last-child {
-      border-bottom: none;
-    }
-
-    .player-item:hover {
-      background: #555;
-    }
-
-    .invite-popup {
-      margin-top: 20px;
-      background: #444;
-      border-radius: 8px;
-      padding: 10px;
-      max-width: 300px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    .invite-popup button {
-      margin: 5px;
-      padding: 6px 12px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    .grid {
-      display: grid;
-      border: 1px solid #555;
-      margin: 20px auto;
-      background-color: #444;
-      max-width: 640px; /* 16 tiles * 40px/tile */
-      max-height: 640px; /* 16 tiles * 40px/tile */
-      box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
-      border-radius: 8px;
-      overflow: hidden; /* Ensures rounded corners apply to tiles at edges */
-      touch-action: none; /* Prevent browser touch actions like pull-to-refresh */
-    }
-
-    .tile {
-      width: 40px;
-      height: 40px;
-      background-color: #666;
-      border: 1px solid #555;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 1.2em;
-      cursor: pointer;
-      box-sizing: border-box; /* Include padding and border in the element's total width and height */
-      transition: background-color 0.1s ease-in-out;
-    }
-
-    .tile.revealed {
-      background-color: #333;
-      cursor: default;
-    }
-
-    .tile.mine {
-      background-color: #f44336; /* Red for mines */
-      color: white;
-    }
-
-    /* Styling for numbers */
-    .number-1 { color: #00bcd4; /* Cyan */ }
-    .number-2 { color: #4caf50; /* Green */ }
-    .number-3 { color: #ff9800; /* Orange */ }
-    .number-4 { color: #f44336; /* Red */ }
-    .number-5 { color: #9c27b0; /* Purple */ }
-    .number-6 { color: #ffeb3b; /* Yellow */ }
-    .number-7 { color: #03a9f4; /* Light Blue */ }
-    .number-8 { color: #8bc34a; /* Light Green */ }
-
-    .app-message {
-      margin: 10px 0;
-      padding: 10px;
-      border-radius: 5px;
-      font-weight: bold;
-    }
-
-    .app-game-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-
-    .header {
-      width: 100%;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      max-width: 640px;
-    }
-
-    .header h1 {
-      margin: 0;
-      font-size: 1.8em;
-    }
-
-    .bomb-button {
-      background-color: #ff5722;
-      color: white;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 1em;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-      transition: background-color 0.3s ease;
-    }
-
-    .bomb-button:hover {
-      background-color: #e64a19;
-    }
-
-    .bomb-button:disabled {
-      background-color: #9e9e9e;
-      cursor: not-allowed;
-    }
-
-    .google-login-button {
-      background-color: #4285f4;
-      color: white;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 1em;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 20px auto;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-      transition: background-color 0.3s ease;
-    }
-
-    .google-login-button:hover {
-      background-color: #357ae8;
-    }
-
-    .google-icon {
-      margin-right: 10px;
-    }
-
-    /* Base styles for Google Login component (if any specific styling is needed) */
-    .facebook-login-button {
-      background-color: #4285f4;
-      color: white;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 1em;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 20px auto;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-      transition: background-color 0.3s ease;
-    }
-
-    .facebook-login-button:hover {
-      background-color: #357ae8;
-    }
-
-    .facebook-icon {
-      margin-right: 10px;
-    }
-
-    .guest-login-button {
-      background-color: #607d8b;
-      color: white;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 1em;
-      margin-top: 10px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-      transition: background-color 0.3s ease;
-    }
-
-    .guest-login-button:hover {
-      background-color: #455a64;
-    }
-
-    .last-clicked-p1 {
-        background-color: rgba(255, 0, 0, 0.3); /* Reddish overlay for Player 1's last click */
-    }
-
-    .last-clicked-p2 {
-        background-color: rgba(0, 0, 255, 0.3); /* Bluish overlay for Player 2's last click */
-    }
-
-    .highlighted-bomb-area {
-        background-color: rgba(255, 255, 0, 0.3); /* Yellowish overlay for bomb area highlight */
-    }
-
-    .mine-count-display {
-        font-size: 1.1em;
-        font-weight: bold;
-        margin-top: 10px;
-    }
-
-    .unfinished-games-section {
-        margin-top: 30px;
-        border-top: 1px solid #555;
-        padding-top: 20px;
-    }
-
-    .unfinished-game-list {
-        list-style: none;
-        padding: 0;
-        max-width: 600px;
-        margin: 10px auto;
-        border: 1px solid #555;
-        border-radius: 6px;
-        background: #333;
-    }
-
-    .unfinished-game-item {
-        padding: 10px 15px;
-        border-bottom: 1px solid #555;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap; /* Allow content to wrap */
-    }
-
-    .unfinished-game-item:last-child {
-        border-bottom: none;
-    }
-
-    .unfinished-game-item button {
-        margin-left: 15px;
-        padding: 5px 10px;
-        background-color: #007bff;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: background-color 0.2s;
-    }
-
-    .unfinished-game-item button:hover {
-        background-color: #0056b3;
-    }
-  `;
+import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
+import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
+import "./App.css"; // Ensure you have App.css for styling
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
@@ -341,17 +53,27 @@ const getDeviceUuid = () => {
     return deviceUuid;
 };
 
-  // Determine if this is the OAuth callback window
-  const isAuthCallbackPath = window.location.pathname === '/auth/callback';
+function App() {
+  // NEW: Determine if this is the OAuth callback window
+  const isAuthCallback = window.location.pathname === '/auth/callback';
+
+  // If this is the AuthCallback window, render only the AuthCallback component
+  // and prevent the main App logic from running
+  if (isAuthCallback) {
+    return <AuthCallback />;
+  }
+
+  // If not the AuthCallback window, proceed with the main App logic
+  console.log("App component rendered (main application).");
 
   // === Lobby & Authentication State ===
   const [name, setName] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
-  const [isGuest, setIsGuest] = useState(false); // Track if logged in as guest
+  const [isGuest, setIsGuest] = useState(false); // NEW: Track if logged in as guest
   const [playersList, setPlayersList] = useState([]);
   const [message, setMessage] = useState(""); // General message/error display
 
-  // State and ref for Socket.IO instance
+  // NEW: State and ref for Socket.IO instance
   const socketRef = useRef(null); // Use useRef to hold the mutable socket object
   const [isSocketConnected, setIsSocketConnected] = useState(false); // New state to track actual socket.io connection status
 
@@ -367,11 +89,11 @@ const getDeviceUuid = () => {
   const [gameOver, setGameOver] = useState(false);
   const [opponentName, setOpponentName] = useState("");
   const [invite, setInvite] = useState(null);
-  const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
-  const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
+  const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // NEW: Track last clicked tile for each player
+  const [unrevealedMines, setUnrevealedMines] = useState(0); // NEW: State to store unrevealed mines count
 
-  // State for bomb highlighting
+  // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
   const [highlightedBombArea, setHighlightedBombArea] = useState([]); // Stores [x,y] coordinates for highlighted tiles
 
@@ -462,7 +184,7 @@ const getDeviceUuid = () => {
           setIsGuest(data.user.id.startsWith('guest_')); 
           console.log("App.jsx: Initial auth check successful for:", data.user.displayName || data.user.name, "Is Guest:", data.user.id.startsWith('guest_'));
 
-          // Initialize Socket.IO connection ONLY once per component mount
+          // NEW: Initialize Socket.IO connection ONLY once per component mount
           // and manage connection status
           if (!socketRef.current) {
             console.log("Frontend: Initializing Socket.IO connection...");
@@ -598,9 +320,12 @@ const getDeviceUuid = () => {
             });
 
             socketRef.current.on("receive-unfinished-games", (games) => {
-              // Now `game.scores` will be directly available from the server
-              setUnfinishedGames(games); 
-              console.log("Received unfinished games:", games);
+              const deserializedGames = games.map(game => ({
+                  ...game,
+                  board: JSON.parse(game.board)
+              }));
+              setUnfinishedGames(deserializedGames);
+              console.log("Received unfinished games:", deserializedGames);
             });
 
             socketRef.current.on("opponent-reconnected", ({ name }) => {
@@ -658,7 +383,7 @@ const getDeviceUuid = () => {
 
     checkAuthStatusAndConnectSocket();
 
-    // Listener for messages from the OAuth pop-up window
+    // NEW: Listener for messages from the OAuth pop-up window
     const handleAuthMessage = (event) => {
       // Ensure the message is from a trusted origin (your backend/frontend)
       // For production, replace '*' with your frontend's exact origin.
@@ -720,7 +445,7 @@ const getDeviceUuid = () => {
     };
   }, [loggedIn, name]); // Dependencies for socket listeners. Re-run if loggedIn or name changes.
 
-  // useEffect to calculate unrevealed mines whenever the board changes
+  // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
     if (board && board.length > 0) {
       let totalMines = 0;
@@ -746,7 +471,7 @@ const getDeviceUuid = () => {
     }
   }, [board]);
 
-  // Function to handle Guest Login
+  // NEW: Function to handle Guest Login
   const loginAsGuest = async () => {
     let guestId;
     try {
@@ -955,7 +680,7 @@ const getDeviceUuid = () => {
     }
   };
 
-  // Mouse movement handler for bomb highlighting
+  // NEW: Mouse movement handler for bomb highlighting
   const handleMouseMoveOnGrid = useCallback((event) => {
     // Only highlight if bomb mode is active and board data is loaded
     if (!isBombHighlightActive || !board.length || !Array.isArray(board[0])) {
@@ -966,7 +691,7 @@ const getDeviceUuid = () => {
     setHighlightedBombArea(calculateBombArea(x, y));
   }, [isBombHighlightActive, board.length, board, calculateBombArea]); // Add board to dependencies
 
-  // Mouse leave handler for grid
+  // NEW: Mouse leave handler for grid
   const handleMouseLeaveGrid = useCallback(() => {
     if (isBombHighlightActive) {
       setHighlightedBombArea([]); // Clear highlights when mouse leaves grid
@@ -995,71 +720,30 @@ const getDeviceUuid = () => {
     }
   };
 
-  // Inline GoogleLogin Component
-  const GoogleLogin = () => {
-    const handleGoogleLogin = () => {
-        // Open the Google OAuth URL in a new pop-up window
-        window.open("https://minesweeper-flags-backend.onrender.com/auth/google", "_blank", "width=500,height=600");
-    };
-    return (
-        <button className="google-login-button" onClick={handleGoogleLogin}>
-            <span className="google-icon">G</span> Sign in with Google
-        </button>
-    );
-  };
-
-  // Inline FacebookLogin Component
-  const FacebookLogin = () => {
-    const handleFacebookLogin = () => {
-        // Open the Facebook OAuth URL in a new pop-up window
-        window.open("https://minesweeper-flags-backend.onrender.com/auth/facebook", "_blank", "width=500,height=600");
-    };
-    return (
-        <button className="facebook-login-button" onClick={handleFacebookLogin}>
-            <span className="facebook-icon">f</span> Sign in with Facebook
-        </button>
-    );
-  };
-
 
   // --- Conditional Rendering based on App State ---
-
-  // Render only the AuthCallback component if it's the OAuth callback path
-  if (isAuthCallbackPath) {
-    // This component will handle postMessage to the opener and then close itself
-    useEffect(() => {
-      const handleCallback = () => {
-        try {
-          const hashData = window.location.hash.substring(1); // Get data from hash fragment
-          if (hashData) {
-            const userData = JSON.parse(decodeURIComponent(hashData));
-            window.opener.postMessage({ type: 'AUTH_SUCCESS', user: userData }, "https://minesweeper-flags-frontend.onrender.com");
-          } else {
-            // Handle cases where there might be no hash data (e.g., direct failure redirect)
-            const urlParams = new URLSearchParams(window.location.search);
-            const errorMessage = urlParams.get('message') || 'Authentication failed.';
-            window.opener.postMessage({ type: 'AUTH_FAILURE', message: errorMessage }, "https://minesweeper-flags-frontend.onrender.com");
-          }
-        } catch (error) {
-          console.error("Error parsing auth callback data:", error);
-          window.opener.postMessage({ type: 'AUTH_FAILURE', message: 'Error processing authentication callback.' }, "https://minesweeper-flags-frontend.onrender.com");
-        } finally {
-          window.close(); // Close the pop-up window
-        }
-      };
-      handleCallback();
-    }, []); // Run once on mount
-
-    return <div>Processing authentication... Please wait.</div>;
-  }
 
   if (!loggedIn) {
     return (
       <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <h2>Login or Play as Guest</h2>
-        <GoogleLogin />
-		    <FacebookLogin />
+        <GoogleLogin
+          onLogin={(googleName) => {
+            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
+            // No direct socket.emit("join-lobby") here anymore.
+            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
+            console.log("Google Login completed via pop-up callback. State will update.");
+          }}
+        />
+		    <FacebookLogin
+          onLogin={(facebookName) => {
+            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
+            // No direct socket.emit("join-lobby") here anymore.
+            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
+            console.log("Facebook Login completed via pop-up callback. State will update.");
+          }}
+        />
         <button className="guest-login-button" onClick={loginAsGuest}>
           Play as Guest
         </button>
@@ -1069,9 +753,6 @@ const getDeviceUuid = () => {
 
   return (
     <div className="lobby">
-        {/* Embed the CSS directly */}
-        <style>{appCss}</style>
-
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
@@ -1111,9 +792,7 @@ const getDeviceUuid = () => {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - 
-                                Score: 🔴 {game.scores[1]} | 🔵 {game.scores[2]} - 
-                                Last updated: {game.lastUpdated}
+                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - Last updated: {game.lastUpdated}
                                 <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
@@ -1135,7 +814,7 @@ const getDeviceUuid = () => {
                             Use Bomb
                         </button>
                       )}
-                    {/* Display Cancel Bomb button if bombMode is active for selection */}
+                    {/* NEW: Display Cancel Bomb button if bombMode is active for selection */}
                     {bombMode && ( // bombMode means waiting for backend 'wait-bomb-center'
                       <button className="bomb-button" onClick={handleCancelBomb}> {/* New handler for cancel */}
                           Cancel Bomb
@@ -1154,12 +833,12 @@ const getDeviceUuid = () => {
                 <p>
                     Score 🔴 {scores[1]} | 🔵 {scores[2]}
                 </p>
-		{/* Display unrevealed mines count */}
+		{/* NEW: Display unrevealed mines count */}
                 <p className="mine-count-display">
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                 </p>
 
-		{/* Back to Lobby button always visible when in game */}
+		{/* NEW: Back to Lobby button always visible when in game */}
                 <button className="bomb-button" onClick={backToLobby}>
                     Back to Lobby
                 </button>
