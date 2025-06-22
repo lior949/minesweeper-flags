@@ -19,7 +19,7 @@ const { Firestore } = require('@google-cloud/firestore'); // Required by @google
 
 // --- NEW: Corrected Firestore Session Store Imports ---
 // The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
-// It is then instantiated with 'new', and does NOT take 'session` directly in the require call.
+// It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
 const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
@@ -114,10 +114,6 @@ const HEIGHT = 16;
 const MINES = 51;
 const APP_ID = process.env.RENDER_APP_ID || "minesweeper-flags-default-app";
 const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`;
-
-// NEW: Timer Constants
-const INITIAL_PLAYER_TIME = 2 * 60; // 2 minutes in seconds
-const TIME_PER_MOVE = 10; // 10 seconds per move bonus
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -403,7 +399,7 @@ app.get("/login-failed", (req, res) => {
 
 // Global Game Data Structures
 let players = []; // Lobby players: [{ id: socket.id, userId, name }]
-let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile, isTimedGame, playerTimes, lastMoveTime }
+let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile }
 
 // Helper to generate a new Minesweeper board
 const generateBoard = () => {
@@ -543,9 +539,6 @@ io.on("connection", (socket) => {
                         turn: gameData.turn,
                         gameOver: gameData.gameOver,
                         lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile
-                        isTimedGame: gameData.isTimedGame || false, // Load isTimedGame
-                        playerTimes: gameData.playerTimes || { 1: 0, 2: 0 }, // Load playerTimes
-                        lastMoveTime: gameData.lastMoveTime || 0, // Load lastMoveTime
                         players: [] // Will be populated with proper player objects
                     };
 
@@ -570,14 +563,8 @@ io.on("connection", (socket) => {
                     // Set game status to active if it was waiting for resume
                     if (gameData.status === 'waiting_for_resume') {
                         doc.ref.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true }).then(() => {
-                            console.log(`Game ${gameId} status updated to 'active' in Firestore.`);
+                            console.log(`Game ${gameId} status updated to 'active' in Firestore on resume.`);
                         }).catch(e => console.error("Error updating game status on resume:", e));
-                        
-                        // If resuming a timed game, DO NOT reset lastMoveTime.
-                        // It should continue from where it left off, reflecting the continuous timer.
-                        if (game.isTimedGame) {
-                            console.log(`[Resume] Timed game ${gameId} resumed. lastMoveTime remains as loaded for turn ${game.turn}.`);
-                        }
                     }
 
                     const playerInGame = game.players.find(p => p.userId === userId);
@@ -594,8 +581,6 @@ io.on("connection", (socket) => {
                             bombsUsed: game.bombsUsed,
                             gameOver: game.gameOver,
                             lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                            isTimedGame: game.isTimedGame, // Include isTimedGame
-                            playerTimes: game.playerTimes, // Include playerTimes
                             opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                         });
                         console.log(`Emitted game-start to reconnected user ${playerInGame.name} for game ${gameId}.`);
@@ -610,7 +595,7 @@ io.on("connection", (socket) => {
                     emitLobbyPlayersList(); // Use the helper
                 } else {
                     delete userGameMap[userId]; // Game not found or invalid status, clear map
-                    console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore. Clearing map.`);
+                    console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore, clearing map.`);
                     emitLobbyPlayersList(); // Re-emit if userGameMap changed
                 }
             }).catch(e => console.error("Error fetching game from Firestore on reconnect:", e));
@@ -619,12 +604,6 @@ io.on("connection", (socket) => {
             if (playerInGame) {
                 playerInGame.socketId = socket.id; // Ensure current socketId is used in game object
                 const opponentPlayer = game.players.find(op => op.userId !== userId);
-
-                // If resuming a timed game, DO NOT reset lastMoveTime.
-                // It should continue from where it left off, reflecting the continuous timer.
-                if (existingGame.isTimedGame && existingGame.turn === currentPlayerInGame.number) {
-                    console.log(`[Resume] Timed game ${gameId} resumed. lastMoveTime remains as loaded for turn ${existingGame.turn}.`);
-                }
 
                 // Re-send game state to ensure client is up-to-date
                 io.to(playerInGame.socketId).emit("game-start", {
@@ -636,8 +615,6 @@ io.on("connection", (socket) => {
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
                     lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                    isTimedGame: game.isTimedGame, // Include isTimedGame
-                    playerTimes: game.playerTimes, // Include playerTimes
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
                 console.log(`Re-sent active game state for game ${gameId} to ${playerInGame.name}.`);
@@ -720,7 +697,6 @@ io.on("connection", (socket) => {
                     opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
                     myPlayerNumber: isPlayer1 ? 1 : 2,
                     status: gameData.status,
-                    isTimedGame: gameData.isTimedGame || false, // Include isTimedGame
                     lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
                 });
             }
@@ -798,12 +774,6 @@ socket.on("resume-game", async ({ gameId }) => {
       // If the current player's socket is now correctly set to the active socket,
       // it means they are successfully connected/reconnected to their game slot.
       if (currentPlayerInGame.socketId === socket.id) {
-          // If resuming a timed game, DO NOT reset lastMoveTime.
-          // The timer should continue running even during disconnect.
-          if (existingGame.isTimedGame && existingGame.turn === currentPlayerInGame.number) {
-            console.log(`[Resume] Timed game ${gameId} resumed. lastMoveTime remains as loaded for turn ${existingGame.turn}.`);
-          }
-
           // Emit the game state to the resuming player
           io.to(currentPlayerInGame.socketId).emit("game-start", {
               gameId: existingGame.gameId,
@@ -814,8 +784,6 @@ socket.on("resume-game", async ({ gameId }) => {
               bombsUsed: existingGame.bombsUsed,
               gameOver: existingGame.gameOver,
               lastClickedTile: existingGame.lastClickedTile, // Include lastClickedTile
-              isTimedGame: existingGame.isTimedGame, // Include isTimedGame
-              playerTimes: existingGame.playerTimes, // Include playerTimes
               opponentName: opponentName // Use the derived name
           });
           console.log(`User ${userName} (re)connected to game ${gameId} from in-memory state.`);
@@ -847,9 +815,6 @@ socket.on("resume-game", async ({ gameId }) => {
       turn: gameData.turn,
       gameOver: gameData.gameOver,
       lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile from Firestore
-      isTimedGame: gameData.isTimedGame || false, // Load isTimedGame
-      playerTimes: gameData.playerTimes || { 1: 0, 2: 0 }, // Load playerTimes
-      lastMoveTime: gameData.lastMoveTime || 0, // Load lastMoveTime
       players: [] // Will populate based on who is resuming and who the opponent is
     };
 
@@ -889,12 +854,6 @@ socket.on("resume-game", async ({ gameId }) => {
     if (gameData.status === 'waiting_for_resume') {
       await gameDocRef.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true });
       console.log(`Game ${gameId} status updated to 'active' in Firestore.`);
-      
-      // If resuming a timed game, DO NOT reset lastMoveTime.
-      // The timer should continue running even during disconnect.
-      if (game.isTimedGame) {
-          console.log(`[Resume] Timed game ${gameId} resumed. lastMoveTime remains as loaded for turn ${game.turn}.`);
-      }
     }
 
     // Emit game-start to the player who resumed
@@ -911,8 +870,6 @@ socket.on("resume-game", async ({ gameId }) => {
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-        isTimedGame: game.isTimedGame, // Include isTimedGame
-        playerTimes: game.playerTimes, // Include playerTimes
         opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent"
       });
       console.log(`User ${userName} successfully resumed game ${gameId}.`);
@@ -938,7 +895,7 @@ socket.on("resume-game", async ({ gameId }) => {
 });
 
   // Invite Player Event
-  socket.on("invite-player", ({ targetSocketId, withTimer = false }) => { // NEW: Receive withTimer with default
+  socket.on("invite-player", (targetSocketId) => {
     const inviterUser = socket.request.session?.passport?.user || null;
     const inviterUserId = inviterUser ? inviterUser.id : null;
     
@@ -961,13 +918,12 @@ socket.on("resume-game", async ({ gameId }) => {
     io.to(invitedPlayer.id).emit("game-invite", {
       fromId: inviterPlayer.id, // This is the inviter's current socket.id
       fromName: inviterPlayer.name,
-      withTimer: withTimer // NEW: Pass withTimer to the invitee
     });
-    console.log(`Invite sent from ${inviterPlayer.name} to ${invitedPlayer.name}${withTimer ? ' (with timer)' : ''}`);
+    console.log(`Invite sent from ${inviterPlayer.name} to ${invitedPlayer.name}`);
   });
 
   // Respond to Invite Event
-  socket.on("respond-invite", async ({ fromId, accept, withTimer = false }) => { // Changed to accept `withTimer` with default value
+  socket.on("respond-invite", async ({ fromId, accept }) => {
     const respondingUser = socket.request.session?.passport?.user || null;
     const respondingUserId = respondingUser ? respondingUser.id : null;
 
@@ -996,16 +952,6 @@ socket.on("resume-game", async ({ gameId }) => {
       const gameOver = false;
       const lastClickedTile = { 1: null, 2: null }; // Initialize lastClickedTile for new game
 
-      // Use the received `withTimer` directly
-      const isTimedGame = withTimer; 
-
-      let playerTimes = { 1: 0, 2: 0 };
-      let lastMoveTime = 0;
-      if (isTimedGame) {
-          playerTimes = { 1: INITIAL_PLAYER_TIME, 2: INITIAL_PLAYER_TIME };
-          lastMoveTime = Date.now(); // Set initial last move time for the first player's turn
-      }
-
       const game = {
         gameId,
         board: newBoard,
@@ -1019,16 +965,13 @@ socket.on("resume-game", async ({ gameId }) => {
         bombsUsed,
         gameOver,
         lastClickedTile, // Include lastClickedTile in in-memory game object
-        isTimedGame, // NEW: Add isTimedGame
-        playerTimes, // NEW: Add playerTimes
-        lastMoveTime, // NEW: Add lastMoveTime
       };
       games[gameId] = game;
 
       // Update userGameMap for both players
       userGameMap[inviterPlayer.userId] = gameId;
       userGameMap[respondingPlayer.userId] = gameId;
-      console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}). Is Timed: ${isTimedGame}`);
+      console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
 
       // Save game state to Firestore (with serialized board)
       try {
@@ -1045,9 +988,6 @@ socket.on("resume-game", async ({ gameId }) => {
               bombsUsed: game.bombsUsed,
               gameOver: game.gameOver,
               lastClickedTile: game.lastClickedTile, // Save lastClickedTile to Firestore
-              isTimedGame: game.isTimedGame, // NEW: Save isTimedGame
-              playerTimes: game.playerTimes, // NEW: Save playerTimes
-              lastMoveTime: game.lastMoveTime, // NEW: Save lastMoveTime
               status: 'active', // Mark as active
               lastUpdated: Timestamp.now(),
               winnerId: null,
@@ -1078,8 +1018,6 @@ socket.on("resume-game", async ({ gameId }) => {
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-        isTimedGame: game.isTimedGame, // NEW: Include isTimedGame
-        playerTimes: game.playerTimes, // NEW: Include playerTimes
         opponentName: respondingPlayer.name,
       });
       io.to(respondingPlayer.id).emit("game-start", {
@@ -1091,8 +1029,6 @@ socket.on("resume-game", async ({ gameId }) => {
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-        isTimedGame: game.isTimedGame, // NEW: Include isTimedGame
-        playerTimes: game.playerTimes, // NEW: Include playerTimes
         opponentName: inviterPlayer.name,
       });
 
@@ -1130,55 +1066,6 @@ socket.on("resume-game", async ({ gameId }) => {
     // This ensures subsequent emits (like board-update, game-restarted) go to the correct, potentially new, socket.id
     player.socketId = socket.id;
 
-    // NEW: Timer Logic - Check time before processing move
-    if (game.isTimedGame) {
-        const timeElapsedSinceLastMove = Date.now() - game.lastMoveTime; // In milliseconds
-        let deduction = (timeElapsedSinceLastMove / 1000) - TIME_PER_MOVE; // In seconds
-        
-        if (deduction > 0) { // If time taken exceeds bonus time
-            game.playerTimes[player.number] -= deduction;
-            console.log(`[Timer] Player ${player.number} took ${timeElapsedSinceLastMove / 1000}s. Deducted ${deduction.toFixed(2)}s. Remaining time: ${game.playerTimes[player.number].toFixed(2)}s`);
-        }
-
-        if (game.playerTimes[player.number] <= 0) {
-            game.playerTimes[player.number] = 0; // Ensure time doesn't go negative on display
-            game.gameOver = true;
-            const winnerPlayerNumber = player.number === 1 ? 2 : 1;
-            const loserPlayerNumber = player.number;
-            
-            console.log(`[Timer] Player ${loserPlayerNumber} ran out of time in game ${gameId}. Player ${winnerPlayerNumber} wins!`);
-            
-            // Notify clients about time-out
-            game.players.forEach(p => {
-                if (p.socketId) {
-                    io.to(p.socketId).emit("time-out", { winnerPlayerNumber, loserPlayerNumber });
-                }
-            });
-
-            // Update Firestore for game over due to time out
-            try {
-                await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                    status: 'completed',
-                    gameOver: true,
-                    lastUpdated: Timestamp.now(),
-                    winnerId: game.players.find(p => p.number === winnerPlayerNumber).userId,
-                    loserId: game.players.find(p => p.number === loserPlayerNumber).userId,
-                    lastClickedTile: game.lastClickedTile,
-                    isTimedGame: game.isTimedGame,
-                    playerTimes: game.playerTimes,
-                    lastMoveTime: game.lastMoveTime, // Save final lastMoveTime
-                }, { merge: true });
-                console.log(`Game ${gameId} status set to 'completed' (time-out) in Firestore.`);
-            } catch (error) {
-                console.error("Error setting game status to 'completed' (time-out) in Firestore:", error);
-            }
-            game.players.forEach(p => delete userGameMap[p.userId]);
-            emitLobbyPlayersList();
-            return; // Exit as game is over
-        }
-    }
-
-
     const tile = game.board[y][x];
     if (tile.revealed) {
         console.warn(`Tile click: Tile ${x},${y} already revealed.`);
@@ -1207,9 +1094,6 @@ socket.on("resume-game", async ({ gameId }) => {
                   winnerId: game.scores[1] > game.scores[2] ? game.players[0].userId : game.players[1].userId, // Assuming player 1 is index 0, player 2 is index 1
                   loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId,
                   lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-                  isTimedGame: game.isTimedGame, // Save isTimedGame
-                  playerTimes: game.playerTimes, // Save playerTimes
-                  lastMoveTime: game.lastMoveTime, // Save lastMoveTime
               }, { merge: true });
               console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
           } catch (error) {
@@ -1236,10 +1120,6 @@ socket.on("resume-game", async ({ gameId }) => {
         game.turn = 1; // Reset turn to player 1
         game.gameOver = false; // Game is no longer over
         game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
-        if (game.isTimedGame) { // NEW: Reset timers and lastMoveTime for timed games
-            game.playerTimes = { 1: INITIAL_PLAYER_TIME, 2: INITIAL_PLAYER_TIME };
-            game.lastMoveTime = Date.now();
-        }
 
         // Ensure userGameMap is still set for both players if game restarts but isn't completed
         game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1254,9 +1134,6 @@ socket.on("resume-game", async ({ gameId }) => {
               turn: game.turn,
               gameOver: game.gameOver,
               lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-              isTimedGame: game.isTimedGame, // Save isTimedGame
-              playerTimes: game.playerTimes, // Save playerTimes
-              lastMoveTime: game.lastMoveTime, // Save lastMoveTime
               status: 'active', // Game is active after restart
               lastUpdated: Timestamp.now(),
               winnerId: null,
@@ -1279,8 +1156,6 @@ socket.on("resume-game", async ({ gameId }) => {
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
                     lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                    isTimedGame: game.isTimedGame, // Include isTimedGame
-                    playerTimes: game.playerTimes, // Include playerTimes
                     opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
                 });
             } else {
@@ -1297,11 +1172,6 @@ socket.on("resume-game", async ({ gameId }) => {
     }
     // --- End of Re-ordered and Corrected Logic ---
 
-    // NEW: Timer Logic - Update lastMoveTime after turn switch (if game not over)
-    if (game.isTimedGame && !game.gameOver) {
-        game.lastMoveTime = Date.now();
-    }
-
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board);
@@ -1314,9 +1184,6 @@ socket.on("resume-game", async ({ gameId }) => {
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            isTimedGame: game.isTimedGame, // Save isTimedGame
-            playerTimes: game.playerTimes, // Save playerTimes
-            lastMoveTime: game.lastMoveTime, // Save lastMoveTime
             status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
@@ -1339,8 +1206,6 @@ socket.on("resume-game", async ({ gameId }) => {
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
                 lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-                isTimedGame: game.isTimedGame, // Include isTimedGame
-                playerTimes: game.playerTimes, // Include playerTimes
             });
         } else {
              console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send board update.`);
@@ -1349,7 +1214,7 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
   // Use Bomb Event
-  socket.on("use-bomb", async ({ gameId }) => { // Changed to async
+  socket.on("use-bomb", ({ gameId }) => {
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
@@ -1367,53 +1232,6 @@ socket.on("resume-game", async ({ gameId }) => {
     }
 
     player.socketId = socket.id; // Update socket ID on action
-
-    // NEW: Timer Logic - Check time before processing move for bomb usage
-    if (game.isTimedGame) {
-        const timeElapsedSinceLastMove = Date.now() - game.lastMoveTime; // In milliseconds
-        let deduction = (timeElapsedSinceLastMove / 1000) - TIME_PER_MOVE; // In seconds
-        
-        if (deduction > 0) { // If time taken exceeds bonus time
-            game.playerTimes[player.number] -= deduction;
-            console.log(`[Timer] Player ${player.number} took ${timeElapsedSinceLastMove / 1000}s for bomb usage. Deducted ${deduction.toFixed(2)}s. Remaining time: ${game.playerTimes[player.number].toFixed(2)}s`);
-        }
-
-        if (game.playerTimes[player.number] <= 0) {
-            game.playerTimes[player.number] = 0; // Ensure time doesn't go negative on display
-            game.gameOver = true;
-            const winnerPlayerNumber = player.number === 1 ? 2 : 1;
-            const loserPlayerNumber = player.number;
-            
-            console.log(`[Timer] Player ${loserPlayerNumber} ran out of time (bomb usage) in game ${gameId}. Player ${winnerPlayerNumber} wins!`);
-            
-            game.players.forEach(p => {
-                if (p.socketId) {
-                    io.to(p.socketId).emit("time-out", { winnerPlayerNumber, loserPlayerNumber });
-                }
-            });
-
-            // Update Firestore for game over due to time out
-            try {
-                await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                    status: 'completed',
-                    gameOver: true,
-                    lastUpdated: Timestamp.now(),
-                    winnerId: game.players.find(p => p.number === winnerPlayerNumber).userId,
-                    loserId: game.players.find(p => p.number === loserPlayerNumber).userId,
-                    lastClickedTile: game.lastClickedTile,
-                    isTimedGame: game.isTimedGame,
-                    playerTimes: game.playerTimes,
-                    lastMoveTime: game.lastMoveTime, // Save final lastMoveTime
-                }, { merge: true });
-                console.log(`Game ${gameId} status set to 'completed' (time-out bomb) in Firestore.`);
-            } catch (error) {
-                console.error("Error setting game status to 'completed' (time-out bomb) in Firestore:", error);
-            }
-            game.players.forEach(p => delete userGameMap[p.userId]);
-            emitLobbyPlayersList();
-            return; // Exit as game is over
-        }
-    }
 
     io.to(player.socketId).emit("wait-bomb-center");
     console.log(`Player ${player.name} is waiting for bomb center selection.`);
@@ -1438,54 +1256,6 @@ socket.on("resume-game", async ({ gameId }) => {
     }
 
     player.socketId = socket.id; // Update socket ID on action
-
-    // NEW: Timer Logic - Check time before processing bomb center
-    if (game.isTimedGame) {
-        const timeElapsedSinceLastMove = Date.now() - game.lastMoveTime; // In milliseconds
-        let deduction = (timeElapsedSinceLastMove / 1000) - TIME_PER_MOVE; // In seconds
-        
-        if (deduction > 0) { // If time taken exceeds bonus time
-            game.playerTimes[player.number] -= deduction;
-            console.log(`[Timer] Player ${player.number} took ${timeElapsedSinceLastMove / 1000}s for bomb center. Deducted ${deduction.toFixed(2)}s. Remaining time: ${game.playerTimes[player.number].toFixed(2)}s`);
-        }
-
-        if (game.playerTimes[player.number] <= 0) {
-            game.playerTimes[player.number] = 0; // Ensure time doesn't go negative on display
-            game.gameOver = true;
-            const winnerPlayerNumber = player.number === 1 ? 2 : 1;
-            const loserPlayerNumber = player.number;
-            
-            console.log(`[Timer] Player ${loserPlayerNumber} ran out of time (bomb center) in game ${gameId}. Player ${winnerPlayerNumber} wins!`);
-            
-            game.players.forEach(p => {
-                if (p.socketId) {
-                    io.to(p.socketId).emit("time-out", { winnerPlayerNumber, loserPlayerNumber });
-                }
-            });
-
-            // Update Firestore for game over due to time out
-            try {
-                await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                    status: 'completed',
-                    gameOver: true,
-                    lastUpdated: Timestamp.now(),
-                    winnerId: game.players.find(p => p.number === winnerPlayerNumber).userId,
-                    loserId: game.players.find(p => p.number === loserPlayerNumber).userId,
-                    lastClickedTile: game.lastClickedTile,
-                    isTimedGame: game.isTimedGame,
-                    playerTimes: game.playerTimes,
-                    lastMoveTime: game.lastMoveTime, // Save final lastMoveTime
-                }, { merge: true });
-                console.log(`Game ${gameId} status set to 'completed' (time-out bomb center) in Firestore.`);
-            } catch (error) {
-                console.error("Error setting game status to 'completed' (time-out bomb center) in Firestore:", error);
-            }
-            game.players.forEach(p => delete userGameMap[p.userId]);
-            emitLobbyPlayersList();
-            return; // Exit as game is over
-        }
-    }
-
 
     const MIN_COORD = 2;
     const MAX_COORD_X = WIDTH - 3;
@@ -1539,9 +1309,6 @@ socket.on("resume-game", async ({ gameId }) => {
                 winnerId: game.scores[1] > game.scores[2] ? game.players[0].userId : game.players[1].userId, // Assuming player 1 is index 0, player 2 is index 1
                 loserId: game.scores[1] < game.scores[2] ? game.players[0].userId : game.players[1].userId,
                 lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-                isTimedGame: game.isTimedGame, // Save isTimedGame
-                playerTimes: game.playerTimes, // Save playerTimes
-                lastMoveTime: game.lastMoveTime, // Save lastMoveTime
             }, { merge: true });
             console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
         } catch (error) {
@@ -1555,11 +1322,6 @@ socket.on("resume-game", async ({ gameId }) => {
 
     console.log(`Player ${player.name} used bomb at ${x},${y}. New scores: P1: ${game.scores[1]}, P2: ${game.scores[2]}`);
 
-    // NEW: Timer Logic - Update lastMoveTime after turn switch (if game not over)
-    if (game.isTimedGame && !game.gameOver) {
-        game.lastMoveTime = Date.now();
-    }
-
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
@@ -1572,9 +1334,6 @@ socket.on("resume-game", async ({ gameId }) => {
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            isTimedGame: game.isTimedGame, // Save isTimedGame
-            playerTimes: game.playerTimes, // Save playerTimes
-            lastMoveTime: game.lastMoveTime, // Save lastMoveTime
             status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerId: game.gameOver ? (game.scores[1] > game.scores[2] ? player.userId : game.players.find(p => p.userId !== userId).userId) : null,
@@ -1597,8 +1356,6 @@ socket.on("resume-game", async ({ gameId }) => {
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
                 lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-                isTimedGame: game.isTimedGame, // Include isTimedGame
-                playerTimes: game.playerTimes, // Include playerTimes
             });
         }
     });
@@ -1622,10 +1379,6 @@ socket.on("resume-game", async ({ gameId }) => {
     game.turn = 1;
     game.gameOver = false;
     game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
-    if (game.isTimedGame) { // NEW: Reset timers and lastMoveTime for timed games
-        game.playerTimes = { 1: INITIAL_PLAYER_TIME, 2: INITIAL_PLAYER_TIME };
-        game.lastMoveTime = Date.now();
-    }
 
     // Ensure userGameMap entries are still there for both players since the game is restarting, not ending
     game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1641,9 +1394,6 @@ socket.on("resume-game", async ({ gameId }) => {
             turn: game.turn,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            isTimedGame: game.isTimedGame, // Save isTimedGame
-            playerTimes: game.playerTimes, // Save playerTimes
-            lastMoveTime: game.lastMoveTime, // Save lastMoveTime
             status: 'active', // Game is active after restart
             lastUpdated: Timestamp.now(),
             winnerId: null,
@@ -1666,8 +1416,6 @@ socket.on("resume-game", async ({ gameId }) => {
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
                 lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                isTimedGame: game.isTimedGame, // Include isTimedGame
-                playerTimes: game.playerTimes, // Include playerTimes
                 opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
             });
         }
@@ -1675,6 +1423,7 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
  // Leave Game Event (Player voluntarily leaves)
+// Leave Game Event (Player voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
   const game = games[gameId];
   const user = socket.request.session?.passport?.user || null;
@@ -1704,11 +1453,7 @@ socket.on("leave-game", async ({ gameId }) => {
       try {
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             status: 'waiting_for_resume',
-            lastUpdated: Timestamp.now(),
-            // Ensure timer state is saved when leaving for timed games
-            isTimedGame: game.isTimedGame,
-            playerTimes: game.playerTimes,
-            lastMoveTime: game.lastMoveTime, // Keep lastMoveTime as is when leaving
+            lastUpdated: Timestamp.now()
         }, { merge: true });
         console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to player leaving.`);
       } catch (error) {
@@ -1747,7 +1492,7 @@ socket.on("leave-game", async ({ gameId }) => {
 
 
 // Socket Disconnect Event (e.g., browser tab closed, network drop)
-socket.on("disconnect", async () => { // Marked as async here
+socket.on("disconnect", async () => {
   console.log(`[Disconnect] Socket disconnected: ${socket.id}`);
   const user = socket.request.session?.passport?.user || null;
   const disconnectedUserId = user ? user.id : null;
@@ -1774,7 +1519,7 @@ socket.on("disconnect", async () => { // Marked as async here
   // to only remove truly offline users.
   players = players.filter(p => !(p.id === socket.id && p.userId === disconnectedUserId) && userSocketMap[p.userId] !== undefined); // Only remove if socket matches and they are truly offline (no new socket)
   console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-  emitLobbyPlayersList(); // Use the helper
+  emitLobbyPlayersList(); // Use the helper to update lobby list
 
 
   // Check if the disconnected user was in a game
@@ -1801,11 +1546,7 @@ socket.on("disconnect", async () => { // Marked as async here
       try {
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
           status: 'waiting_for_resume', // Set game status to waiting_for_resume
-          lastUpdated: Timestamp.now(),
-          // Ensure timer state is saved when leaving for timed games
-          isTimedGame: game.isTimedGame,
-          playerTimes: game.playerTimes,
-          lastMoveTime: game.lastMoveTime, // Keep lastMoveTime as is when disconnecting
+          lastUpdated: Timestamp.now()
         }, { merge: true });
         console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
       } catch (error) {
