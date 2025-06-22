@@ -19,7 +19,7 @@ const { Firestore } = require('@google-cloud/firestore'); // Required by @google
 
 // --- NEW: Corrected Firestore Session Store Imports ---
 // The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
-// It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
+// It is then instantiated with 'new', and does NOT take 'session` directly in the require call.
 const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
