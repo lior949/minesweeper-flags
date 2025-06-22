@@ -925,114 +925,67 @@ io.on("connection", async (socket) => {
   // Handle inviting another player
   socket.on("invite-player", async ({ targetSocketId }) => {
     console.log(`Server: Received 'invite-player' from ${socket.displayName} (userId: ${socket.userId}) targeting socketId: ${targetSocketId}`);
-    if (!socket.userId || !userGameMap[socket.userId]) {
-        socket.emit("game-error", { message: "You must be in a game (that you created) to invite a player." });
-      console.log(`Server: Invite failed for ${socket.displayName}: Not in a game or game not created.`);
+
+    if (!socket.userId) { // Still ensure the inviter is authenticated
+        socket.emit("game-error", { message: "You must be logged in to invite a player." });
+        console.log(`Server: Invite failed for ${socket.displayName}: Not authenticated.`);
         return;
     }
-    const gameId = userGameMap[socket.userId];
+
     const targetSocket = io.sockets.sockets.get(targetSocketId);
 
+    // Ensure the target exists and is not already in a game
     if (!targetSocket || !targetSocket.userId || userGameMap[targetSocket.userId]) {
-        // Target not found, or target is already in a game
         socket.emit("game-error", { message: "Invitee is not available or already in a game." });
-      console.log(`Server: Invite failed for ${socket.displayName}: Target (${targetSocketId}) not available or in game.`);
+        console.log(`Server: Invite failed for ${socket.displayName}: Target (${targetSocketId}) not available or in game.`);
         return;
     }
 
-    // Fetch game data to ensure inviter is Player 1 and game is waiting for player
-    const gameRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
-    const gameDoc = await gameRef.get();
-    if (!gameDoc.exists || gameDoc.data().status !== 'waiting_for_player' || gameDoc.data().players[0]?.userId !== socket.userId) {
-        socket.emit("game-error", { message: "Your game is not in a state to invite players." });
-      console.log(`Server: Invite failed for ${socket.displayName}: Game ${gameId} not in correct state for inviting.`);
-        return;
-    }
+    // --- NEW LOGIC: Create a new PENDING game here ---
+    const gameId = uuidv4(); // Generate a unique game ID for this potential game
+    const inviterPlayer = {
+        userId: socket.userId,
+        name: socket.displayName,
+        playerNumber: 1,
+        socketId: socket.id // Store inviter's current socket ID
+    };
 
-    // Send invite to target
-    targetSocket.emit("game-invite", { gameId, inviterName: socket.displayName });
-    console.log(`${socket.displayName} invited ${targetSocket.displayName} to game ${gameId}`);
-  });
-
-  // Handle accepting an invitation
-  socket.on("respond-invite", async ({ gameId, accept }) => {
-    console.log("Server: Received 'respond-invite' from", socket.displayName, "with gameId:", gameId, "and accept:", accept);
-    if (!socket.userId) {
-      console.log("Server: Not authenticated for respond-invite.");
-        socket.emit("auth-failure", { message: "Not authenticated." });
-        return;
-    }
-
-    if (!accept) {
-        // Handle rejection: e.g., notify inviter, clean up if necessary, send message to client
-        console.log("Server: Invitation declined by", socket.displayName, "for gameId:", gameId);
-        // Optionally, notify the inviter if needed, e.g.:
-        // const inviterUserId = gameDoc.data().players[0]?.userId;
-        // if (inviterUserId && userSocketMap[inviterUserId]) {
-        //     io.to(userSocketMap[inviterUserId]).emit("invite-declined-notification", { opponentName: socket.displayName });
-        // }
-        socket.emit("message", { message: "You declined the invitation." });
-        return;
-    }
-
-    const gameRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
-    const gameDoc = await gameRef.get();
-
-    if (!gameDoc.exists) {
-      console.log("Server: Game not found for gameId:", gameId);
-        socket.emit("game-error", { message: "Game not found." });
-        return;
-    }
-
-    const gameData = gameDoc.data();
-
-    if (gameData.status !== 'waiting_for_player' || gameData.players.length !== 1) {
-        socket.emit("game-error", { message: "Game is no longer available for new players." });
-        return;
-    }
-
-    // Check if the inviting player is still active
-    const inviterPlayer = gameData.players[0];
-    if (!inviterPlayer || !userSocketMap[inviterPlayer.userId]) {
-        socket.emit("game-error", { message: "Inviter has disconnected or is no longer available." });
-        return;
-    }
-
-    // Add player2 to the game
-    const player2 = { userId: socket.userId, name: socket.displayName, playerNumber: 2 };
-    gameData.players.push(player2);
-    gameData.status = 'active'; // Set status to active
-    gameData.lastUpdated = Timestamp.now();
-
+    // Create a new game document in Firestore with a 'pending' status
+    // This game will only become 'active' if the invite is accepted
     try {
-      await gameRef.update({
-        players: gameData.players,
-        status: gameData.status,
-        lastUpdated: gameData.lastUpdated,
-      });
-      console.log("Server: Firestore game updated to active for gameId:", gameId);
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+            gameId: gameId,
+            status: 'pending', // New status: waiting for invitee to accept
+            players: [inviterPlayer], // Add the inviter as Player 1
+            createdAt: Timestamp.now(),
+            lastUpdated: Timestamp.now(),
+            board: [], // Initialize with empty board or a default, will be set on acceptance
+            turn: 1, // Default, will be set on acceptance
+            scores: { 1: 0, 2: 0 },
+            bombsUsed: { 1: false, 2: false },
+            gameOver: false,
+            waitingForBombCenter: false,
+            lastClickedTile: { 1: null, 2: null },
+            startedEventSent: false // Track if game-start has been emitted for this game
+        });
+        console.log(`Server: Created pending game ${gameId} for inviter ${socket.displayName}`);
 
-      userGameMap[socket.userId] = gameId; // Map current user to this game
-      userGameMap[inviterPlayer.userId] = gameId; // Ensure inviter is also mapped
+        // IMPORTANT: Temporarily map the inviter to this pending game.
+        // This is crucial to prevent the inviter from inviting multiple people simultaneously
+        // and to allow them to "undo" or track pending invites.
+        userGameMap[socket.userId] = gameId;
 
-      console.log("Server: userGameMap updated for both players.");
+        // Send invite to target, including the newly created gameId
+        targetSocket.emit("game-invite", { gameId, inviterName: socket.displayName });
+        console.log(`${socket.displayName} invited ${targetSocket.displayName} to pending game ${gameId}`);
 
-      setupGameObserver(gameId, io); // Ensure observer is active for this game
-
-      // Notify the inviter that their invite was accepted
-      const inviterSocketId = userSocketMap[inviterPlayer.userId];
-      if (inviterSocketId) {
-          io.to(inviterSocketId).emit("invite-accepted-notification", { opponentName: socket.displayName });
-      }
-
-      // The 'game-start' event will be emitted by the observer for both players when game status changes to 'active'
-      console.log(`${socket.displayName} accepted invite to game ${gameId}`);
-      updatePlayerList(); // Update lobby to remove accepted player
     } catch (error) {
-      console.error("Server: Error accepting invite for gameId:", gameId, error);
-      socket.emit("game-error", { message: "Failed to accept invite." });
+        console.error("Server: Error creating pending game or sending invite:", error);
+        socket.emit("game-error", { message: "Failed to send invitation." });
+        // Clean up userGameMap if game creation failed
+        delete userGameMap[socket.userId];
     }
-  });
+});
 
   // Handle declining an invitation
   socket.on("decline-invite", async ({ gameId }) => {
