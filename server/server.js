@@ -924,8 +924,10 @@ io.on("connection", async (socket) => {
 
   // Handle inviting another player
   socket.on("invite-player", async ({ targetSocketId }) => {
+    console.log(`Server: Received 'invite-player' from ${socket.displayName} (userId: ${socket.userId}) targeting socketId: ${targetSocketId}`);
     if (!socket.userId || !userGameMap[socket.userId]) {
         socket.emit("game-error", { message: "You must be in a game (that you created) to invite a player." });
+      console.log(`Server: Invite failed for ${socket.displayName}: Not in a game or game not created.`);
         return;
     }
     const gameId = userGameMap[socket.userId];
@@ -934,6 +936,7 @@ io.on("connection", async (socket) => {
     if (!targetSocket || !targetSocket.userId || userGameMap[targetSocket.userId]) {
         // Target not found, or target is already in a game
         socket.emit("game-error", { message: "Invitee is not available or already in a game." });
+      console.log(`Server: Invite failed for ${socket.displayName}: Target (${targetSocketId}) not available or in game.`);
         return;
     }
 
@@ -942,6 +945,7 @@ io.on("connection", async (socket) => {
     const gameDoc = await gameRef.get();
     if (!gameDoc.exists || gameDoc.data().status !== 'waiting_for_player' || gameDoc.data().players[0]?.userId !== socket.userId) {
         socket.emit("game-error", { message: "Your game is not in a state to invite players." });
+      console.log(`Server: Invite failed for ${socket.displayName}: Game ${gameId} not in correct state for inviting.`);
         return;
     }
 
