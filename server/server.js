@@ -951,9 +951,21 @@ io.on("connection", async (socket) => {
   });
 
   // Handle accepting an invitation
-  socket.on("accept-invite", async ({ gameId }) => {
+  socket.on("respond-invite", async ({ gameId, accept }) => {
     if (!socket.userId) {
         socket.emit("auth-failure", { message: "Not authenticated." });
+        return;
+    }
+
+    if (!accept) {
+        // Handle rejection: e.g., notify inviter, clean up if necessary, send message to client
+        console.log(`${socket.displayName} declined invite to game ${gameId}`);
+        // Optionally, notify the inviter if needed, e.g.:
+        // const inviterUserId = gameDoc.data().players[0]?.userId;
+        // if (inviterUserId && userSocketMap[inviterUserId]) {
+        //     io.to(userSocketMap[inviterUserId]).emit("invite-declined-notification", { opponentName: socket.displayName });
+        // }
+        socket.emit("message", { message: "You declined the invitation." });
         return;
     }
 
