@@ -491,13 +491,21 @@ const checkGameOver = (scores) => {
 
 // Helper to emit the filtered list of players in the lobby
 const emitLobbyPlayersList = () => {
-    console.log(`[emitLobbyPlayersList] Full 'players' array before filtering: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-    console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
+    // Collect all connected sockets that have a userId and displayName (meaning they are logged in/guest)
+    const playersInLobby = [];
+    for (const [socketId, socket] of io.sockets.sockets.entries()) {
+        // Only include players who are authenticated and not currently in a game
+        if (socket.userId && socket.displayName && !userGameMap[socket.userId]) {
+            playersInLobby.push({
+                id: socket.id, // This is the socket's unique ID, used for direct targeting
+                name: socket.displayName
+            });
+        }
+    }
 
-    const lobbyPlayers = players;
-  console.log("Server: Emitting 'players-list' with data:", playersToSend);
-    io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
-    console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}. Visible players: ${JSON.stringify(lobbyPlayers.map(p => p.name))}`);
+    console.log(`[emitLobbyPlayersList] Emitting 'players-list' with data: ${JSON.stringify(playersInLobby)}`);
+    io.emit("players-list", playersInLobby);
+    console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total visible players: ${playersInLobby.length}.`);
 };
 
 
