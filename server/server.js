@@ -1370,7 +1370,7 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
   // Use Bomb Event
-  socket.on("use-bomb", ({ gameId }) => {
+  socket.on("use-bomb", async ({ gameId }) => { // Changed to async
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
