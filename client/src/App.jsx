@@ -791,8 +791,8 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - 
-                                Score: {game.playerNumber === 1 ? `${name} ${game.scores[1]} | ${game.scores[2]} ${game.opponentName}` : `${game.opponentName} ${game.scores[1]} | ${game.scores[2]} ${name}`}  - 
+                                Game vs. {name} vs {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - 
+                                Score: {game.playerNumber}
                                 Last updated: {game.lastUpdated}
                                 <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
