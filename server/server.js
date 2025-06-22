@@ -938,7 +938,7 @@ socket.on("resume-game", async ({ gameId }) => {
 });
 
   // Invite Player Event
-  socket.on("invite-player", ({ targetSocketId, withTimer }) => { // NEW: Receive withTimer
+  socket.on("invite-player", ({ targetSocketId, withTimer = false }) => { // NEW: Receive withTimer with default
     const inviterUser = socket.request.session?.passport?.user || null;
     const inviterUserId = inviterUser ? inviterUser.id : null;
     
