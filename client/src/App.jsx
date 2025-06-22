@@ -599,11 +599,11 @@ function App() {
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current) {
-      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept });
-      setInvite(null);
-      setMessage("");
+        socketRef.current.emit("respond-invite", { gameId: invite.gameId, accept });
+        setInvite(null);
+        setMessage("");
     }
-  };
+};
 
   const handleClick = (x, y) => {
     // NEW: Prevent clicks if in observer mode
