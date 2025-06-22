@@ -97,6 +97,11 @@ function App() {
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
   const [highlightedBombArea, setHighlightedBombArea] = useState([]); // Stores [x,y] coordinates for highlighted tiles
 
+  // NEW: State for timed game feature
+  const [withTimerOption, setWithTimerOption] = useState(false); // Checkbox for timed game
+  const [playerTimes, setPlayerTimes] = useState({ 1: 0, 2: 0 }); // Remaining time for each player (in seconds)
+
+
   // Constants for board dimensions
   const WIDTH = 16;
   const HEIGHT = 16;
@@ -161,6 +166,14 @@ function App() {
     }
     // Clear message after some time (e.g., 5 seconds)
     setTimeout(() => setMessage(""), 5000);
+  };
+
+  // Helper to format time for display (MM:SS)
+  const formatTime = (seconds) => {
+    if (seconds < 0) return "00:00"; // Don't show negative time
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   // --- Initial Authentication Check and Socket.IO Connection ---
@@ -259,7 +272,9 @@ function App() {
 
             socketRef.current.on("game-invite", (inviteData) => {
               setInvite(inviteData);
-              showMessage(`Invitation from ${inviteData.fromName}!`);
+              // NEW: Adjust message based on withTimer flag
+              const timerMessage = inviteData.withTimer ? " (with timer)" : "";
+              showMessage(`Invitation from ${inviteData.fromName}${timerMessage}!`);
             });
 
             socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
@@ -267,7 +282,7 @@ function App() {
             });
 
             socketRef.current.on("game-start", (data) => {
-              //console.log("Game started:", data);
+              console.log("Game started:", data);
               setGameId(data.gameId);
               setPlayerNumber(data.playerNumber);
               setBoard(JSON.parse(data.board)); // Parse the board string back to an object
@@ -280,6 +295,8 @@ function App() {
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              // NEW: Set initial player times
+              setPlayerTimes(data.playerTimes || { 1: 0, 2: 0 });
               setMessage("");
               console.log("Frontend: Game started! My player number:", data.playerNumber);
               setUnfinishedGames([]);
@@ -295,6 +312,8 @@ function App() {
               setIsBombHighlightActive(false); // Exit bomb highlighting mode
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
+              // NEW: Update player times
+              setPlayerTimes(game.playerTimes || { 1: 0, 2: 0 });
               setMessage("");
             });
 
@@ -346,7 +365,18 @@ function App() {
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              // NEW: Set initial player times
+              setPlayerTimes(data.playerTimes || { 1: 0, 2: 0 });
             });
+
+            // NEW: Handle time out event from server
+            socketRef.current.on("time-out", ({ winnerPlayerNumber, loserPlayerNumber }) => {
+                setGameOver(true);
+                const winnerName = (winnerPlayerNumber === playerNumber) ? name : opponentName;
+                const loserName = (loserPlayerNumber === playerNumber) ? name : opponentName;
+                showMessage(`${loserName} ran out of time! ${winnerName} wins!`, false);
+            });
+
           } else {
             console.log("Frontend: Socket.IO already initialized. Re-emitting join-lobby.");
             // If already initialized, just re-emit join-lobby to ensure backend registers current socket
@@ -437,6 +467,7 @@ function App() {
         socketRef.current.off("receive-unfinished-games");
         socketRef.current.off("opponent-reconnected");
         socketRef.current.off("game-restarted");
+        socketRef.current.off("time-out"); // NEW: Clean up time-out listener
 
         socketRef.current.disconnect(); // Disconnect the socket
         socketRef.current = null; // Clear the ref
@@ -525,7 +556,8 @@ function App() {
 
   const invitePlayer = (id) => {
     if (loggedIn && socketRef.current && id !== socketRef.current.id) {
-      socketRef.current.emit("invite-player", id);
+      // NEW: Pass withTimerOption when inviting
+      socketRef.current.emit("invite-player", { targetSocketId: id, withTimer: withTimerOption });
       showMessage("Invitation sent.");
     } else {
         console.warn("Invite failed: Not logged in or socket not ready, or inviting self.");
@@ -640,6 +672,7 @@ function App() {
     setMessage("");
     setUnfinishedGames([]);
     setLastClickedTile({ 1: null, 2: null });
+    setPlayerTimes({ 1: 0, 2: 0 }); // Reset player times on leaving game
     if (socketRef.current) { // Ensure socket is still available before emitting
       socketRef.current.emit("request-unfinished-games");
     }
@@ -674,6 +707,7 @@ function App() {
       setOpponentName("");
       setInvite(null);
       setLastClickedTile({ 1: null, 2: null });
+      setPlayerTimes({ 1: 0, 2: 0 }); // Reset player times on logout
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -761,6 +795,19 @@ function App() {
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
             <button onClick={logout} className="bomb-button">Logout</button>
+            
+            {/* NEW: Checkbox for Timed Game */}
+            <div className="timed-game-option">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={withTimerOption}
+                  onChange={(e) => setWithTimerOption(e.target.checked)}
+                />
+                Play with Timer (2 min + 10s/move)
+              </label>
+            </div>
+
             {playersList.length === 0 && <p>No other players online</p>}
             <ul className="player-list">
               {playersList.map((p) => (
@@ -777,7 +824,7 @@ function App() {
             {invite && (
               <div className="invite-popup">
                 <p>
-                  Invitation from <b>{invite.fromName}</b>
+                  Invitation from <b>{invite.fromName}</b> {invite.withTimer && "(Timed Game)"}
                 </p>
                 <button onClick={() => respondInvite(true)}>Accept</button>
                 <button onClick={() => respondInvite(false)}>Reject</button>
@@ -837,6 +884,18 @@ function App() {
                 <p className="mine-count-display">
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                 </p>
+
+                {/* NEW: Display Timers */}
+                {playerTimes[1] > 0 || playerTimes[2] > 0 ? ( // Only show if times are active (game has a timer)
+                    <div className="game-timers">
+                        <p className={playerNumber === 1 ? "current-player-timer" : ""}>
+                            Your Time: {formatTime(playerTimes[playerNumber])}
+                        </p>
+                        <p className={playerNumber === 2 ? "current-player-timer" : ""}>
+                            Opponent Time ({opponentName}): {formatTime(playerTimes[playerNumber === 1 ? 2 : 1])}
+                        </p>
+                    </div>
+                ) : null}
 
 		{/* NEW: Back to Lobby button always visible when in game */}
                 <button className="bomb-button" onClick={backToLobby}>
