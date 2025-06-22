@@ -665,51 +665,52 @@ io.on("connection", (socket) => {
   });
 
   socket.on("request-unfinished-games", async () => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    const userName = user ? user.displayName : 'Unknown Player';
+        const userId = socket.request.session?.passport?.user?.id;
+        if (!userId) {
+            console.warn("Attempted to request unfinished games without userId.");
+            socket.emit("error-message", "Authentication required to load unfinished games.");
+            return;
+        }
+        console.log(`User ${userId} requested unfinished games.`);
+        try {
+            // Query Firestore for games where the user is a participant and the game is not 'completed' or 'abandoned'
+            const unfinishedGamesSnapshot = await db.collection(GAMES_COLLECTION_PATH)
+                .where('playerIds', 'array-contains', userId) // Assuming 'playerIds' array is stored
+                .where('status', 'in', ['active', 'waiting_for_resume']) // Filter for games in active or waiting state
+                .orderBy('lastUpdated', 'desc') // Order by last update to show recent ones first
+                .get();
 
-    if (!userId) {
-        socket.emit("join-error", "Authentication required to fetch games.");
-        return;
-    }
+            const gamesToSend = [];
+            unfinishedGamesSnapshot.forEach(doc => {
+                const gameData = doc.data();
+                
+                // Ensure both players are present to properly display in the lobby and prevent issues if a game was malformed
+                if (gameData.player1_userId && gameData.player2_userId) {
+                    const opponentName = gameData.player1_userId === userId ? gameData.player2_name : gameData.player1_name;
+                    const myPlayerNumber = gameData.player1_userId === userId ? 1 : 2;
 
-    try {
-        const gamesQuery = await db.collection(GAMES_COLLECTION_PATH)
-            .where('gameOver', '==', false) // Only fetch games that are NOT over
-            .where('status', 'in', ['active', 'waiting_for_resume']) // Fetch active or waiting games
-            .get();
-
-        let unfinishedGames = [];
-
-        gamesQuery.forEach(doc => {
-            const gameData = doc.data();
-            // Check if the current user is part of this game
-            const isPlayer1 = gameData.player1_userId === userId;
-            const isPlayer2 = gameData.player2_userId === userId;
-
-            if (isPlayer1 || isPlayer2) {
-                // Always add the game to the unfinishedGames list if the current user is a participant
-                // and the game is active or waiting for resume, regardless of current socket activity.
-                unfinishedGames.push({
-                    gameId: gameData.gameId,
-                    board: gameData.board, // Send serialized board for potential client-side preview
-                    opponentName: isPlayer1 ? gameData.player2_name : gameData.player1_name,
-                    myPlayerNumber: isPlayer1 ? 1 : 2,
-                    status: gameData.status,
-                    lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A'
-                });
-            }
-        });
-
-        socket.emit("receive-unfinished-games", unfinishedGames);
-        console.log(`Sent ${unfinishedGames.length} unfinished games to user ${userName}.`);
-
-    } catch (error) {
-        console.error("Error fetching unfinished games for user:", userId, error);
-        socket.emit("join-error", "Failed to load your unfinished games.");
-    }
-  });
+                    gamesToSend.push({
+                        gameId: gameData.gameId,
+                        // Do not send the full board for lobby display, only when resuming the game
+                        // board: JSON.stringify(gameData.board), 
+                        scores: gameData.scores || { 1: 0, 2: 0 }, // Ensure scores are always included, default to 0 | 0 if missing
+                        bombsUsed: gameData.bombsUsed || { 1: 0, 2: 0 },
+                        turn: gameData.turn,
+                        gameOver: gameData.gameOver,
+                        opponentName: opponentName,
+                        myPlayerNumber: myPlayerNumber,
+                        lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toISOString() : null, // Convert Timestamp to string
+                        status: gameData.status
+                    });
+                }
+            });
+            console.log(`Found ${gamesToSend.length} unfinished games for user ${userId}. Emitting 'receive-unfinished-games'.`);
+            socket.emit("receive-unfinished-games", gamesToSend);
+        } catch (error) {
+            console.error("Error fetching unfinished games:", error);
+            socket.emit("error-message", "Failed to load unfinished games.");
+        }
+    });
 
 socket.on("resume-game", async ({ gameId }) => {
   const user = socket.request.session?.passport?.user || null;
