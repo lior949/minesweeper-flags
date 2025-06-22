@@ -864,7 +864,7 @@ function App() {
                 <li
                   key={p.id}
                   className="player-item"
-                  onDoubleClick={() => invitePlayer(p.id)}
+                  onDoubleClick={() => invitePlayer(p.socketId)}
                   title="Double-click to invite"
                 >
                   {p.name}
