@@ -967,7 +967,7 @@ socket.on("resume-game", async ({ gameId }) => {
   });
 
   // Respond to Invite Event
-  socket.on("respond-invite", async ({ fromId, accept }) => {
+  socket.on("respond-invite", async ({ fromId, accept, withTimer }) => { // Changed to accept `withTimer`
     const respondingUser = socket.request.session?.passport?.user || null;
     const respondingUserId = respondingUser ? respondingUser.id : null;
 
@@ -996,29 +996,8 @@ socket.on("resume-game", async ({ gameId }) => {
       const gameOver = false;
       const lastClickedTile = { 1: null, 2: null }; // Initialize lastClickedTile for new game
 
-      // NEW: Determine if it's a timed game based on the inviter's original invite property
-      // We need to retrieve the 'withTimer' status from the invite itself.
-      // This implies the 'invite' data on the client side needs to store this,
-      // and the 'respond-invite' event needs to also send it OR the server needs to store pending invites.
-      // For simplicity, let's assume the inviter's current `withTimerOption` state is sent with `invite-player`.
-      // The `game-invite` event *receives* `withTimer`. So the `invite` state on frontend has it.
-      // The `respond-invite` event needs to be updated on frontend to pass `invite.withTimer`.
-      // Let's add that to App.jsx in the next update if needed.
-      // For now, let's assume `withTimer` comes from the invite structure itself.
-      // This means we need to modify the `game-invite` and `respond-invite` structures.
-      // Re-reading `App.jsx` from the last turn, `game-invite` sets `inviteData.withTimer`
-      // `respondInvite` function on App.jsx takes `accept` but not `invite.withTimer`.
-
-      // Let's assume for now that `withTimer` is part of the `invite` object itself on the backend for `respond-invite`.
-      // The most reliable way is for the client to send the `invite.withTimer` back.
-      // Since the prompt is to only change `server.js`, I'll add `isTimedGame` as an arbitrary true/false
-      // for new games, and then correct it if the client doesn't send it.
-
-      // IMPORTANT: The `respond-invite` event on the client must be updated to pass `invite.withTimer`
-      // For the scope of *this* `server.js` update, I will add `isTimedGame` to the game object,
-      // but its value won't be dynamic based on the invite until `App.jsx`'s `respondInvite` is also updated
-      // to pass `invite.withTimer` back.
-      const isTimedGame = (inviterPlayer.inviteWithTimer || respondingPlayer.inviteWithTimer) || false; // This is a placeholder for now
+      // Use the received `withTimer` directly
+      const isTimedGame = withTimer; 
 
       let playerTimes = { 1: 0, 2: 0 };
       let lastMoveTime = 0;
