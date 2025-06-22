@@ -590,7 +590,7 @@ function App() {
 
   const invitePlayer = (id) => {
     if (loggedIn && socketRef.current && id !== socketRef.current.id) {
-      socketRef.current.emit("invite-player", id);
+      socketRef.current.emit("invite-player", { targetSocketId: id });
       showMessage("Invitation sent.");
     } else {
         console.warn("Invite failed: Not logged in or socket not ready, or inviting self.");
