@@ -495,6 +495,7 @@ const emitLobbyPlayersList = () => {
     console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
 
     const lobbyPlayers = players;
+  console.log("Server: Emitting 'players-list' with data:", playersToSend);
     io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
     console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}. Visible players: ${JSON.stringify(lobbyPlayers.map(p => p.name))}`);
 };
