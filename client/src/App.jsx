@@ -790,10 +790,10 @@ function App() {
                 ) : (
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
-                             <li key={game.gameId} className="unfinished-game-item">
-				<span className="game-info">
-					Score: {game.player1Name} {game.scores && game.scores[1]} | {game.scores && game.scores[2]} {game.player2Name} - Last Updated: {new Date(game.lastUpdated).toLocaleString()}
-				</span>
+                            <li key={game.gameId} className="unfinished-game-item">
+                                Game vs. {game.opponentName} ({game.status === 'active' ? 'Active' : 'Abandoned'}) - 
+                                Score: ({game.playerNumber === 1 ? (🔴 {data.user.name} {game.scores[1]} | 🔵 {game.scores[2]} {game.opponentName} : 🔴 {game.scores[1]} {game.opponentName} | 🔵 {game.scores[2]} {data.user.name})  - 
+                                Last updated: {game.lastUpdated}
                                 <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
