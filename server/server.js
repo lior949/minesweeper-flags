@@ -952,14 +952,16 @@ io.on("connection", async (socket) => {
 
   // Handle accepting an invitation
   socket.on("respond-invite", async ({ gameId, accept }) => {
+    console.log("Server: Received 'respond-invite' from", socket.displayName, "with gameId:", gameId, "and accept:", accept);
     if (!socket.userId) {
+      console.log("Server: Not authenticated for respond-invite.");
         socket.emit("auth-failure", { message: "Not authenticated." });
         return;
     }
 
     if (!accept) {
         // Handle rejection: e.g., notify inviter, clean up if necessary, send message to client
-        console.log(`${socket.displayName} declined invite to game ${gameId}`);
+        console.log("Server: Invitation declined by", socket.displayName, "for gameId:", gameId);
         // Optionally, notify the inviter if needed, e.g.:
         // const inviterUserId = gameDoc.data().players[0]?.userId;
         // if (inviterUserId && userSocketMap[inviterUserId]) {
@@ -973,6 +975,7 @@ io.on("connection", async (socket) => {
     const gameDoc = await gameRef.get();
 
     if (!gameDoc.exists) {
+      console.log("Server: Game not found for gameId:", gameId);
         socket.emit("game-error", { message: "Game not found." });
         return;
     }
@@ -1003,9 +1006,12 @@ io.on("connection", async (socket) => {
         status: gameData.status,
         lastUpdated: gameData.lastUpdated,
       });
+      console.log("Server: Firestore game updated to active for gameId:", gameId);
 
       userGameMap[socket.userId] = gameId; // Map current user to this game
       userGameMap[inviterPlayer.userId] = gameId; // Ensure inviter is also mapped
+
+      console.log("Server: userGameMap updated for both players.");
 
       setupGameObserver(gameId, io); // Ensure observer is active for this game
 
@@ -1019,7 +1025,7 @@ io.on("connection", async (socket) => {
       console.log(`${socket.displayName} accepted invite to game ${gameId}`);
       updatePlayerList(); // Update lobby to remove accepted player
     } catch (error) {
-      console.error("Error accepting invite:", error);
+      console.error("Server: Error accepting invite for gameId:", gameId, error);
       socket.emit("game-error", { message: "Failed to accept invite." });
     }
   });
