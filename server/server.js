@@ -100,8 +100,8 @@ router.get('/api/get-client-ip', async (req, res) => {
 // These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_APP_ID; // Corrected to FACEBOOK_APP_ID
-const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_APP_SECRET; // Corrected to FACEBOOK_APP_SECRET
+const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
+const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
 // === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
