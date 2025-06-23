@@ -527,7 +527,6 @@ function App() {
       console.error("Error generating guest ID based on device UUID:", error);
       // Fallback: If ID generation fails, use a simple timestamp-based ID
       guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
-      displayName = `Guest_Fallback`;
       showMessage(`Could not generate consistent guest ID. Using fallback ID: ${guestId}`, true);
     }
 
@@ -538,7 +537,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ guestId, name: displayName }), // Send generated name to backend
+        body: JSON.stringify({ guestId }), // Send generated name to backend
         credentials: "include",
       });
 
