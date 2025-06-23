@@ -289,7 +289,6 @@ function App() {
             });
 
             socketRef.current.on("game-start", (data) => {
-              console.log("Game started:", data);
               setGameId(data.gameId);
               setPlayerNumber(data.playerNumber);
               setBoard(JSON.parse(data.board)); // Parse the board string back to an object
