@@ -100,8 +100,8 @@ router.get('/api/get-client-ip', async (req, res) => {
 // These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
-const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
+const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_APP_ID; // Corrected to FACEBOOK_APP_ID
+const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_APP_SECRET; // Corrected to FACEBOOK_APP_SECRET
 
 // === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
@@ -333,13 +333,13 @@ app.get("/auth/facebook/callback",
 
 // NEW: Guest Login Route
 app.post("/auth/guest", (req, res) => {
-    const { guestId } = req.body;
-    if (!guestId) {
-        return res.status(400).json({ message: "Guest ID is required." });
+    const { guestId, name } = req.body; // Added 'name' to guest login
+    if (!guestId || !name) {
+        return res.status(400).json({ message: "Guest ID and name are required." });
     }
 
     // Set user data directly in the session for guest
-    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` } };
+    req.session.passport = { user: { id: guestId, displayName: name } }; // Use provided name
 
     req.session.save((err) => {
         if (err) {
@@ -399,7 +399,12 @@ app.get("/login-failed", (req, res) => {
 
 // Global Game Data Structures
 let players = []; // Lobby players: [{ id: socket.id, userId, name }]
-let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile }
+let games = {};   // Active games: gameId: { players: [{userId, name, number, socketId}], board, scores, bombsUsed, turn, gameOver, lastClickedTile, messages: [] } // Added messages array
+
+// --- Chat State ---
+const lobbyMessages = []; // Stores messages for the lobby chat
+const MAX_LOBBY_MESSAGES = 100; // Limit lobby chat history
+
 
 // Helper to generate a new Minesweeper board
 const generateBoard = () => {
@@ -496,8 +501,8 @@ const emitLobbyPlayersList = () => {
     console.log(`[emitLobbyPlayersList] Full 'players' array before filtering: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
     console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
 
-    const lobbyPlayers = players;
-    io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name })));
+    const lobbyPlayers = players.filter(p => !userGameMap[p.userId]); // Filter out players who are in a game
+    io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name }))); // Send simplified objects to client
     console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}. Visible players: ${JSON.stringify(lobbyPlayers.map(p => p.name))}`);
 };
 
@@ -539,7 +544,8 @@ io.on("connection", (socket) => {
                         turn: gameData.turn,
                         gameOver: gameData.gameOver,
                         lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile
-                        players: [] // Will be populated with proper player objects
+                        players: [], // Will be populated with proper player objects
+                        messages: gameData.messages || [] // Load game chat messages
                     };
 
                     // Find or create player objects for the in-memory game structure
@@ -572,7 +578,7 @@ io.on("connection", (socket) => {
 
                     // Send game state to reconnected player
                     if (playerInGame && playerInGame.socketId) {
-                        io.to(playerInGame.socketId).emit("game-start", {
+                        io.to(playerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
                             gameId: game.gameId,
                             playerNumber: playerInGame.number,
                             board: JSON.stringify(game.board),
@@ -581,7 +587,8 @@ io.on("connection", (socket) => {
                             bombsUsed: game.bombsUsed,
                             gameOver: game.gameOver,
                             lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                            opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                            opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                            gameChat: game.messages // Send game chat history
                         });
                         console.log(`Emitted game-start to reconnected user ${playerInGame.name} for game ${gameId}.`);
                     }
@@ -606,7 +613,7 @@ io.on("connection", (socket) => {
                 const opponentPlayer = game.players.find(op => op.userId !== userId);
 
                 // Re-send game state to ensure client is up-to-date
-                io.to(playerInGame.socketId).emit("game-start", {
+                io.to(playerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
                     gameId: game.gameId,
                     playerNumber: playerInGame.number,
                     board: JSON.stringify(game.board),
@@ -615,7 +622,8 @@ io.on("connection", (socket) => {
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
                     lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                    gameChat: game.messages // Send game chat history
                 });
                 console.log(`Re-sent active game state for game ${gameId} to ${playerInGame.name}.`);
 
@@ -659,10 +667,27 @@ io.on("connection", (socket) => {
 
     console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined", userName); // Send back the name used
+    socket.emit("initial-lobby-messages", lobbyMessages); // Send lobby chat history to new joiner
+
     // Emit updated player list to all connected clients in the lobby (all players now)
     console.log(`[Join Lobby] Calling emitLobbyPlayersList. Current userGameMap: ${JSON.stringify(userGameMap)}`);
     emitLobbyPlayersList(); // Use the helper
   });
+
+  // Handle Lobby Chat Messages
+  socket.on("send-lobby-message", (message) => {
+    const user = socket.request.session?.passport?.user || null;
+    const userName = user ? user.displayName : 'Anonymous'; // Fallback for sender name
+    const timestamp = new Date().toLocaleTimeString();
+    const fullMessage = { sender: userName, text: message, timestamp: timestamp };
+    lobbyMessages.push(fullMessage);
+    if (lobbyMessages.length > MAX_LOBBY_MESSAGES) {
+      lobbyMessages.shift(); // Remove oldest message if over limit
+    }
+    io.to("lobby").emit("receive-lobby-message", fullMessage); // Emit to the "lobby" room
+    console.log(`Lobby message from ${userName}: ${message}`);
+  });
+
 
   socket.on("request-unfinished-games", async () => {
     const user = socket.request.session?.passport?.user || null;
@@ -777,7 +802,7 @@ socket.on("resume-game", async ({ gameId }) => {
       // it means they are successfully connected/reconnected to their game slot.
       if (currentPlayerInGame.socketId === socket.id) {
           // Emit the game state to the resuming player
-          io.to(currentPlayerInGame.socketId).emit("game-start", {
+          io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
               gameId: existingGame.gameId,
               playerNumber: currentPlayerNumber, // Use the derived number
               board: JSON.stringify(existingGame.board),
@@ -786,7 +811,8 @@ socket.on("resume-game", async ({ gameId }) => {
               bombsUsed: existingGame.bombsUsed,
               gameOver: existingGame.gameOver,
               lastClickedTile: existingGame.lastClickedTile, // Include lastClickedTile
-              opponentName: opponentName // Use the derived name
+              opponentName: opponentName, // Use the derived name
+              gameChat: existingGame.messages // Send game chat history
           });
           console.log(`User ${userName} (re)connected to game ${gameId} from in-memory state.`);
 
@@ -817,7 +843,8 @@ socket.on("resume-game", async ({ gameId }) => {
       turn: gameData.turn,
       gameOver: gameData.gameOver,
       lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile from Firestore
-      players: [] // Will populate based on who is resuming and who the opponent is
+      players: [], // Will populate based on who is resuming and who the opponent is
+      messages: gameData.messages || [] // Load game chat messages
     };
 
     // Populate players array for the in-memory game object
@@ -863,7 +890,7 @@ socket.on("resume-game", async ({ gameId }) => {
     const opponentPlayerInGame = game.players.find(op => op.userId !== userId);
 
     if (currentPlayerInGame && currentPlayerInGame.socketId) {
-      io.to(currentPlayerInGame.socketId).emit("game-start", {
+      io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
         gameId: game.gameId,
         playerNumber: currentPlayerInGame.number,
         board: JSON.stringify(game.board), // Send serialized board
@@ -872,7 +899,8 @@ socket.on("resume-game", async ({ gameId }) => {
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-        opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent"
+        opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent",
+        gameChat: game.messages // Send game chat history
       });
       console.log(`User ${userName} successfully resumed game ${gameId}.`);
     }
@@ -967,6 +995,7 @@ socket.on("resume-game", async ({ gameId }) => {
         bombsUsed,
         gameOver,
         lastClickedTile, // Include lastClickedTile in in-memory game object
+        messages: [] // Initialize game chat messages
       };
       games[gameId] = game;
 
@@ -993,7 +1022,8 @@ socket.on("resume-game", async ({ gameId }) => {
               status: 'active', // Mark as active
               lastUpdated: Timestamp.now(),
               winnerId: null,
-              loserId: null
+              loserId: null,
+              messages: game.messages // Save initial empty message array to Firestore
           }, { merge: true }); // Use merge: true for robustness
           console.log(`Game ${gameId} saved to Firestore.`);
       } catch (error) {
@@ -1021,6 +1051,7 @@ socket.on("resume-game", async ({ gameId }) => {
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
         opponentName: respondingPlayer.name,
+        gameChat: game.messages // Send game chat history
       });
       io.to(respondingPlayer.id).emit("game-start", {
         gameId: game.gameId,
@@ -1032,6 +1063,7 @@ socket.on("resume-game", async ({ gameId }) => {
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
         opponentName: inviterPlayer.name,
+        gameChat: game.messages // Send game chat history
       });
 
     } else {
@@ -1122,6 +1154,7 @@ socket.on("resume-game", async ({ gameId }) => {
         game.turn = 1; // Reset turn to player 1
         game.gameOver = false; // Game is no longer over
         game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
+        game.messages = []; // Clear game chat messages on restart
 
         // Ensure userGameMap is still set for both players if game restarts but isn't completed
         game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1139,7 +1172,8 @@ socket.on("resume-game", async ({ gameId }) => {
               status: 'active', // Game is active after restart
               lastUpdated: Timestamp.now(),
               winnerId: null,
-              loserId: null
+              loserId: null,
+              messages: game.messages // Save cleared messages
           }, { merge: true });
           console.log(`Game ${gameId} restarted and updated in Firestore.`);
         } catch (error) {
@@ -1158,7 +1192,8 @@ socket.on("resume-game", async ({ gameId }) => {
                     bombsUsed: game.bombsUsed,
                     gameOver: game.gameOver,
                     lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                    opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                    gameChat: game.messages // Send cleared game chat messages
                 });
             } else {
                 console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send restart event.`);
@@ -1213,6 +1248,30 @@ socket.on("resume-game", async ({ gameId }) => {
              console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send board update.`);
         }
     });
+  });
+
+  // Handle Game Chat Messages
+  socket.on("send-game-message", ({ gameId, message }) => {
+    const game = games[gameId];
+    if (!game) {
+      console.warn(`Attempted to send message to non-existent game ${gameId}`);
+      return;
+    }
+    const user = socket.request.session?.passport?.user || null;
+    const userName = user ? user.displayName : 'Anonymous';
+    const timestamp = new Date().toLocaleTimeString();
+    const fullMessage = { sender: userName, text: message, timestamp: timestamp };
+    game.messages.push(fullMessage);
+    // Optionally limit game chat history (e.g., to 100 messages)
+    // if (game.messages.length > MAX_GAME_MESSAGES) {
+    //   game.messages.shift();
+    // }
+    io.to(gameId).emit("receive-game-message", fullMessage); // Emit to everyone in the game room
+    console.log(`Game ${gameId} message from ${userName}: ${message}`);
+
+    // Optionally save game messages to Firestore (consider frequency vs. performance)
+    // For simplicity, we're keeping it in-memory for now and loading on resume.
+    // If you need persistent game chat, you'd update the Firestore game document here.
   });
 
   // Use Bomb Event
@@ -1381,6 +1440,7 @@ socket.on("resume-game", async ({ gameId }) => {
     game.turn = 1;
     game.gameOver = false;
     game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
+    game.messages = []; // Clear game chat messages on restart
 
     // Ensure userGameMap entries are still there for both players since the game is restarting, not ending
     game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1399,7 +1459,8 @@ socket.on("resume-game", async ({ gameId }) => {
             status: 'active', // Game is active after restart
             lastUpdated: Timestamp.now(),
             winnerId: null,
-            loserId: null
+            loserId: null,
+            messages: game.messages // Save cleared messages
         }, { merge: true });
         console.log(`Game ${gameId} restarted and updated in Firestore.`);
     } catch (error) {
@@ -1418,8 +1479,11 @@ socket.on("resume-game", async ({ gameId }) => {
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
                 lastClickedTile: game.lastClickedTile, // Include lastClickedTile
-                opponentName: opponentPlayer ? opponentPlayer.name : "Opponent"
+                opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
+                gameChat: game.messages // Send cleared game chat messages
             });
+        } else {
+            console.warn(`Player ${p.name} in game ${gameId} has no active socket. Cannot send restart event.`);
         }
     });
   });
