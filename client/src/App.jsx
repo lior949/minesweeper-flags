@@ -101,6 +101,27 @@ function App() {
   const WIDTH = 16;
   const HEIGHT = 16;
 
+  // Chat states
+  const [lobbyMessages, setLobbyMessages] = useState([]);
+  const [gameMessages, setGameMessages] = useState([]);
+  const [lobbyMessageInput, setLobbyMessageInput] = useState("");
+  const [gameMessageInput, setGameMessageInput] = useState("");
+  const lobbyChatEndRef = useRef(null);
+  const gameChatEndRef = useRef(null);
+
+  // Effect to scroll to the bottom of chat
+  useEffect(() => {
+    if (lobbyChatEndRef.current && loggedIn && !gameId) {
+      lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [lobbyMessages, loggedIn, gameId]);
+
+  useEffect(() => {
+    if (gameChatEndRef.current && gameId) {
+      gameChatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [gameMessages, gameId]);
+
 
   // --- Utility Functions ---
 
@@ -250,6 +271,7 @@ function App() {
               setLoggedIn(true);
               setName(userName);
               showMessage(`Lobby joined successfully as ${userName}!`);
+              // After joining lobby, request unfinished games
               socketRef.current.emit("request-unfinished-games");
             });
 
@@ -267,7 +289,7 @@ function App() {
             });
 
             socketRef.current.on("game-start", (data) => {
-              //console.log("Game started:", data);
+              console.log("Game started:", data);
               setGameId(data.gameId);
               setPlayerNumber(data.playerNumber);
               setBoard(JSON.parse(data.board)); // Parse the board string back to an object
@@ -280,9 +302,10 @@ function App() {
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              setGameMessages(data.gameChat || []); // Load initial game messages
               setMessage("");
               console.log("Frontend: Game started! My player number:", data.playerNumber);
-              setUnfinishedGames([]);
+              setUnfinishedGames([]); // Clear unfinished games list once a game starts
             });
 
             socketRef.current.on("board-update", (game) => {
@@ -322,7 +345,7 @@ function App() {
             socketRef.current.on("receive-unfinished-games", (games) => {
               const deserializedGames = games.map(game => ({
                   ...game,
-                  board: JSON.parse(game.board)
+                  board: JSON.parse(game.board) // Deserialize board for client-side use/preview
               }));
               setUnfinishedGames(deserializedGames);
               console.log("Received unfinished games:", deserializedGames);
@@ -346,7 +369,22 @@ function App() {
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              setGameMessages(data.gameChat || []); // Load cleared game chat messages
             });
+
+            // Chat specific listeners
+            socketRef.current.on("initial-lobby-messages", (messages) => {
+              setLobbyMessages(messages);
+            });
+
+            socketRef.current.on("receive-lobby-message", (message) => {
+              setLobbyMessages((prevMessages) => [...prevMessages, message]);
+            });
+
+            socketRef.current.on("receive-game-message", (message) => {
+              setGameMessages((prevMessages) => [...prevMessages, message]);
+            });
+
           } else {
             console.log("Frontend: Socket.IO already initialized. Re-emitting join-lobby.");
             // If already initialized, just re-emit join-lobby to ensure backend registers current socket
@@ -437,6 +475,9 @@ function App() {
         socketRef.current.off("receive-unfinished-games");
         socketRef.current.off("opponent-reconnected");
         socketRef.current.off("game-restarted");
+        socketRef.current.off("initial-lobby-messages"); // New cleanup for chat
+        socketRef.current.off("receive-lobby-message");    // New cleanup for chat
+        socketRef.current.off("receive-game-message");     // New cleanup for chat
 
         socketRef.current.disconnect(); // Disconnect the socket
         socketRef.current = null; // Clear the ref
@@ -474,17 +515,19 @@ function App() {
   // NEW: Function to handle Guest Login
   const loginAsGuest = async () => {
     let guestId;
+    let displayName;
     try {
-        // Attempt to get a 5-digit guest ID based on UUID
         const deviceUuid = getDeviceUuid();
         guestId = await generate5DigitGuestId(deviceUuid);
-        // Prepend 'guest_' to distinguish from other user IDs on the backend if needed
+        // Prepend 'guest_' to distinguish from other user IDs on the backend
         guestId = `guest_${guestId}`;
+        displayName = `Guest_${guestId.substring(6)}`; // Use the 5-digit part for display name
         
     } catch (error) {
       console.error("Error generating guest ID based on device UUID:", error);
       // Fallback: If ID generation fails, use a simple timestamp-based ID
       guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+      displayName = `Guest_Fallback`;
       showMessage(`Could not generate consistent guest ID. Using fallback ID: ${guestId}`, true);
     }
 
@@ -495,13 +538,13 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ guestId }),
+        body: JSON.stringify({ guestId, name: displayName }), // Send generated name to backend
         credentials: "include",
       });
 
       if (response.ok) {
         const data = await response.json();
-        setName(data.user.displayName); // Backend will provide a guest name
+        setName(data.user.displayName); // Backend will provide a guest name (should be the displayName we sent)
         setLoggedIn(true);
         setIsGuest(true);
         showMessage("Logged in as guest!");
@@ -524,19 +567,23 @@ function App() {
   // --- User Interaction Functions (using socketRef.current for emits) ---
 
   const invitePlayer = (id) => {
-    if (loggedIn && socketRef.current && id !== socketRef.current.id) {
+    if (loggedIn && socketRef.current && socketRef.current.connected && id !== socketRef.current.id) {
       socketRef.current.emit("invite-player", id);
       showMessage("Invitation sent.");
+    } else if (!socketRef.current || !socketRef.current.connected) {
+        showMessage("Not connected to server. Please wait or refresh.", true);
     } else {
-        console.warn("Invite failed: Not logged in or socket not ready, or inviting self.");
+        console.warn("Invite failed: Not logged in or inviting self.");
     }
   };
 
   const respondInvite = (accept) => {
-    if (invite && socketRef.current) {
+    if (invite && socketRef.current && socketRef.current.connected) {
       socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept });
       setInvite(null);
       setMessage("");
+    } else if (!socketRef.current || !socketRef.current.connected) {
+        showMessage("Not connected to server. Cannot respond to invite.", true);
     }
   };
 
@@ -582,15 +629,17 @@ function App() {
       socketRef.current.emit("bomb-center", { gameId, x, y });
       setBombMode(false); // Exit bomb selection mode
       setIsBombHighlightActive(false); // Turn off highlighting after selection
-      setHighlightedBombArea([]); // Clear highlighting
+      setHighlightedBombArea([]); // Clear highlights
     } else if (playerNumber === turn && !gameOver) {
       setMessage("");
       socketRef.current.emit("tile-click", { gameId, x, y });
+    } else if (playerNumber !== turn) {
+        showMessage("It's not your turn!", true);
     }
   };
 
   const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
-    if (!socketRef.current || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
+    if (!socketRef.current || !socketRef.current.connected || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
       if (bombsUsed[playerNumber]) {
         showMessage("You have already used your bomb!", true);
       } else if (gameOver) {
@@ -599,6 +648,8 @@ function App() {
         showMessage("Not in a game to use bomb.", true);
       } else if (playerNumber !== turn) {
         showMessage("It's not your turn to use the bomb!", true);
+      } else if (!isSocketConnected) {
+        showMessage("Not connected to server. Please wait or refresh.", true);
       }
       return;
     }
@@ -621,8 +672,10 @@ function App() {
   };
 
   const backToLobby = () => {
-    if (gameId && socketRef.current) {
+    if (gameId && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("leave-game", { gameId });
+    } else if (!isSocketConnected) {
+        showMessage("Not connected to server. Cannot leave game.", true);
     }
 
     setGameId(null);
@@ -640,7 +693,10 @@ function App() {
     setMessage("");
     setUnfinishedGames([]);
     setLastClickedTile({ 1: null, 2: null });
-    if (socketRef.current) { // Ensure socket is still available before emitting
+    setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
+    setGameMessages([]); // Clear game chat
+    // Request unfinished games again to refresh the list in the lobby
+    if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit("request-unfinished-games");
     }
 };
@@ -655,6 +711,7 @@ function App() {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
+        setIsSocketConnected(false); // Set socket connected status to false
       }
 
       setLoggedIn(false);
@@ -674,6 +731,8 @@ function App() {
       setOpponentName("");
       setInvite(null);
       setLastClickedTile({ 1: null, 2: null });
+      setLobbyMessages([]); // Clear chat history on logout
+      setGameMessages([]);
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -714,9 +773,33 @@ function App() {
   };
 
   const resumeGame = (gameIdToResume) => {
-    if (gameIdToResume && socketRef.current) {
+    if (gameIdToResume && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("resume-game", { gameId: gameIdToResume });
         showMessage("Attempting to resume game...");
+    } else if (!isSocketConnected) {
+        showMessage("Not connected to server. Please wait or refresh.", true);
+    }
+  };
+
+  const sendLobbyMessage = (e) => {
+    e.preventDefault();
+    if (socketRef.current && socketRef.current.connected && lobbyMessageInput.trim()) {
+      socketRef.current.emit("send-lobby-message", lobbyMessageInput);
+      setLobbyMessageInput("");
+    } else if (!isSocketConnected) {
+        showMessage("Not connected to server. Cannot send message.", true);
+    }
+  };
+
+  const sendGameMessage = (e) => {
+    e.preventDefault();
+    if (socketRef.current && socketRef.current.connected && gameId && gameMessageInput.trim()) {
+      socketRef.current.emit("send-game-message", { gameId, message: gameMessageInput });
+      setGameMessageInput("");
+    } else if (!isSocketConnected) {
+        showMessage("Not connected to server. Cannot send message.", true);
+    } else if (!gameId) {
+        showMessage("Not in a game to send message.", true);
     }
   };
 
@@ -793,12 +876,37 @@ function App() {
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
                                 score: 🔴 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🔵 - Last updated: {game.lastUpdated}
-                                <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
+                                 <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
                     </ul>
                 )}
             </div>
+
+            {/* Lobby Chat Section */}
+            <div className="lobby-chat-container chat-container">
+              <h3>Lobby Chat</h3>
+              <div className="messages-display">
+                {lobbyMessages.map((msg, index) => (
+                  <div key={index} className={`message ${msg.sender === name ? 'my-message' : 'other-message'}`}>
+                    <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
+                  </div>
+                ))}
+                <div ref={lobbyChatEndRef} />
+              </div>
+              <form onSubmit={sendLobbyMessage} className="message-input-form">
+                <input
+                  type="text"
+                  value={lobbyMessageInput}
+                  onChange={(e) => setLobbyMessageInput(e.target.value)}
+                  placeholder="Type a lobby message..."
+                  className="message-input"
+                  disabled={!isSocketConnected}
+                />
+                <button type="submit" className="send-message-button" disabled={!isSocketConnected}>Send</button>
+              </form>
+            </div>
+
 		      </>
 )}
 
@@ -810,13 +918,13 @@ function App() {
                       !bombsUsed[playerNumber] &&
                       scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
                       !gameOver && (
-                        <button className="bomb-button" onClick={handleUseBombClick}> {/* Changed to new handler */}
+                        <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}> {/* Changed to new handler */}
                             Use Bomb
                         </button>
                       )}
                     {/* NEW: Display Cancel Bomb button if bombMode is active for selection */}
                     {bombMode && ( // bombMode means waiting for backend 'wait-bomb-center'
-                      <button className="bomb-button" onClick={handleCancelBomb}> {/* New handler for cancel */}
+                      <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}> {/* New handler for cancel */}
                           Cancel Bomb
                       </button>
                     )}
@@ -827,7 +935,7 @@ function App() {
                 </h2>
                 <p>
                     {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
-                    {bombMode && " – Select 5x5 bomb center"}
+                    {bombMode && " — Select 5x5 bomb center"}
                 </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 <p>
@@ -839,13 +947,13 @@ function App() {
                 </p>
 
 		{/* NEW: Back to Lobby button always visible when in game */}
-                <button className="bomb-button" onClick={backToLobby}>
+                <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
                     Back to Lobby
                 </button>
 
                 {gameOver && (
                     <>
-                        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })}> {/* Use socketRef.current */}
+                        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}> {/* Use socketRef.current */}
                             Restart Game
                         </button>
                     </>
@@ -883,6 +991,30 @@ function App() {
                         );
                       })
                     )}
+                </div>
+
+                {/* Game Chat Section */}
+                <div className="game-chat-container chat-container">
+                  <h3>Game Chat</h3>
+                  <div className="messages-display">
+                    {gameMessages.map((msg, index) => (
+                      <div key={index} className={`message ${msg.sender === name ? 'my-message' : 'other-message'}`}>
+                        <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
+                      </div>
+                    ))}
+                    <div ref={gameChatEndRef} />
+                  </div>
+                  <form onSubmit={sendGameMessage} className="message-input-form">
+                    <input
+                      type="text"
+                      value={gameMessageInput}
+                      onChange={(e) => setGameMessageInput(e.target.value)}
+                      placeholder="Type a game message..."
+                      className="message-input"
+                      disabled={!isSocketConnected}
+                    />
+                    <button type="submit" className="send-message-button" disabled={!isSocketConnected}>Send</button>
+                  </form>
                 </div>
             </div>
         )}
