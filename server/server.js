@@ -258,12 +258,11 @@ app.get("/auth/google/callback",
       }
       console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
       
-      // NEW: Redirect the pop-up window itself back to the frontend with data in hash fragment
+      // NEW: Redirect the pop-up window itself back to the frontend with data via postMessage
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
       };
-      // Encode user data as JSON and put it in the hash fragment
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -304,12 +303,11 @@ app.get("/auth/facebook/callback",
       }
       console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
       
-      // NEW: Redirect the pop-up window itself back to the frontend with data in hash fragment
+      // NEW: Redirect the pop-up window itself back to the frontend with data via postMessage
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
       };
-      // Encode user data as JSON and put it in the hash fragment
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -335,11 +333,11 @@ app.get("/auth/facebook/callback",
 app.post("/auth/guest", (req, res) => {
     const { guestId } = req.body;
     if (!guestId) {
-        return res.status(400).json({ message: "Guest ID is required." });
+        return res.status(400).json({ message: "Guest ID and name are required." });
     }
 
     // Set user data directly in the session for guest
-    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` } };
+    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` } 
 
     req.session.save((err) => {
         if (err) {
@@ -578,6 +576,7 @@ io.on("connection", (socket) => {
 
                     // Send game state to reconnected player
                     if (playerInGame && playerInGame.socketId) {
+                        socket.join(gameId); // Join game room on resume
                         io.to(playerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
                             gameId: game.gameId,
                             playerNumber: playerInGame.number,
@@ -612,6 +611,7 @@ io.on("connection", (socket) => {
                 playerInGame.socketId = socket.id; // Ensure current socketId is used in game object
                 const opponentPlayer = game.players.find(op => op.userId !== userId);
 
+                socket.join(gameId); // Join game room on resume
                 // Re-send game state to ensure client is up-to-date
                 io.to(playerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
                     gameId: game.gameId,
@@ -664,7 +664,7 @@ io.on("connection", (socket) => {
     players.push({ id: socket.id, userId: userId, name: userName }); // Store userId and current socket.id
     console.log(`[Join Lobby] Players after push: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
 
-
+    socket.join("lobby"); // IMPORTANT: Join the lobby room
     console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined", userName); // Send back the name used
     socket.emit("initial-lobby-messages", lobbyMessages); // Send lobby chat history to new joiner
@@ -801,6 +801,7 @@ socket.on("resume-game", async ({ gameId }) => {
       // If the current player's socket is now correctly set to the active socket,
       // it means they are successfully connected/reconnected to their game slot.
       if (currentPlayerInGame.socketId === socket.id) {
+          socket.join(gameId); // IMPORTANT: Join the game room for the resuming player
           // Emit the game state to the resuming player
           io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
               gameId: existingGame.gameId,
@@ -843,7 +844,7 @@ socket.on("resume-game", async ({ gameId }) => {
       turn: gameData.turn,
       gameOver: gameData.gameOver,
       lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile from Firestore
-      players: [], // Will populate based on who is resuming and who the opponent is
+	  players: [], // Will populate based on who is resuming and who the opponent is
       messages: gameData.messages || [] // Load game chat messages
     };
 
@@ -890,6 +891,7 @@ socket.on("resume-game", async ({ gameId }) => {
     const opponentPlayerInGame = game.players.find(op => op.userId !== userId);
 
     if (currentPlayerInGame && currentPlayerInGame.socketId) {
+      socket.join(gameId); // IMPORTANT: Join the game room for the resuming player
       io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
         gameId: game.gameId,
         playerNumber: currentPlayerInGame.number,
@@ -1003,6 +1005,10 @@ socket.on("resume-game", async ({ gameId }) => {
       userGameMap[inviterPlayer.userId] = gameId;
       userGameMap[respondingPlayer.userId] = gameId;
       console.log(`Game ${gameId} started between ${inviterPlayer.name} (${inviterPlayer.userId}) and ${respondingPlayer.name} (${respondingPlayer.userId}).`);
+
+      // Add both players to the game-specific Socket.IO room
+      io.sockets.sockets.get(inviterPlayer.id)?.join(gameId);
+      io.sockets.sockets.get(respondingPlayer.id)?.join(gameId);
 
       // Save game state to Firestore (with serialized board)
       try {
@@ -1154,7 +1160,6 @@ socket.on("resume-game", async ({ gameId }) => {
         game.turn = 1; // Reset turn to player 1
         game.gameOver = false; // Game is no longer over
         game.lastClickedTile = { 1: null, 2: null }; // Reset lastClickedTile on restart
-        game.messages = []; // Clear game chat messages on restart
 
         // Ensure userGameMap is still set for both players if game restarts but isn't completed
         game.players.forEach(p => userGameMap[p.userId] = gameId); 
@@ -1182,6 +1187,8 @@ socket.on("resume-game", async ({ gameId }) => {
 
         game.players.forEach(p => {
             if (p.socketId) {
+                // Ensure they rejoin the room after a fresh gameId might implicitly disconnect old rooms
+                io.sockets.sockets.get(p.socketId)?.join(gameId); 
                 const opponentPlayer = game.players.find(op => op.userId !== p.userId);
                 io.to(p.socketId).emit("game-restarted", {
                     gameId: game.gameId,
@@ -1469,6 +1476,7 @@ socket.on("resume-game", async ({ gameId }) => {
 
     game.players.forEach(p => {
         if (p.socketId) {
+            io.sockets.sockets.get(p.socketId)?.join(gameId); // Ensure they rejoin the game room
             const opponentPlayer = game.players.find(op => op.userId !== p.userId);
             io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
                 gameId: game.gameId,
@@ -1505,6 +1513,9 @@ socket.on("leave-game", async ({ gameId }) => {
       // but do NOT remove them from game.players array completely.
       // This preserves their slot for potential future resumption (by themselves or if game ends and needs historical data).
       playerInGame.socketId = null;
+
+      // Make the socket leave the game room
+      socket.leave(gameId); 
 
       // Notify the opponent if one exists and is still connected
       const opponentPlayer = game.players.find(p => p.userId !== userId);
