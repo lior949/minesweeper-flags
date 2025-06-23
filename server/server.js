@@ -333,13 +333,13 @@ app.get("/auth/facebook/callback",
 
 // NEW: Guest Login Route
 app.post("/auth/guest", (req, res) => {
-    const { guestId, name } = req.body; // Added 'name' to guest login
-    if (!guestId || !name) {
-        return res.status(400).json({ message: "Guest ID and name are required." });
+    const { guestId } = req.body;
+    if (!guestId) {
+        return res.status(400).json({ message: "Guest ID is required." });
     }
 
     // Set user data directly in the session for guest
-    req.session.passport = { user: { id: guestId, displayName: name } }; // Use provided name
+    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` } };
 
     req.session.save((err) => {
         if (err) {
