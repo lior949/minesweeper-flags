@@ -337,7 +337,7 @@ app.post("/auth/guest", (req, res) => {
     }
 
     // Set user data directly in the session for guest
-    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` } 
+    req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(0, 8)}` }}; 
 
     req.session.save((err) => {
         if (err) {
