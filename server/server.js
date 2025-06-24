@@ -854,12 +854,10 @@ io.on("connection", (socket) => {
 
                     hasActiveParticipants = player1Active || player2Active || anyObserverActive;
                 } else {
-                    // If game not in memory, consider it observable if its status suggests activity
-                    // (e.g., active, or waiting_for_resume if we want to allow observing a paused game)
-                    // For simplicity, let's assume it needs to be in memory with active sockets for observability
-                    // to avoid showing "stale" games where everyone logged out.
-                    // Alternatively, you could check Firestore's player/observer arrays and `userSocketMap` to infer activity.
-                    // For now, only show if in-memory `games` object exists and has active participants.
+                    // If game not in memory, it means it's either completed or was never in memory.
+                    // If its status is 'active' or 'waiting_for_resume' in Firestore but not in memory,
+                    // it implies a server restart or inconsistency. We won't show it as observable
+                    // unless it's in memory with active participants.
                 }
 
                 if (hasActiveParticipants) {
@@ -1838,10 +1836,12 @@ socket.on("leave-game", async ({ gameId }) => {
     delete userGameMap[userId];
     socket.leave(gameId); // Make the socket leave the game room
 
+    let playerDisconnected = false;
     if (gameMapping.role === 'player') {
       const playerInGame = game.players.find(p => p.userId === userId);
       if (playerInGame) {
         playerInGame.socketId = null; // Mark their socket as null
+        playerDisconnected = true;
         console.log(`User ${userId} (${playerInGame.name}) left game ${gameId} as a player.`);
 
         // Notify the opponent if one exists and is still connected
@@ -1881,6 +1881,33 @@ socket.on("leave-game", async ({ gameId }) => {
       // Notify others in the game that an observer left
       io.to(gameId).emit("observer-left", { name: userName, userId: userId });
     }
+
+    // Check if the game is now empty of active participants
+    const hasAnyActivePlayer = game.players.some(p => p.socketId !== null);
+    const hasAnyActiveObserver = game.observers.some(o => o.socketId !== null);
+
+    if (!hasAnyActivePlayer && !hasAnyActiveObserver) {
+        console.log(`[Leave Game] Game ${gameId} has no active participants. Setting status to 'completed'.`);
+        try {
+            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                status: 'completed',
+                lastUpdated: Timestamp.now(),
+                // If a player left and it caused completion, clear their userGameMap entry here too if not already
+                // userGameMap cleanup for players should ideally happen on game completion logic
+            }, { merge: true });
+            delete games[gameId]; // Remove from in-memory cache
+            // Clean up userGameMap entries for this game for all associated users
+            // This loop iterates through a copy of keys to avoid modification issues during iteration
+            for (const uid in { ...userGameMap }) {
+                if (userGameMap[uid]?.gameId === gameId) {
+                    delete userGameMap[uid];
+                }
+            }
+        } catch (error) {
+            console.error("[Leave Game] Error setting game status to 'completed' on last user leaving:", error);
+        }
+    }
+
   } else {
       console.warn(`Attempt to leave game failed: game ${gameId} not found or userId missing.`);
   }
@@ -1937,7 +1964,7 @@ socket.on("disconnect", async () => {
   }
 
   if (gameId) {
-    const game = games[gameId];
+    const game = games[gameId]; // This is the in-memory game object
     console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId} as a ${role}.`);
 
     if (game) {
@@ -1946,19 +1973,6 @@ socket.on("disconnect", async () => {
         if (disconnectedPlayerInGame) {
           disconnectedPlayerInGame.socketId = null; // Mark their socket as null
           console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
-        }
-
-        // The userGameMap entry for players should *not* be deleted here.
-        // It must persist so the player can resume the game.
-        // The game status in Firestore should reflect it's waiting for resume.
-        try {
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            status: 'waiting_for_resume', // Set game status to waiting_for_resume
-            lastUpdated: Timestamp.now()
-          }, { merge: true });
-          console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
-        } catch (error) {
-          console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on disconnect:", error);
         }
 
         // Notify the opponent if one exists and is still connected
@@ -1971,27 +1985,72 @@ socket.on("disconnect", async () => {
         io.to(gameId).emit("player-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'player' });
 
       } else if (role === 'observer') {
-        // Remove observer's socketId from the in-memory game object
-        const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
-        if (disconnectedObserverInGame) {
-            disconnectedObserverInGame.socketId = null;
-            console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
-        }
-        // Do NOT remove observer from Firestore or game.observers list on disconnect,
-        // just mark their socket as null. They will be removed on explicit 'leave-game' or if game ends.
-        // Or, you could remove them from the in-memory `observers` array if you want to consider them fully gone
-        // until they explicitly observe again, and remove from Firestore too.
-        // For now, let's keep them in the array but with null socketId until they leave or rejoin.
+        // Remove observer's socketId from the in-memory game object and filter out completely if no active socket remains
+        game.observers = game.observers.filter(o => o.userId !== disconnectedUserId);
+        console.log(`[Disconnect] Observer ${disconnectedUserName} (${disconnectedUserId}) removed from game ${gameId} (in-memory).`);
 
+        // Update Firestore to remove the observer. It is important to remove by value, not just set socketId null in Firestore
+        try {
+            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+                observers: FieldValue.arrayRemove({ userId: disconnectedUserId, name: disconnectedUserName })
+            });
+            console.log(`Observer ${disconnectedUserName} removed from game ${gameId} in Firestore.`);
+        } catch (error) {
+            console.error("Error removing observer from Firestore on disconnect:", error);
+        }
         // Notify others in the game that an observer left (disconnected)
         io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
       }
-      socket.emit("request-observable-games"); // Refresh observable games
+
+      // After handling the specific disconnect, check if the game is now empty of active participants
+      const hasAnyActivePlayer = game.players.some(p => p.socketId !== null);
+      const hasAnyActiveObserver = game.observers.some(o => o.socketId !== null);
+
+      if (!hasAnyActivePlayer && !hasAnyActiveObserver) {
+          console.log(`[Disconnect] Game ${gameId} has no active participants. Setting status to 'completed'.`);
+          try {
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                  status: 'completed',
+                  lastUpdated: Timestamp.now()
+              }, { merge: true });
+              console.log(`Game ${gameId} status set to 'completed' in Firestore as no active participants remain.`);
+              delete games[gameId]; // Remove from in-memory cache
+              // Clean up userGameMap entries for this game for all associated users
+              // This loop iterates through a copy of keys to avoid modification issues during iteration
+              for (const uid in { ...userGameMap }) {
+                  if (userGameMap[uid]?.gameId === gameId) {
+                      delete userGameMap[uid];
+                  }
+              }
+              emitLobbyPlayersList(); // Update lobby list to remove this game from view
+              socket.emit("request-observable-games"); // Refresh observable games
+          } catch (error) {
+              console.error("[Disconnect] Error setting game status to 'completed' on last user disconnecting:", error);
+          }
+      } else if (role === 'player') {
+          // If a player disconnected but others are still active, set to 'waiting_for_resume'
+          // This must happen only if the game is NOT being completed
+          try {
+            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                status: 'waiting_for_resume', // Set game status to waiting_for_resume
+                lastUpdated: Timestamp.now()
+            }, { merge: true });
+            console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
+          } catch (error) {
+            console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on player disconnect:", error);
+          }
+          socket.emit("request-observable-games"); // Refresh observable games if status changed
+      } else { // Observer disconnected, but game still has active players
+          socket.emit("request-observable-games"); // Refresh observable games
+      }
     } else {
       // If game wasn't in memory but userGameMap pointed to it, it might be a stale entry. Clear it.
       delete userGameMap[disconnectedUserId];
       console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
+      socket.emit("request-observable-games"); // Refresh observable games after cleanup
     }
+  } else {
+      socket.emit("request-observable-games"); // If no gameId, just refresh observable games
   }
 });
 
