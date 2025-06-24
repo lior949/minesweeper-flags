@@ -920,10 +920,24 @@ function App() {
                 <li
                   key={p.id}
                   className="player-item"
-                  onDoubleClick={() => invitePlayer(p.id)}
-                  title="Double-click to invite"
+                  onDoubleClick={() => {
+                    // Only allow inviting if player is not in a game and not self
+                    if (!p.gameId && p.id !== socketRef.current.id) {
+                      invitePlayer(p.id);
+                    } else if (p.id === socketRef.current.id) {
+                      showMessage("You cannot invite yourself.", true);
+                    } else {
+                      showMessage(`${p.name} is currently ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}.`, true);
+                    }
+                  }}
+                  title={p.gameId ? `${p.name} is ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}` : "Double-click to invite"}
                 >
                   {p.name}
+                  {p.gameId && (
+                    <span className={`player-status ${p.role}`}>
+                      {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing: ${p.opponentName})`}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
