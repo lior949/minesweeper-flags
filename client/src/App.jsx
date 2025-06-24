@@ -369,18 +369,15 @@ function App() {
             // NEW: Player reconnected notification (for observers)
             socketRef.current.on("player-reconnected", ({ name, userId, role }) => {
               showMessage(`${name} (${role}) reconnected to this game!`);
-              // Update observers in game list if needed (though game-start already sends full list)
-              setObserversInGame(prev => {
-                const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
-                return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
-              });
+              // If a player reconnects, ensure they are NOT in the observersInGame list
+              setObserversInGame(prev => prev.filter(o => o.userId !== userId));
             });
 
             // NEW: Player left notification (for observers)
             socketRef.current.on("player-left", ({ name, userId, role }) => {
               showMessage(`${name} (${role}) left the game!`);
-              // Mark player as disconnected in observersInGame list, or remove if desired
-              setObserversInGame(prev => prev.filter(o => o.userId !== userId)); // Remove from observers list if it was a player who left
+              // Remove player from observersInGame list (if they were somehow there, or if this is relevant for displaying current players)
+              setObserversInGame(prev => prev.filter(o => o.userId !== userId)); 
             });
 
             // NEW: Observer joined notification
