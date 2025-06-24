@@ -80,18 +80,20 @@ function App() {
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
-  const [playerNumber, setPlayerNumber] = useState(null);
+  const [playerNumber, setPlayerNumber] = useState(null); // 1, 2 for players; 0 for observer
   const [board, setBoard] = useState([]);
   const [turn, setTurn] = useState(null);
   const [scores, setScores] = useState({ 1: 0, 2: 0 });
   const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false });
   const [bombMode, setBombMode] = useState(false); // Backend's waitingForBombCenter
   const [gameOver, setGameOver] = useState(false);
-  const [opponentName, setOpponentName] = useState("");
+  const [opponentName, setOpponentName] = useState(""); // Only relevant for players
   const [invite, setInvite] = useState(null);
-  const [unfinishedGames, setUnfinishedGames] = useState([]); // NEW: State for unfinished games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // NEW: Track last clicked tile for each player
-  const [unrevealedMines, setUnrevealedMines] = useState(0); // NEW: State to store unrevealed mines count
+  const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
+  const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
+  const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
+  const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
 
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
@@ -271,8 +273,9 @@ function App() {
               setLoggedIn(true);
               setName(userName);
               showMessage(`Lobby joined successfully as ${userName}!`);
-              // After joining lobby, request unfinished games
+              // After joining lobby, request unfinished games and observable games
               socketRef.current.emit("request-unfinished-games");
+              socketRef.current.emit("request-observable-games"); // NEW: Request observable games
             });
 
             socketRef.current.on("players-list", (players) => {
@@ -290,21 +293,23 @@ function App() {
 
             socketRef.current.on("game-start", (data) => {
               setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber);
+              setPlayerNumber(data.playerNumber); // Will be 0 for observers
               setBoard(JSON.parse(data.board)); // Parse the board string back to an object
               setTurn(data.turn);
               setScores(data.scores);
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
-              setOpponentName(data.opponentName);
+              setOpponentName(data.opponentName); // N/A for observers
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setGameMessages(data.gameChat || []); // Load initial game messages
+              setObserversInGame(data.observers || []); // NEW: Load initial observers
               setMessage("");
               console.log("Frontend: Game started! My player number:", data.playerNumber);
               setUnfinishedGames([]); // Clear unfinished games list once a game starts
+              setObservableGames([]); // Clear observable games list once a game starts
             });
 
             socketRef.current.on("board-update", (game) => {
@@ -317,6 +322,7 @@ function App() {
               setIsBombHighlightActive(false); // Exit bomb highlighting mode
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
+              setObserversInGame(game.observers || []); // NEW: Update observers list on board update
               setMessage("");
             });
 
@@ -350,25 +356,65 @@ function App() {
               console.log("Received unfinished games:", deserializedGames);
             });
 
+            // NEW: Listener for observable games list
+            socketRef.current.on("receive-observable-games", (games) => {
+                setObservableGames(games);
+                console.log("Received observable games:", games);
+            });
+
             socketRef.current.on("opponent-reconnected", ({ name }) => {
                 showMessage(`${name} has reconnected!`);
             });
 
+            // NEW: Player reconnected notification (for observers)
+            socketRef.current.on("player-reconnected", ({ name, userId, role }) => {
+              showMessage(`${name} (${role}) reconnected to this game!`);
+              // Update observers in game list if needed (though game-start already sends full list)
+              setObserversInGame(prev => {
+                const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
+                return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
+              });
+            });
+
+            // NEW: Player left notification (for observers)
+            socketRef.current.on("player-left", ({ name, userId, role }) => {
+              showMessage(`${name} (${role}) left the game!`);
+              // Mark player as disconnected in observersInGame list, or remove if desired
+              setObserversInGame(prev => prev.filter(o => o.userId !== userId)); // Remove from observers list if it was a player who left
+            });
+
+            // NEW: Observer joined notification
+            socketRef.current.on("observer-joined", ({ name, userId }) => {
+                showMessage(`${name} is now observing!`);
+                setObserversInGame(prev => {
+                    const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
+                    return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
+                });
+            });
+
+            // NEW: Observer left notification
+            socketRef.current.on("observer-left", ({ name, userId }) => {
+                showMessage(`${name} stopped observing.`);
+                setObserversInGame(prev => prev.filter(obs => obs.userId !== userId));
+            });
+
+
             socketRef.current.on("game-restarted", (data) => {
               showMessage("Game restarted due to first click on blank tile!", false);
               setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber);
+              setPlayerNumber(data.playerNumber); // Will be 0 for observers
               setBoard(JSON.parse(data.board));
               setTurn(data.turn);
               setScores(data.scores);
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
-              setOpponentName(data.opponentName);
+              setOpponentName(data.opponentName); // N/A for observers
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setGameMessages(data.gameChat || []); // Load cleared game chat messages
+              setObserversInGame(data.observers || []); // NEW: Update observers list on restart
             });
 
             // Chat specific listeners
@@ -389,6 +435,8 @@ function App() {
             // If already initialized, just re-emit join-lobby to ensure backend registers current socket
             if (loggedIn && name) { // Only re-emit if already logged in and name is set
                 socketRef.current.emit("join-lobby", name);
+                socketRef.current.emit("request-unfinished-games"); // Re-request on re-lobby join
+                socketRef.current.emit("request-observable-games"); // Re-request on re-lobby join
             }
           }
 
@@ -422,9 +470,8 @@ function App() {
 
     // NEW: Listener for messages from the OAuth pop-up window
     const handleAuthMessage = (event) => {
-      // Ensure the message is from a trusted origin (your backend/frontend)
-      // For production, replace '*' with your frontend's exact origin.
-      if (event.origin !== "https://minesweeper-flags-frontend.onrender.com") { // Specify your frontend origin
+      // Ensure the message is from a trusted origin (your backend's domain)
+      if (event.origin !== "https://minesweeper-flags-backend.onrender.com") { // Adjust this to your backend's URL
         console.warn("Received message from untrusted origin:", event.origin);
         return;
       }
@@ -435,8 +482,6 @@ function App() {
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
         setLoggedIn(true);
         setIsGuest(user.id.startsWith('guest_')); // Set guest status based on received user ID
-        // At this point, the initial useEffect will re-run due to loggedIn/name state change
-        // and trigger the socket connection/join-lobby if conditions are met.
         showMessage("Login successful!");
         window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
       } else if (event.data && event.data.type === 'AUTH_FAILURE') {
@@ -472,7 +517,12 @@ function App() {
         socketRef.current.off("opponent-left");
         socketRef.current.off("bomb-error");
         socketRef.current.off("receive-unfinished-games");
+        socketRef.current.off("receive-observable-games"); // NEW: Cleanup for observable games
         socketRef.current.off("opponent-reconnected");
+        socketRef.current.off("player-reconnected"); // NEW: Cleanup for player reconnected
+        socketRef.current.off("player-left"); // NEW: Cleanup for player left
+        socketRef.current.off("observer-joined"); // NEW: Cleanup for observer joined
+        socketRef.current.off("observer-left"); // NEW: Cleanup for observer left
         socketRef.current.off("game-restarted");
         socketRef.current.off("initial-lobby-messages"); // New cleanup for chat
         socketRef.current.off("receive-lobby-message");    // New cleanup for chat
@@ -526,6 +576,7 @@ function App() {
       console.error("Error generating guest ID based on device UUID:", error);
       // Fallback: If ID generation fails, use a simple timestamp-based ID
       guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+      displayName = `Guest_Fallback`;
       showMessage(`Could not generate consistent guest ID. Using fallback ID: ${guestId}`, true);
     }
 
@@ -536,7 +587,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ guestId }), // Send generated name to backend
+        body: JSON.stringify({ guestId, name: displayName }), // Send generated name to backend
         credentials: "include",
       });
 
@@ -586,7 +637,8 @@ function App() {
   };
 
   const handleClick = (x, y) => {
-    if (!gameId || gameOver || !socketRef.current || !socketRef.current.connected) return;
+    // Only players (playerNumber 1 or 2) can click tiles
+    if (!gameId || gameOver || !socketRef.current || !socketRef.current.connected || playerNumber === 0) return;
 
     // If waiting for bomb center, emit bomb-center event
     if (bombMode) { // bombMode is true when backend sent 'wait-bomb-center'
@@ -637,6 +689,12 @@ function App() {
   };
 
   const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
+    // Only players (not observers) can use bombs
+    if (playerNumber === 0) {
+        showMessage("Observers cannot use bombs.", true);
+        return;
+    }
+
     if (!socketRef.current || !socketRef.current.connected || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
       if (bombsUsed[playerNumber]) {
         showMessage("You have already used your bomb!", true);
@@ -677,7 +735,7 @@ function App() {
     }
 
     setGameId(null);
-    setPlayerNumber(null);
+    setPlayerNumber(null); // Reset player number
     setBoard([]);
     setTurn(null);
     setScores({ 1: 0, 2: 0 });
@@ -690,12 +748,16 @@ function App() {
     setInvite(null);
     setMessage("");
     setUnfinishedGames([]);
+    setObservableGames([]); // Clear observable games
     setLastClickedTile({ 1: null, 2: null });
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
-    // Request unfinished games again to refresh the list in the lobby
+    setObserversInGame([]); // Clear observers list in game
+
+    // Request unfinished games and observable games again to refresh the list in the lobby
     if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit("request-unfinished-games");
+      socketRef.current.emit("request-observable-games"); // NEW: Re-request observable games
     }
 };
 
@@ -717,7 +779,7 @@ function App() {
       setIsGuest(false); // Reset guest status on logout
       localStorage.removeItem('guestDeviceId'); // Clear persistent guest ID (was 'guestId')
       setGameId(null);
-      setPlayerNumber(null);
+      setPlayerNumber(null); // Reset player number
       setBoard([]);
       setTurn(null);
       setScores({ 1: 0, 2: 0 });
@@ -731,6 +793,9 @@ function App() {
       setLastClickedTile({ 1: null, 2: null });
       setLobbyMessages([]); // Clear chat history on logout
       setGameMessages([]);
+      setUnfinishedGames([]);
+      setObservableGames([]); // Clear observable games
+      setObserversInGame([]); // Clear observers list in game
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -774,6 +839,16 @@ function App() {
     if (gameIdToResume && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("resume-game", { gameId: gameIdToResume });
         showMessage("Attempting to resume game...");
+    } else if (!isSocketConnected) {
+        showMessage("Not connected to server. Please wait or refresh.", true);
+    }
+  };
+
+  // NEW: Function to observe a game
+  const observeGame = (gameIdToObserve) => {
+    if (gameIdToObserve && socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit("observe-game", { gameId: gameIdToObserve });
+        showMessage("Attempting to observe game...");
     } else if (!isSocketConnected) {
         showMessage("Not connected to server. Please wait or refresh.", true);
     }
@@ -881,13 +956,30 @@ function App() {
                 )}
             </div>
 
+            {/* NEW: Observable Games Section */}
+            <div className="observable-games-section">
+                <h3>Observable Games</h3>
+                {observableGames.length === 0 ? (
+                    <p>No games currently available for observation.</p>
+                ) : (
+                    <ul className="observable-game-list">
+                        {observableGames.map(game => (
+                            <li key={game.gameId} className="observable-game-item">
+                                {game.player1Name} vs. {game.player2Name} - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
+                                <button onClick={() => observeGame(game.gameId)} className="bomb-button">Observe</button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+
             {/* Lobby Chat Section */}
             <div className="lobby-chat-container chat-container">
               <h3>Lobby Chat</h3>
               <div className="messages-display">
                 {lobbyMessages.map((msg, index) => (
                   <div key={index} className={`message ${msg.sender === name ? 'my-message' : 'other-message'}`}>
-                    <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
+                        <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
                   </div>
                 ))}
                 <div ref={lobbyChatEndRef} />
@@ -912,58 +1004,78 @@ function App() {
             <div className="app-game-container">
                 <div className="header">
                     <h1>Minesweeper Flags</h1>
-                    {playerNumber &&
+                    {/* Only show 'Use Bomb' button if player, not observer */}
+                    {playerNumber !== 0 && playerNumber &&
                       !bombsUsed[playerNumber] &&
                       scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
                       !gameOver && (
-                        <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}> {/* Changed to new handler */}
+                        <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
                             Use Bomb
                         </button>
                       )}
-                    {/* NEW: Display Cancel Bomb button if bombMode is active for selection */}
-                    {bombMode && ( // bombMode means waiting for backend 'wait-bomb-center'
-                      <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}> {/* New handler for cancel */}
+                    {/* Display Cancel Bomb button if bombMode is active for selection (only for players) */}
+                    {playerNumber !== 0 && bombMode && (
+                      <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
                           Cancel Bomb
                       </button>
                     )}
                 </div>
 
                 <h2>
-                    You are Player {playerNumber} (vs. {opponentName})
+                    {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
+                    {playerNumber !== 0 && ` (vs. ${opponentName})`}
                 </h2>
                 <p>
-                    {turn && !gameOver ? `Current turn: Player ${turn}` : ""}
-                    {bombMode && " — Select 5x5 bomb center"}
+                    {playerNumber !== 0 && turn && !gameOver ? `Current turn: Player ${turn}` : ""}
+                    {playerNumber !== 0 && bombMode && " — Select 5x5 bomb center"}
                 </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 <p>
-                    Score 🔴 {scores[1]} | 🔵 {scores[2]}
+                    Score 🚩 {scores[1]} | 🚩 {scores[2]}
                 </p>
-		{/* NEW: Display unrevealed mines count */}
+		            {/* Display unrevealed mines count */}
                 <p className="mine-count-display">
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                 </p>
 
-		{/* NEW: Back to Lobby button always visible when in game */}
+                {/* List of observers in the game */}
+                {observersInGame.length > 0 && (
+                  <div className="observers-list">
+                    <h4>Observers:</h4>
+                    <ul>
+                      {observersInGame.map((obs, index) => (
+                        <li key={index}>{obs.name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+
+		            {/* Back to Lobby button always visible when in game */}
                 <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
                     Back to Lobby
                 </button>
 
-                {gameOver && (
+                {gameOver && playerNumber !== 0 && ( // Only players can restart
                     <>
-                        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}> {/* Use socketRef.current */}
+                        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
                             Restart Game
                         </button>
                     </>
                 )}
+                {gameOver && playerNumber === 0 && ( // Observer sees game over message
+                    <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
+                )}
+
 
                 <div
                     className="grid"
                     style={{
                       gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
                     }}
-                    onMouseMove={handleMouseMoveOnGrid}
-                    onMouseLeave={handleMouseLeaveGrid}
+                    // Only attach mouse events for players in bomb mode
+                    onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
+                    onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
                 >
                     {board.flatMap((row, y) =>
                       row.map((tile, x) => {
@@ -982,7 +1094,7 @@ function App() {
                               lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
                             } ${isHighlighted ? "highlighted-bomb-area" : "" /* Apply highlight class */
                             }`}
-                            onClick={() => handleClick(x, y)}
+                            onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
                           >
                             {renderTile(tile)}
                           </div>
