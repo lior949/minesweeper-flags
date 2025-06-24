@@ -31,7 +31,8 @@ const server = http.createServer(app);
 
 // New global data structures for robust player tracking across reconnections
 const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID, Guest ID)
-const userGameMap = {};   // Maps userId to the gameId they are currently in (value will be gameId for players, or { gameId, role: 'observer' } for observers)
+// userGameMap maps userId to an object { gameId: string, role: 'player' | 'observer' }
+const userGameMap = {};   // Maps userId to the gameId and role they are currently in
 
 // Configure CORS for Express
 // MUST match your frontend Render URL exactly
@@ -499,20 +500,23 @@ const emitLobbyPlayersList = () => {
     console.log(`[emitLobbyPlayersList] Full 'players' array before filtering: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
     console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
 
-    const lobbyPlayers = players.filter(p => {
+    // Modify to send all connected players with their game status
+    const playersWithStatus = players.map(p => {
         const gameMapping = userGameMap[p.userId];
-        // If there's a game mapping, filter out if they are a player.
-        // Observers are still considered in the lobby.
-        if (!gameMapping) {
-            return true; // Not in any game, so they are in the lobby
-        }
-        if (gameMapping.role === 'observer') {
-            return true; // Observers are also considered in the lobby
-        }
-        return false; // Player in an active game, not in lobby
+        return {
+            id: p.id,
+            name: p.name,
+            userId: p.userId, // Include userId for client-side filtering if needed
+            gameId: gameMapping ? gameMapping.gameId : null,
+            role: gameMapping ? gameMapping.role : null,
+            // Optionally add opponent name for players in game
+            opponentName: gameMapping && gameMapping.role === 'player' && games[gameMapping.gameId] 
+                          ? games[gameMapping.gameId].players.find(player => player.userId !== p.userId)?.name 
+                          : null
+        };
     });
-    io.emit("players-list", lobbyPlayers.map(p => ({ id: p.id, name: p.name }))); // Send simplified objects to client
-    console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total lobby players: ${lobbyPlayers.length}. Visible players: ${JSON.stringify(lobbyPlayers.map(p => p.name))}`);
+    io.emit("players-list", playersWithStatus); // Send all players with their status
+    console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total online users: ${playersWithStatus.length}. Visible users: ${JSON.stringify(playersWithStatus.map(p => p.name))}`);
 };
 
 
@@ -1236,18 +1240,10 @@ socket.on("resume-game", async ({ gameId }) => {
       return;
     }
     // Check if either player is already associated with a game (as player or observer)
-    if ((userGameMap[inviterPlayer.userId] && userGameMap[inviterPlayer.userId].role === 'player') || 
-        (userGameMap[invitedPlayer.userId] && userGameMap[invitedPlayer.userId].role === 'player')) {
-        console.warn(`Invite failed: Inviter (${inviterPlayer.name}) or invitee (${invitedPlayer.name}) already in game as a player.`);
+    if (userGameMap[inviterPlayer.userId] || userGameMap[invitedPlayer.userId]) {
+        console.warn(`Invite failed: Inviter (${inviterPlayer.name}) or invitee (${invitedPlayer.name}) already in game.`);
         // Optionally, send a message back to the inviter
         io.to(inviterPlayer.id).emit("invite-rejected", { fromName: invitedPlayer.name, reason: "Player is already in a game." });
-        return;
-    }
-    // Also, if they are observing, they can't be invited to play (or invite)
-    if ((userGameMap[inviterPlayer.userId] && userGameMap[inviterPlayer.userId].role === 'observer') || 
-        (userGameMap[invitedPlayer.userId] && userGameMap[invitedPlayer.userId].role === 'observer')) {
-        console.warn(`Invite failed: Inviter (${inviterPlayer.name}) or invitee (${invitedPlayer.name}) is observing a game.`);
-        io.to(inviterPlayer.id).emit("invite-rejected", { fromName: invitedPlayer.name, reason: "Player is observing a game." });
         return;
     }
 
@@ -1273,21 +1269,12 @@ socket.on("resume-game", async ({ gameId }) => {
     }
 
     // Double check if either player is already in a game (as player or observer)
-    if ((userGameMap[respondingPlayer.userId] && userGameMap[respondingPlayer.userId].role === 'player') || 
-        (userGameMap[inviterPlayer.userId] && userGameMap[inviterPlayer.userId].role === 'player')) {
+    if (userGameMap[respondingPlayer.userId] || userGameMap[inviterPlayer.userId]) {
         console.warn("Respond invite failed: One or both players already in a game.");
         io.to(respondingPlayer.id).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "Already in another game" });
         io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name, reason: "Already in another game" });
         return;
     }
-    if ((userGameMap[respondingPlayer.userId] && userGameMap[respondingPlayer.userId].role === 'observer') || 
-        (userGameMap[inviterPlayer.userId] && userGameMap[inviterPlayer.userId].role === 'observer')) {
-        console.warn("Respond invite failed: One or both players are observing a game.");
-        io.to(respondingPlayer.id).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "Observing a game" });
-        io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name, reason: "Observing a game" });
-        return;
-    }
-
 
     if (accept) {
       const gameId = uuidv4(); // Generate a unique game ID
