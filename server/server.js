@@ -501,12 +501,8 @@ const emitLobbyPlayersList = () => {
 
     const lobbyPlayers = players.filter(p => {
         const gameMapping = userGameMap[p.userId];
-        // If there's a game mapping, check if it's an observer or a player.
-        // Only filter out if they are a player, not an observer, or if the game they are observing has no players.
-        // For lobby, we show players NOT in a game. Observers ARE in the lobby, but also observing.
-        // Let's refine this: players in `userGameMap` are either in a game as a player OR observing.
-        // Lobby players should be those *not* currently actively playing. Observers should be able to see lobby players.
-        // A player is in the lobby if userGameMap[p.userId] is undefined or if they are an observer.
+        // If there's a game mapping, filter out if they are a player.
+        // Observers are still considered in the lobby.
         if (!gameMapping) {
             return true; // Not in any game, so they are in the lobby
         }
@@ -560,9 +556,14 @@ io.on("connection", (socket) => {
                         gameOver: gameData.gameOver,
                         lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile
                         players: [], // Will be populated with proper player objects
-                        observers: gameData.observers || [], // Load observers
                         messages: gameData.messages || [] // Load game chat messages
                     };
+                    
+                    // Filter out players from observers list loaded from Firestore
+                    game.observers = (gameData.observers || []).filter(obs => 
+                        obs.userId !== gameData.player1_userId && obs.userId !== gameData.player2_userId
+                    );
+
 
                     // Find or create player objects for the in-memory game structure
                     let player1 = players.find(p => p.userId === gameData.player1_userId);
@@ -622,7 +623,7 @@ io.on("connection", (socket) => {
                     // --- Handle Observer Reconnection ---
                     else if (role === 'observer') {
                         const observerInGame = game.observers.find(o => o.userId === userId);
-                        if (!observerInGame) { // Add if not found in the loaded list
+                        if (!observerInGame) { // Add if not found in the loaded list (shouldn't happen if Firestore is clean)
                             game.observers.push({ userId, name: userName, socketId: socket.id });
                             doc.ref.update({ observers: FieldValue.arrayUnion({ userId, name: userName }) }); // Update Firestore
                         } else {
@@ -674,7 +675,7 @@ io.on("connection", (socket) => {
                         observers: game.observers
                     });
                     console.log(`Re-sent active game state for game ${gameId} to player ${playerInGame.name}.`);
-                    io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' }); // Notify others in game
+                    io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' }); // Notify other observers
                     if (opponentPlayer && opponentPlayer.socketId) {
                         io.to(opponentPlayer.socketId).emit("opponent-reconnected", { name: playerInGame.name });
                         console.log(`Notified opponent ${opponentPlayer.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
@@ -1004,9 +1005,14 @@ socket.on("resume-game", async ({ gameId }) => {
       gameOver: gameData.gameOver,
       lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null }, // Load lastClickedTile from Firestore
 	  players: [], // Will populate based on who is resuming and who the opponent is
-      observers: gameData.observers || [], // Load observers from Firestore
       messages: gameData.messages || [] // Load game chat messages
     };
+
+    // Filter out players from observers list loaded from Firestore
+    game.observers = (gameData.observers || []).filter(obs => 
+      obs.userId !== gameData.player1_userId && obs.userId !== gameData.player2_userId
+    );
+
 
     // Populate players array for the in-memory game object
     const p1UserId = gameData.player1_userId;
@@ -1144,9 +1150,13 @@ socket.on("resume-game", async ({ gameId }) => {
                 gameOver: gameData.gameOver,
                 lastClickedTile: gameData.lastClickedTile || { 1: null, 2: null },
                 players: [], // Will be populated with proper player objects (from Firestore)
-                observers: gameData.observers || [],
                 messages: gameData.messages || []
             };
+
+            // Filter out players from observers list loaded from Firestore
+            game.observers = (gameData.observers || []).filter(obs => 
+                obs.userId !== gameData.player1_userId && obs.userId !== gameData.player2_userId
+            );
 
             // Populate players for in-memory game from Firestore data
             let player1 = players.find(p => p.userId === gameData.player1_userId);
@@ -1173,7 +1183,7 @@ socket.on("resume-game", async ({ gameId }) => {
         if (existingObserverIndex === -1) {
             game.observers.push(newObserver);
         } else {
-            game.observers[existingObserverIndex].socketId = socket.id; // Update socketId if already observing
+            game.observers[existingObserverIndex].socketId = socket.id; // Update existing observer's socketId
         }
         
         // Update Firestore with the new observer (ensure it's just the userId and name)
