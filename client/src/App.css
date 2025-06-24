@@ -87,7 +87,8 @@ html, body {
 .app-game-container h2,
 .app-game-container p,
 .app-game-container .scores-display,
-.app-game-container .mine-count-display {
+.app-game-container .mine-count-display,
+.app-game-container .observers-list h4 { /* Added observers-list h4 */
   color: #333333; /* Dark gray for text for better readability on white */
 }
 
@@ -403,4 +404,92 @@ html, body {
 
 .send-message-button:hover {
     background-color: #218838;
+}
+
+/* NEW: Styles for observable games section */
+.observable-games-section, .unfinished-games-section {
+    margin-top: 30px;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background-color: #f0f8ff; /* Light blue background */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.observable-games-section h3, .unfinished-games-section h3 {
+    color: #2c3e50; /* Darker heading color */
+    margin-top: 0;
+    margin-bottom: 15px;
+}
+
+.observable-game-list, .unfinished-game-list {
+    list-style: none;
+    padding: 0;
+    max-width: 450px;
+    margin: 0 auto;
+}
+
+.observable-game-item, .unfinished-game-item {
+    background-color: #e6f3ff; /* Lighter blue for items */
+    border: 1px solid #cce7ff;
+    border-radius: 6px;
+    padding: 10px 15px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.95em;
+    color: #34495e;
+}
+
+.observable-game-item:last-child, .unfinished-game-item:last-child {
+    margin-bottom: 0;
+}
+
+.observable-game-item button, .unfinished-game-item button {
+    background-color: #007bff; /* Primary blue for action buttons */
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.observable-game-item button:hover, .unfinished-game-item button:hover {
+    background-color: #0056b3;
+}
+
+/* NEW: Observers List in game view */
+.observers-list {
+  margin-top: 20px;
+  background-color: #e6e6ea; /* Light gray, similar to other-message chat bubble */
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 10px;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+}
+
+.observers-list h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.observers-list ul {
+  list-style: inside;
+  padding-left: 10px;
+  margin: 0;
+  color: #555;
+}
+
+.observers-list li {
+  margin-bottom: 4px;
+}
+
+.observers-list li:last-child {
+  margin-bottom: 0;
 }
