@@ -49,18 +49,6 @@ html, body {
   background: #D0D0D0; /* Slightly darker light gray on hover */
 }
 
-/* NEW: Styles for selected players in 2v2 mode */
-.player-item.player-selected-2v2 {
-    background-color: #aed581; /* Light green for selected players */
-    border-color: #689f38; /* Darker green border */
-    font-weight: bold;
-}
-.player-item.player-self {
-    background-color: #c8e6c9; /* Even lighter green for self, if also selected */
-    font-weight: bold;
-}
-
-
 .invite-popup {
   margin-top: 20px;
   background: #F0F0F0; /* Lighter background */
