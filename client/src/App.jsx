@@ -82,18 +82,25 @@ function App() {
   const [gameId, setGameId] = useState(null);
   const [playerNumber, setPlayerNumber] = useState(null); // 1, 2 for players; 0 for observer
   const [board, setBoard] = useState([]);
-  const [turn, setTurn] = useState(null);
-  const [scores, setScores] = useState({ 1: 0, 2: 0 });
-  const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false });
+  const [turn, setTurn] = useState(null); // This will be the current player whose turn it is (1, 2, 3, or 4)
+  const [scores, setScores] = useState({ 1: 0, 2: 0 }); // Scores for Team 1 and Team 2
+  const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false }); // Bomb used status for Team 1 and Team 2
   const [bombMode, setBombMode] = useState(false); // Backend's waitingForBombCenter
   const [gameOver, setGameOver] = useState(false);
-  const [opponentName, setOpponentName] = useState(""); // Only relevant for players
-  const [invite, setInvite] = useState(null);
+  const [opponentName, setOpponentName] = useState(""); // Only relevant for players (1v1) or first opponent (2v2)
+  const [invite, setInvite] = useState(null); // For 1v1 invites
   const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
   const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
   const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
   const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
   const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
+
+  // NEW: 2v2 Mode States
+  const [is2v2Mode, setIs2v2Mode] = useState(false);
+  const [selectedPartner, setSelectedPartner] = useState(null); // { id: socket.id, name: string, userId: string }
+  const [selectedOpponent1, setSelectedOpponent1] = useState(null); // { id: socket.id, name: string, userId: string }
+  const [selectedOpponent2, setSelectedOpponent2] = useState(null); // { id: socket.id, name: string, userId: string }
+  const [pending2v2Invite, setPending2v2Invite] = useState(null); // To store incoming 2v2 invite details
 
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
@@ -287,6 +294,13 @@ function App() {
               showMessage(`Invitation from ${inviteData.fromName}!`);
             });
 
+            // NEW: Listener for 2v2 game invites
+            socketRef.current.on("2v2-game-invite", (inviteData) => {
+                setPending2v2Invite(inviteData);
+                showMessage(`2v2 Invitation from ${inviteData.inviterName}! You are invited to team ${inviteData.yourTeamNumber}.`);
+            });
+
+
             socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
               showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
             });
@@ -310,6 +324,12 @@ function App() {
               console.log("Frontend: Game started! My player number:", data.playerNumber);
               setUnfinishedGames([]); // Clear unfinished games list once a game starts
               setObservableGames([]); // Clear observable games list once a game starts
+              // Clear 2v2 selection states if a game starts
+              setIs2v2Mode(false);
+              setSelectedPartner(null);
+              setSelectedOpponent1(null);
+              setSelectedOpponent2(null);
+              setPending2v2Invite(null); // Clear any pending 2v2 invites
             });
 
             socketRef.current.on("board-update", (game) => {
@@ -507,6 +527,7 @@ function App() {
         socketRef.current.off("lobby-joined");
         socketRef.current.off("players-list");
         socketRef.current.off("game-invite");
+        socketRef.current.off("2v2-game-invite"); // New cleanup for 2v2 invite
         socketRef.current.off("invite-rejected");
         socketRef.current.off("game-start");
         socketRef.current.off("board-update");
@@ -633,9 +654,104 @@ function App() {
     }
   };
 
+  // NEW: Function to handle selecting players for 2v2 game
+  const handlePlayerSelection2v2 = (player) => {
+    // If selecting partner
+    if (!selectedPartner) {
+        if (player.userId === socketRef.current.request.session?.passport?.user?.id) {
+            showMessage("You cannot be your own partner!", true);
+            return;
+        }
+        setSelectedPartner(player);
+        showMessage(`Selected ${player.name} as your partner.`);
+    } 
+    // If selecting first opponent
+    else if (!selectedOpponent1) {
+        if (player.userId === selectedPartner.userId) {
+            showMessage("This player is already your partner!", true);
+            return;
+        }
+        if (player.userId === socketRef.current.request.session?.passport?.user?.id) {
+            showMessage("You cannot be your own opponent!", true);
+            return;
+        }
+        setSelectedOpponent1(player);
+        showMessage(`Selected ${player.name} as opponent 1.`);
+    } 
+    // If selecting second opponent
+    else if (!selectedOpponent2) {
+        if (player.userId === selectedPartner.userId || player.userId === selectedOpponent1.userId) {
+            showMessage("This player is already selected!", true);
+            return;
+        }
+        if (player.userId === socketRef.current.request.session?.passport?.user?.id) {
+            showMessage("You cannot be your own opponent!", true);
+            return;
+        }
+        setSelectedOpponent2(player);
+        showMessage(`Selected ${player.name} as opponent 2. Ready to send invite!`);
+    }
+  };
+
+  // NEW: Function to send 2v2 invite
+  const send2v2Invite = () => {
+    const myPlayer = playersList.find(p => p.userId === socketRef.current.request.session?.passport?.user?.id);
+    if (!myPlayer) {
+        showMessage("Error: Your player data not found.", true);
+        return;
+    }
+
+    if (selectedPartner && selectedOpponent1 && selectedOpponent2) {
+      const invitees = [
+        selectedPartner.userId,
+        selectedOpponent1.userId,
+        selectedOpponent2.userId,
+      ];
+      socketRef.current.emit("send-2v2-invite", {
+        inviterUserId: myPlayer.userId,
+        inviterName: myPlayer.name,
+        partnerUserId: selectedPartner.userId,
+        partnerName: selectedPartner.name,
+        opponent1UserId: selectedOpponent1.userId,
+        opponent1Name: selectedOpponent1.name,
+        opponent2UserId: selectedOpponent2.userId,
+        opponent2Name: selectedOpponent2.name,
+        inviteeSocketIds: [selectedPartner.id, selectedOpponent1.id, selectedOpponent2.id], // Send socket IDs for direct emit
+      });
+      showMessage("2v2 invitation sent to selected players.");
+      // Clear selection after sending
+      setSelectedPartner(null);
+      setSelectedOpponent1(null);
+      setSelectedOpponent2(null);
+      setIs2v2Mode(false); // Exit 2v2 selection mode
+    } else {
+      showMessage("Please select your partner and both opponents.", true);
+    }
+  };
+
+  // NEW: Function to respond to 2v2 invite
+  const respond2v2Invite = (accept) => {
+    if (pending2v2Invite && socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit("respond-2v2-invite", {
+        gameId: pending2v2Invite.gameId,
+        accept: accept,
+        myTeamNumber: pending2v2Invite.yourTeamNumber, // Send my assigned team number
+      });
+      setPending2v2Invite(null); // Clear the invite
+      setMessage("");
+    } else if (!socketRef.current || !socketRef.current.connected) {
+        showMessage("Not connected to server. Cannot respond to invite.", true);
+    }
+  };
+
+
   const handleClick = (x, y) => {
-    // Only players (playerNumber 1 or 2) can click tiles
+    // Only players (playerNumber 1, 2, 3, or 4) can click tiles
     if (!gameId || gameOver || !socketRef.current || !socketRef.current.connected || playerNumber === 0) return;
+
+    // Determine current team number based on player number
+    const currentTeam = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+    const currentTeamBombUsed = bombsUsed[currentTeam];
 
     // If waiting for bomb center, emit bomb-center event
     if (bombMode) { // bombMode is true when backend sent 'wait-bomb-center'
@@ -677,10 +793,10 @@ function App() {
       setBombMode(false); // Exit bomb selection mode
       setIsBombHighlightActive(false); // Turn off highlighting after selection
       setHighlightedBombArea([]); // Clear highlights
-    } else if (playerNumber === turn && !gameOver) {
+    } else if (playerNumber === turn && !gameOver) { // Player's turn to click a tile
       setMessage("");
       socketRef.current.emit("tile-click", { gameId, x, y });
-    } else if (playerNumber !== turn) {
+    } else if (playerNumber !== turn) { // Not current player's turn
         showMessage("It's not your turn!", true);
     }
   };
@@ -692,9 +808,14 @@ function App() {
         return;
     }
 
-    if (!socketRef.current || !socketRef.current.connected || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
-      if (bombsUsed[playerNumber]) {
-        showMessage("You have already used your bomb!", true);
+    // Determine current team number based on player number
+    const currentTeam = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+    const currentTeamBombUsed = bombsUsed[currentTeam];
+
+
+    if (!socketRef.current || !socketRef.current.connected || !gameId || gameOver || currentTeamBombUsed || playerNumber !== turn) {
+      if (currentTeamBombUsed) {
+        showMessage("Your team has already used its bomb!", true);
       } else if (gameOver) {
         showMessage("Game is over, cannot use bomb.", true);
       } else if (!gameId) {
@@ -708,12 +829,14 @@ function App() {
     }
 
     // Only allow bomb usage if player is behind in score
-    if (scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+    // In 2v2, check team score (scores[1] vs scores[2])
+    const opponentTeam = (currentTeam === 1) ? 2 : 1;
+    if (scores[currentTeam] < scores[opponentTeam]) {
       socketRef.current.emit("use-bomb", { gameId });
       // When 'use-bomb' is emitted, we immediately activate visual highlighting
       setIsBombHighlightActive(true); 
     } else {
-      showMessage("You can only use the bomb when you are behind in score!", true);
+      showMessage("You can only use the bomb when your team is behind in score!", true);
     }
   };
 
@@ -750,6 +873,13 @@ function App() {
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
     setObserversInGame([]); // Clear observers list in game
+
+    // Clear 2v2 related states
+    setIs2v2Mode(false);
+    setSelectedPartner(null);
+    setSelectedOpponent1(null);
+    setSelectedOpponent2(null);
+    setPending2v2Invite(null);
 
     // Request unfinished games and observable games again to refresh the list in the lobby
     if (socketRef.current && socketRef.current.connected) {
@@ -793,6 +923,14 @@ function App() {
       setUnfinishedGames([]);
       setObservableGames([]); // Clear observable games
       setObserversInGame([]); // Clear observers list in game
+
+      // Clear 2v2 related states
+      setIs2v2Mode(false);
+      setSelectedPartner(null);
+      setSelectedOpponent1(null);
+      setSelectedOpponent2(null);
+      setPending2v2Invite(null);
+
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -821,8 +959,10 @@ function App() {
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
     if (tile.isMine) {
-      if (tile.owner === 1) return <span style={{ color: "red" }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴</span>;
+      // For 2v2, player numbers 1,2 are team 1; 3,4 are team 2
+      const teamNumber = (tile.owner === 1 || tile.owner === 2) ? 1 : ( (tile.owner === 3 || tile.owner === 4) ? 2 : null);
+      if (teamNumber === 1) return <span style={{ color: "red" }}>🚩</span>;
+      if (teamNumber === 2) return <span style={{ color: "blue" }}>🏴</span>;
       return "";
     }
     // Corrected: Wrap the number in a span with the appropriate class for coloring
@@ -904,6 +1044,13 @@ function App() {
     );
   }
 
+  // Determine if a player is already selected in 2v2 mode for styling
+  const isPlayerSelected = (player) => {
+    return (selectedPartner && selectedPartner.userId === player.userId) ||
+           (selectedOpponent1 && selectedOpponent1.userId === player.userId) ||
+           (selectedOpponent2 && selectedOpponent2.userId === player.userId);
+  };
+
   return (
     <div className="lobby">
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
@@ -914,32 +1061,109 @@ function App() {
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
             <button onClick={logout} className="bomb-button">Logout</button>
+            
+            <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+                <label>
+                    <input
+                        type="checkbox"
+                        checked={is2v2Mode}
+                        onChange={(e) => {
+                            setIs2v2Mode(e.target.checked);
+                            // Clear 2v2 selections if mode is toggled off
+                            if (!e.target.checked) {
+                                setSelectedPartner(null);
+                                setSelectedOpponent1(null);
+                                setSelectedOpponent2(null);
+                                showMessage("2v2 mode disabled. Selections cleared.");
+                            } else {
+                                showMessage("2v2 mode enabled. Double-click to select partner, then opponents.");
+                            }
+                        }}
+                    />
+                    Enable 2v2 Game Mode
+                </label>
+            </div>
+
+            {is2v2Mode && (
+                <div style={{ marginBottom: '20px', border: '1px solid #ccc', padding: '10px', borderRadius: '8px', background: '#e0f7fa' }}>
+                    <h3>2v2 Setup</h3>
+                    <p>
+                        Partner: <b>{selectedPartner ? selectedPartner.name : "None"}</b><br/>
+                        Opponent 1: <b>{selectedOpponent1 ? selectedOpponent1.name : "None"}</b><br/>
+                        Opponent 2: <b>{selectedOpponent2 ? selectedOpponent2.name : "None"}</b>
+                    </p>
+                    <button 
+                        onClick={send2v2Invite} 
+                        disabled={!selectedPartner || !selectedOpponent1 || !selectedOpponent2 || !isSocketConnected}
+                        className="bomb-button"
+                    >
+                        Send 2v2 Invite
+                    </button>
+                    <button 
+                        onClick={() => {
+                            setSelectedPartner(null);
+                            setSelectedOpponent1(null);
+                            setSelectedOpponent2(null);
+                            showMessage("2v2 selections cleared.");
+                        }}
+                        className="bomb-button"
+                        style={{ marginLeft: '10px', backgroundColor: '#dc3545' }}
+                    >
+                        Clear Selections
+                    </button>
+                </div>
+            )}
+
             {playersList.length === 0 && <p>No other players online</p>}
             <ul className="player-list">
-              {playersList.map((p) => (
-                <li
-                  key={p.id}
-                  className="player-item"
-                  onDoubleClick={() => {
-                    // Only allow inviting if player is not in a game and not self
-                    if (!p.gameId && p.id !== socketRef.current.id) {
-                      invitePlayer(p.id);
-                    } else if (p.id === socketRef.current.id) {
-                      showMessage("You cannot invite yourself.", true);
-                    } else {
-                      showMessage(`${p.name} is currently ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}.`, true);
+              {playersList.map((p) => {
+                const isSelf = p.userId === socketRef.current.request.session?.passport?.user?.id;
+                const canInvite = loggedIn && p.id !== socketRef.current.id && !p.gameId; // Cannot invite self or players already in a game
+                const isPlayerCurrentlySelected = isPlayerSelected(p);
+
+                return (
+                  <li
+                    key={p.id}
+                    className={`player-item 
+                                ${isSelf ? 'player-self' : ''} 
+                                ${isPlayerCurrentlySelected ? 'player-selected-2v2' : ''}`}
+                    onDoubleClick={() => {
+                        if (isSelf) {
+                            showMessage("You cannot interact with yourself in this way.", true);
+                            return;
+                        }
+
+                        if (!canInvite) {
+                            if (p.gameId) {
+                                showMessage(`${p.name} is currently ${p.role === 'player' ? 'in a game' : 'observing a game'}.`, true);
+                            } else {
+                                showMessage("You cannot invite this player.", true); // Should not happen with canInvite check
+                            }
+                            return;
+                        }
+
+                        if (is2v2Mode) {
+                            handlePlayerSelection2v2(p);
+                        } else {
+                            invitePlayer(p.id);
+                        }
+                    }}
+                    title={
+                        isSelf ? "This is you" :
+                        p.gameId ? `${p.name} is ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}` :
+                        is2v2Mode ? "Double-click to select for 2v2" : "Double-click to invite for 1v1"
                     }
-                  }}
-                  title={p.gameId ? `${p.name} is ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}` : "Double-click to invite"}
-                >
-                  {p.name}
-                  {p.gameId && (
-                    <span className={`player-status ${p.role}`}>
-                      {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing: ${p.opponentName})`}
-                    </span>
-                  )}
-                </li>
-              ))}
+                  >
+                    {p.name}
+                    {p.gameId && (
+                      <span className={`player-status ${p.role}`}>
+                        {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing)`}
+                      </span>
+                    )}
+                    {isSelf && <span className="player-self-indicator">(You)</span>}
+                  </li>
+                );
+              })}
             </ul>
             {invite && (
               <div className="invite-popup">
@@ -951,6 +1175,19 @@ function App() {
               </div>
             )}
 
+            {/* NEW: 2v2 Invite Popup */}
+            {pending2v2Invite && (
+                <div className="invite-popup">
+                    <h3>2v2 Game Invitation!</h3>
+                    <p>From: <b>{pending2v2Invite.inviterName}</b></p>
+                    <p>Your Partner: <b>{pending2v2Invite.partnerName}</b></p>
+                    <p>Opponents: <b>{pending2v2Invite.opponent1Name} & {pending2v2Invite.opponent2Name}</b></p>
+                    <p>You are on Team: <b>{pending2v2Invite.yourTeamNumber}</b></p>
+                    <button onClick={() => respond2v2Invite(true)}>Accept</button>
+                    <button onClick={() => respond2v2Invite(false)}>Reject</button>
+                </div>
+            )}
+
             <div className="unfinished-games-section">
                 <h3>Your Unfinished Games</h3>
                 {unfinishedGames.length === 0 ? (
@@ -959,7 +1196,13 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                score: 🔴 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🔵 - Last updated: {game.lastUpdated}
+                                {/* Display score based on gameType (1v1 or 2v2) */}
+                                {game.gameType === '1v1' ? (
+                                    `Score: 🔴 ${game.myPlayerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🔵`
+                                ) : (
+                                    `2v2 Game - Team 1 Score: ${game.scores?.[1] || 0} | Team 2 Score: ${game.scores?.[2] || 0}`
+                                )}
+                                - Last updated: {game.lastUpdated}
                                  <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
@@ -976,7 +1219,12 @@ function App() {
                     <ul className="observable-game-list">
                         {observableGames.map(game => (
                             <li key={game.gameId} className="observable-game-item">
-                                {game.player1Name} vs. {game.player2Name} - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
+                                {game.gameType === '1v1' ? (
+                                    `${game.player1Name} vs. ${game.player2Name}`
+                                ) : (
+                                    `Team 1 (${game.player1Name}, ${game.player2Name}) vs. Team 2 (${game.player3Name}, ${game.player4Name})`
+                                )}
+                                - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
                                 <button onClick={() => observeGame(game.gameId)} className="bomb-button">Observe</button>
                             </li>
                         ))}
@@ -1016,9 +1264,8 @@ function App() {
                 <div className="header">
                     <h1>Minesweeper Flags</h1>
                     {/* Only show 'Use Bomb' button if player, not observer */}
-                    {playerNumber !== 0 && playerNumber &&
-                      !bombsUsed[playerNumber] &&
-                      scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
+                    {playerNumber !== 0 && !bombsUsed[(playerNumber === 1 || playerNumber === 2) ? 1 : 2] &&
+                      scores[(playerNumber === 1 || playerNumber === 2) ? 1 : 2] < scores[((playerNumber === 1 || playerNumber === 2) ? 1 : 2) === 1 ? 2 : 1] &&
                       !gameOver && (
                         <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
                             Use Bomb
@@ -1034,7 +1281,8 @@ function App() {
 
                 <h2>
                     {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                    {playerNumber !== 0 && ` (vs. ${opponentName})`}
+                    {playerNumber !== 0 && ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2})`}
+                    {playerNumber !== 0 && opponentName && ` (vs. ${opponentName})`} {/* Only for 1v1 */}
                 </h2>
                 <p>
                     {playerNumber !== 0 && turn && !gameOver ? `Current turn: Player ${turn}` : ""}
@@ -1042,7 +1290,7 @@ function App() {
                 </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 <p>
-                    Score 🚩 {scores[1]} | 🚩 {scores[2]}
+                    Score 🚩 Team 1: {scores[1]} | 🚩 Team 2: {scores[2]}
                 </p>
 		            {/* Display unrevealed mines count */}
                 <p className="mine-count-display">
@@ -1103,6 +1351,8 @@ function App() {
                               lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
                             } ${
                               lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                            } ${lastClickedTile[3]?.x === x && lastClickedTile[3]?.y === y ? "last-clicked-p1" : "" // Team 1 visual for P3
+                            } ${lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p2" : "" // Team 2 visual for P4
                             } ${isHighlighted ? "highlighted-bomb-area" : "" /* Apply highlight class */
                             }`}
                             onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
