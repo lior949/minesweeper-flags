@@ -1974,14 +1974,25 @@ socket.on("disconnect", async () => {
         // Remove observer's socketId from the in-memory game object
         const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
         if (disconnectedObserverInGame) {
-            disconnectedObserverInGame.socketId = null;
-            console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
+            // Remove from in-memory observers list
+            game.observers = game.observers.filter(o => o.userId !== disconnectedUserId); // <-- MODIFIED LINE
+            console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) removed from in-memory game.observers.`);
+
+            // Remove from Firestore observers list
+            try {
+                // IMPORTANT: Ensure 'FieldValue' is imported from firebase-admin/firestore at the top of your file.
+                // Example: const { FieldValue } = require('firebase-admin/firestore');
+                await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
+                    observers: FieldValue.arrayRemove({ userId: disconnectedUserId, name: disconnectedUserName }) // <-- MODIFIED LINE
+                });
+                console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) removed from Firestore observers.`);
+            } catch (error) {
+                console.error("Error removing observer from Firestore on disconnect:", error);
+            }
         }
-        // Do NOT remove observer from Firestore or game.observers list on disconnect,
-        // just mark their socket as null. They will be removed on explicit 'leave-game' or if game ends.
-        // Or, you could remove them from the in-memory `observers` array if you want to consider them fully gone
-        // until they explicitly observe again, and remove from Firestore too.
-        // For now, let's keep them in the array but with null socketId until they leave or rejoin.
+        // Also remove from userGameMap
+        delete userGameMap[disconnectedUserId]; // <-- MODIFIED LINE
+        console.log(`[Disconnect] User ${disconnectedUserId} removed from userGameMap.`);
 
         // Notify others in the game that an observer left (disconnected)
         io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
