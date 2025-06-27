@@ -303,8 +303,8 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
-              setPlayer1DisplayName(data.player1Name); // NEW: Get Player 1's name
-              setPlayer2DisplayName(data.player2Name); // NEW: Get Player 2's name
+              setPlayer1DisplayName(game.playerNumber === 1 ? name : data.opponentName); // NEW: Get Player 1's name
+              setPlayer2DisplayName(game.playerNumber === 2 ? name : data.opponentName); // NEW: Get Player 2's name
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
@@ -328,8 +328,8 @@ function App() {
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
               setObserversInGame(game.observers || []); // NEW: Update observers list on board update
-              setPlayer1DisplayName(game.player1Name); // NEW: Update Player 1's name
-              setPlayer2DisplayName(game.player2Name); // NEW: Update Player 2's name
+              setPlayer1DisplayName(game.playerNumber === 1 ? name : data.opponentName); // NEW: Get Player 1's name
+              setPlayer2DisplayName(game.playerNumber === 2 ? name : data.opponentName); // NEW: Get Player 2's name
               setMessage("");
             });
 
@@ -413,8 +413,8 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
-              setPlayer1DisplayName(data.player1Name); // NEW: Update Player 1's name
-              setPlayer2DisplayName(data.player2Name); // NEW: Update Player 2's name
+              setPlayer1DisplayName(game.playerNumber === 1 ? name : data.opponentName); // NEW: Get Player 1's name
+              setPlayer2DisplayName(game.playerNumber === 2 ? name : data.opponentName); // NEW: Get Player 2's name
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
@@ -1048,10 +1048,10 @@ function App() {
 
                    
                         <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
-                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{player1DisplayName || "Player 1"}</span>: {scores[1]} 🚩
+                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{player1DisplayName || "Player 1"}: {scores[1]} </span>🚩
                         </p>
                         <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
-                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{player2DisplayName || "Player 2"}</span>: {scores[2]} 🚩
+                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{player2DisplayName || "Player 2"}: {scores[2]} </span>🚩
                         </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 {playerNumber !== 0 && bombMode && <p className="app-message">— Select 5x5 bomb center</p>}
