@@ -91,9 +91,12 @@ function App() {
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
   const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null });
   const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
   const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
+  // NEW: States for player display names (from server's game data)
+  const [player1DisplayName, setPlayer1DisplayName] = useState("");
+  const [player2DisplayName, setPlayer2DisplayName] = useState("");
 
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
@@ -300,6 +303,8 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
+              setPlayer1DisplayName(data.player1Name); // NEW: Get Player 1's name
+              setPlayer2DisplayName(data.player2Name); // NEW: Get Player 2's name
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
@@ -323,6 +328,8 @@ function App() {
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
               setObserversInGame(game.observers || []); // NEW: Update observers list on board update
+              setPlayer1DisplayName(game.player1Name); // NEW: Update Player 1's name
+              setPlayer2DisplayName(game.player2Name); // NEW: Update Player 2's name
               setMessage("");
             });
 
@@ -406,6 +413,8 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
+              setPlayer1DisplayName(data.player1Name); // NEW: Update Player 1's name
+              setPlayer2DisplayName(data.player2Name); // NEW: Update Player 2's name
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
@@ -750,6 +759,9 @@ function App() {
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
     setObserversInGame([]); // Clear observers list in game
+    setPlayer1DisplayName(""); // Clear player names
+    setPlayer2DisplayName(""); // Clear player names
+
 
     // Request unfinished games and observable games again to refresh the list in the lobby
     if (socketRef.current && socketRef.current.connected) {
@@ -793,6 +805,8 @@ function App() {
       setUnfinishedGames([]);
       setObservableGames([]); // Clear observable games
       setObserversInGame([]); // Clear observers list in game
+      setPlayer1DisplayName(""); // Clear player names
+      setPlayer2DisplayName(""); // Clear player names
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -877,8 +891,8 @@ function App() {
   // --- Conditional Rendering based on App State ---
 
   if (!loggedIn) {
-    return (
-      <div className="lobby">
+  return (
+    <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
@@ -902,7 +916,7 @@ function App() {
         </button>
       </div>
     );
-  }
+          }
 
   return (
     <div className="lobby">
@@ -1032,18 +1046,17 @@ function App() {
                     )}
                 </div>
 
-                <h2>
-                    {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                    {playerNumber !== 0 && ` (vs. ${opponentName})`}
-                </h2>
-                <p>
-                    {playerNumber !== 0 && turn && !gameOver ? `Current turn: Player ${turn}` : ""}
-                    {playerNumber !== 0 && bombMode && " — Select 5x5 bomb center"}
-                </p>
+                   
+                        <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
+                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{player1DisplayName || "Player 1"}</span>: {scores[1]} 🚩
+                        </p>
+                        <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
+                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{player2DisplayName || "Player 2"}</span>: {scores[2]} 🚩
+                        </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
-                <p>
-                    Score 🚩 {scores[1]} | 🚩 {scores[2]}
-                </p>
+                {playerNumber !== 0 && bombMode && <p className="app-message">— Select 5x5 bomb center</p>}
+
+
 		            {/* Display unrevealed mines count */}
                 <p className="mine-count-display">
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
