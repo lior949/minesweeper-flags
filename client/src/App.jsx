@@ -91,12 +91,12 @@ function App() {
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
   const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null });
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
   const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
   const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
-  // NEW: States for player display names (from server's game data)
-  const [player1DisplayName, setPlayer1DisplayName] = useState("");
-  const [player2DisplayName, setPlayer2DisplayName] = useState("");
+  // NEW: State to store player names by their player number in the current game
+  const [gamePlayerNames, setGamePlayerNames] = useState({ 1: '', 2: '' });
+
 
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
@@ -303,14 +303,19 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
-              setPlayer1DisplayName(data.player1Name);
-              setPlayer2DisplayName(data.player2Name);
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setGameMessages(data.gameChat || []); // Load initial game messages
               setObserversInGame(data.observers || []); // NEW: Load initial observers
+
+              // Set player names for score display based on their player numbers
+              setGamePlayerNames({
+                1: data.playerNumber === 1 ? name : data.opponentName,
+                2: data.playerNumber === 2 ? name : data.opponentName,
+              });
+
               setMessage("");
               console.log("Frontend: Game started! My player number:", data.playerNumber);
               setUnfinishedGames([]); // Clear unfinished games list once a game starts
@@ -328,8 +333,6 @@ function App() {
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
               setObserversInGame(game.observers || []); // NEW: Update observers list on board update
-              setPlayer1DisplayName(game.player1Name);
-              setPlayer2DisplayName(game.player2Name);
               setMessage("");
             });
 
@@ -413,14 +416,18 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
-              setPlayer1DisplayName(data.player1Name);
-              setPlayer2DisplayName(data.player2Name);
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setGameMessages(data.gameChat || []); // Load cleared game chat messages
               setObserversInGame(data.observers || []); // NEW: Update observers list on restart
+
+              // Set player names for score display based on their player numbers
+              setGamePlayerNames({
+                1: data.playerNumber === 1 ? name : data.opponentName,
+                2: data.playerNumber === 2 ? name : data.opponentName,
+              });
             });
 
             // Chat specific listeners
@@ -759,8 +766,7 @@ function App() {
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
     setObserversInGame([]); // Clear observers list in game
-    setPlayer1DisplayName(""); // Clear player names
-    setPlayer2DisplayName(""); // Clear player names
+    setGamePlayerNames({ 1: '', 2: '' }); // Clear player names for score display
 
 
     // Request unfinished games and observable games again to refresh the list in the lobby
@@ -805,8 +811,8 @@ function App() {
       setUnfinishedGames([]);
       setObservableGames([]); // Clear observable games
       setObserversInGame([]); // Clear observers list in game
-      setPlayer1DisplayName(""); // Clear player names
-      setPlayer2DisplayName(""); // Clear player names
+      setGamePlayerNames({ 1: '', 2: '' }); // Clear player names for score display
+
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -891,8 +897,8 @@ function App() {
   // --- Conditional Rendering based on App State ---
 
   if (!loggedIn) {
-  return (
-    <div className="lobby">
+    return (
+      <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
@@ -916,7 +922,7 @@ function App() {
         </button>
       </div>
     );
-          }
+  }
 
   return (
     <div className="lobby">
@@ -1046,17 +1052,24 @@ function App() {
                     )}
                 </div>
 
-                   
-                        <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
-                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{game.player1DisplayName || "Player 1"}: {scores[1]} </span>🚩
-                        </p>
-                        <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
-                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{data.player2DisplayName || "Player 2"}: {scores[2]} </span>🚩
-                        </p>
+                <h2>
+                    {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
+                    {playerNumber !== 0 && ` (vs. ${opponentName})`}
+                </h2>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
-                {playerNumber !== 0 && bombMode && <p className="app-message">— Select 5x5 bomb center</p>}
-
-
+                
+                {/* Score display logic */}
+                {gameId && gamePlayerNames[1] && gamePlayerNames[2] && (
+                  <div className="score-display">
+                    <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
+                      {gamePlayerNames[1]}: {scores[1]}
+                    </p>
+                    <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
+                      {gamePlayerNames[2]}: {scores[2]}
+                    </p>
+                  </div>
+                )}
+                
 		            {/* Display unrevealed mines count */}
                 <p className="mine-count-display">
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
