@@ -608,6 +608,8 @@ io.on("connection", (socket) => {
                                 turn: game.turn,
                                 scores: game.scores,
                                 bombsUsed: game.bombsUsed,
+				player1Name: game.players[0] ? game.players[0].name : 'Player 1', // Ensure these are sent
+    				player2Name: game.players[1] ? game.players[1].name : 'Player 2', // Ensure these are sent
                                 gameOver: game.gameOver,
                                 lastClickedTile: game.lastClickedTile, // Include lastClickedTile
                                 opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
