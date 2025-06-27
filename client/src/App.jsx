@@ -1,10 +1,10 @@
 // App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
-import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
-import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
-import "./App.css"; // Ensure you have App.css for styling
+// Removed: import GoogleLogin from "./GoogleLogin";
+// Removed: import FacebookLogin from "./FacebookLogin";
+// Removed: import AuthCallback from "./AuthCallback";
+// Removed: import "./App.css"; // CSS will be inlined
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
@@ -57,10 +57,36 @@ function App() {
   // NEW: Determine if this is the OAuth callback window
   const isAuthCallback = window.location.pathname === '/auth/callback';
 
-  // If this is the AuthCallback window, render only the AuthCallback component
-  // and prevent the main App logic from running
+  // If this is the AuthCallback window, handle the logic directly within App
   if (isAuthCallback) {
-    return <AuthCallback />;
+    useEffect(() => {
+      const handleAuthCallback = () => {
+        const hash = window.location.hash;
+        if (hash) {
+          try {
+            const userDataString = decodeURIComponent(hash.substring(1));
+            const userData = JSON.parse(userDataString);
+            if (window.opener) {
+              // Assuming your frontend is served from this origin
+              window.opener.postMessage({ type: 'AUTH_SUCCESS', user: userData }, "https://minesweeper-flags-frontend.onrender.com");
+            }
+          } catch (error) {
+            console.error("Error parsing auth callback hash:", error);
+            if (window.opener) {
+              window.opener.postMessage({ type: 'AUTH_FAILURE', message: 'Failed to parse authentication data.' }, "https://minesweeper-flags-frontend.onrender.com");
+            }
+          }
+        } else {
+            if (window.opener) {
+                window.opener.postMessage({ type: 'AUTH_FAILURE', message: 'No authentication data found.' }, "https://minesweeper-flags-frontend.onrender.com");
+            }
+        }
+        // Always close the pop-up window after processing
+        window.close();
+      };
+      handleAuthCallback();
+    }, []); // Run once on mount for the callback window
+    return <p>Processing authentication...</p>; // Simple message for the pop-up
   }
 
   // If not the AuthCallback window, proceed with the main App logic
@@ -91,9 +117,12 @@ function App() {
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
   const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null });
   const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
   const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
+  // NEW: States for player display names (from server's game data)
+  const [player1DisplayName, setPlayer1DisplayName] = useState("");
+  const [player2DisplayName, setPlayer2DisplayName] = useState("");
 
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
@@ -300,6 +329,8 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
+              setPlayer1DisplayName(data.player1Name); // NEW: Get Player 1's name
+              setPlayer2DisplayName(data.player2Name); // NEW: Get Player 2's name
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
@@ -323,6 +354,8 @@ function App() {
               setHighlightedBombArea([]); // Clear highlights
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
               setObserversInGame(game.observers || []); // NEW: Update observers list on board update
+              setPlayer1DisplayName(game.player1Name); // NEW: Update Player 1's name
+              setPlayer2DisplayName(game.player2Name); // NEW: Update Player 2's name
               setMessage("");
             });
 
@@ -406,6 +439,8 @@ function App() {
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
               setOpponentName(data.opponentName); // N/A for observers
+              setPlayer1DisplayName(data.player1Name); // NEW: Update Player 1's name
+              setPlayer2DisplayName(data.player2Name); // NEW: Update Player 2's name
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
@@ -750,6 +785,9 @@ function App() {
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
     setObserversInGame([]); // Clear observers list in game
+    setPlayer1DisplayName(""); // Clear player names
+    setPlayer2DisplayName(""); // Clear player names
+
 
     // Request unfinished games and observable games again to refresh the list in the lobby
     if (socketRef.current && socketRef.current.connected) {
@@ -793,6 +831,8 @@ function App() {
       setUnfinishedGames([]);
       setObservableGames([]); // Clear observable games
       setObserversInGame([]); // Clear observers list in game
+      setPlayer1DisplayName(""); // Clear player names
+      setPlayer2DisplayName(""); // Clear player names
     } catch (err) {
       console.error("Logout failed", err);
       showMessage("Logout failed. Please try again.", true);
@@ -876,40 +916,345 @@ function App() {
 
   // --- Conditional Rendering based on App State ---
 
-  if (!loggedIn) {
-    return (
-      <div className="lobby">
-        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
-        <h2>Login or Play as Guest</h2>
-        <GoogleLogin
-          onLogin={(googleName) => {
-            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
-            // No direct socket.emit("join-lobby") here anymore.
-            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
-            console.log("Google Login completed via pop-up callback. State will update.");
-          }}
-        />
-		    <FacebookLogin
-          onLogin={(facebookName) => {
-            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
-            // No direct socket.emit("join-lobby") here anymore.
-            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
-            console.log("Facebook Login completed via pop-up callback. State will update.");
-          }}
-        />
-        <button className="guest-login-button" onClick={loginAsGuest}>
-          Play as Guest
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="lobby">
+      {/* Inlined CSS for App.css */}
+      <style>
+        {`
+          body {
+              font-family: 'Inter', sans-serif;
+              margin: 0;
+              background-color: #f0f2f5;
+              color: #333;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              overflow: auto; /* Allow scrolling for content that exceeds viewport */
+          }
+
+          .lobby, .app-game-container {
+              background-color: #fff;
+              padding: 30px;
+              border-radius: 12px;
+              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+              text-align: center;
+              max-width: 90%;
+              width: 100%;
+              box-sizing: border-box;
+              margin: 20px auto; /* Center with margin */
+          }
+
+          h1, h2, h3, h4 {
+              color: #2c3e50;
+              margin-bottom: 15px;
+          }
+
+          button {
+              background-color: #3498db;
+              color: white;
+              border: none;
+              padding: 10px 20px;
+              border-radius: 8px;
+              cursor: pointer;
+              font-size: 1em;
+              transition: background-color 0.3s ease, transform 0.2s ease;
+              margin: 5px;
+              box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+          }
+
+          button:hover {
+              background-color: #2980b9;
+              transform: translateY(-2px);
+          }
+
+          button:disabled {
+              background-color: #cccccc;
+              cursor: not-allowed;
+              box-shadow: none;
+              transform: none;
+          }
+
+          .player-list, .unfinished-game-list, .observable-game-list {
+              list-style: none;
+              padding: 0;
+              margin-top: 20px;
+              max-height: 200px;
+              overflow-y: auto;
+              border: 1px solid #eee;
+              border-radius: 8px;
+              background-color: #f9f9f9;
+          }
+
+          .player-item, .unfinished-game-item, .observable-game-item {
+              padding: 10px 15px;
+              border-bottom: 1px solid #eee;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              font-size: 1.1em;
+              color: #555;
+          }
+
+          .player-item:last-child, .unfinished-game-item:last-child, .observable-game-item:last-child {
+              border-bottom: none;
+          }
+
+          .player-status {
+            font-size: 0.85em;
+            margin-left: 10px;
+            padding: 3px 8px;
+            border-radius: 5px;
+            color: white;
+          }
+
+          .player-status.player {
+            background-color: #28a745; /* Green for players */
+          }
+
+          .player-status.observer {
+            background-color: #ffc107; /* Orange/Yellow for observers */
+            color: #333;
+          }
+
+
+          .invite-popup {
+              background-color: #ecf0f1;
+              border: 1px solid #bdc3c7;
+              padding: 20px;
+              border-radius: 10px;
+              margin-top: 20px;
+              display: inline-block; /* To contain children */
+          }
+
+          .grid {
+              display: grid;
+              border: 2px solid #333;
+              margin: 20px auto;
+              background-color: #bbb;
+              box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+              width: fit-content; /* Ensure grid fits its content */
+              border-radius: 8px;
+              overflow: hidden; /* For rounded corners to apply to tiles */
+          }
+
+          .tile {
+              width: 40px;
+              height: 40px;
+              background-color: #7f8c8d; /* Unrevealed */
+              border: 1px solid #95a5a6;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              font-size: 1.2em;
+              font-weight: bold;
+              cursor: pointer;
+              transition: background-color 0.1s ease;
+              box-sizing: border-box; /* Include padding and border in the element's total width and height */
+          }
+
+          .tile.hidden:hover {
+              background-color: #616a6b;
+          }
+
+          .tile.revealed {
+              background-color: #ecf0f1; /* Revealed */
+              cursor: default;
+          }
+
+          .tile.mine {
+              background-color: #e74c3c; /* Mine */
+          }
+
+          /* Number colors */
+          .number-1 { color: #0000ff; } /* Blue */
+          .number-2 { color: #008000; } /* Green */
+          .number-3 { color: #ff0000; } /* Red */
+          .number-4 { color: #000080; } /* Dark Blue */
+          .number-5 { color: #800000; } /* Maroon */
+          .number-6 { color: #008080; } /* Teal */
+          .number-7 { color: #000000; } /* Black */
+          .number-8 { color: #808080; } /* Gray */
+
+          .last-clicked-p1 {
+            border: 2px solid yellow; /* Highlight for player 1's last click */
+            box-shadow: 0 0 5px yellow;
+          }
+
+          .last-clicked-p2 {
+            border: 2px solid orange; /* Highlight for player 2's last click */
+            box-shadow: 0 0 5px orange;
+          }
+
+          /* New class for bomb area highlighting */
+          .highlighted-bomb-area {
+              background-color: rgba(255, 255, 0, 0.5); /* Semi-transparent yellow highlight */
+              border: 1px dashed yellow;
+          }
+          .highlighted-bomb-area.revealed {
+              background-color: #ecf0f1; /* Keep revealed tiles light */
+              border: 1px solid #95a5a6; /* Standard border */
+          }
+          .highlighted-bomb-area.mine {
+              background-color: #e74c3c; /* Keep mine background if it's also a mine */
+          }
+          .mine-count-display {
+            font-size: 1.2em;
+            margin-top: 10px;
+          }
+
+          .observers-list {
+            margin-top: 20px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+          }
+
+          .observers-list h4 {
+            margin-top: 0;
+            color: #34495e;
+          }
+
+          .observers-list ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+          }
+
+          .observers-list li {
+            background-color: #dbe4f0;
+            border-radius: 5px;
+            padding: 5px 10px;
+            margin: 5px;
+            font-size: 0.9em;
+            color: #2c3e50;
+            white-space: nowrap; /* Prevent names from wrapping */
+          }
+
+          .chat-container {
+              border: 1px solid #ddd;
+              border-radius: 8px;
+              padding: 15px;
+              margin-top: 20px;
+              background-color: #fefefe;
+              box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+              display: flex;
+              flex-direction: column;
+              height: 300px; /* Fixed height for chat display */
+          }
+
+          .messages-display {
+              flex-grow: 1;
+              overflow-y: auto;
+              margin-bottom: 10px;
+              padding-right: 5px; /* For scrollbar space */
+          }
+
+          .message {
+              padding: 8px 10px;
+              margin-bottom: 5px;
+              border-radius: 5px;
+              text-align: left;
+              word-wrap: break-word; /* Ensure long words wrap */
+          }
+
+          .message.my-message {
+              background-color: #dcf8c6; /* Light green for my messages */
+              align-self: flex-end; /* Align to the right for my messages */
+          }
+
+          .message.other-message {
+              background-color: #e6e6e6; /* Light gray for other messages */
+              align-self: flex-start; /* Align to the left for other messages */
+          }
+
+          .timestamp {
+              font-size: 0.75em;
+              color: #777;
+              margin-left: 8px;
+          }
+
+          .message-input-form {
+              display: flex;
+              gap: 10px;
+          }
+
+          .message-input {
+              flex-grow: 1;
+              padding: 10px;
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              font-size: 1em;
+          }
+
+          .send-message-button {
+              padding: 10px 15px;
+              flex-shrink: 0;
+          }
+
+          .unfinished-games-section, .observable-games-section {
+            margin-top: 20px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+          }
+
+          .unfinished-game-list, .observable-game-list {
+            max-height: 150px;
+            margin-top: 10px;
+          }
+
+          /* Responsive adjustments */
+          @media (max-width: 768px) {
+              .lobby, .app-game-container {
+                  padding: 20px;
+                  margin: 10px auto;
+              }
+
+              .grid {
+                  width: 100%; /* Make grid full width on smaller screens */
+                  overflow-x: auto; /* Allow horizontal scrolling if grid is too wide */
+              }
+
+              .tile {
+                  width: 30px; /* Smaller tiles on small screens */
+                  height: 30px;
+                  font-size: 1em;
+              }
+
+              .message-input-form {
+                  flex-direction: column;
+                  gap: 5px;
+              }
+
+              .send-message-button {
+                  width: 100%;
+              }
+          }
+        `}
+      </style>
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
-	    {!gameId && ( // Only show lobby elements if not in a game
+	    {!loggedIn ? (
+        <div className="lobby">
+          <h2>Login or Play as Guest</h2>
+          {/* Inlined Google Login Button */}
+          <button className="google-login-button" onClick={() => window.open("https://minesweeper-flags-backend.onrender.com/auth/google", "_blank", "width=500,height=600")}>
+              Login with Google
+          </button>
+          {/* Inlined Facebook Login Button */}
+          <button className="facebook-login-button" onClick={() => window.open("https://minesweeper-flags-backend.onrender.com/auth/facebook", "_blank", "width=500,height=600")}>
+              Login with Facebook
+          </button>
+          <button className="guest-login-button" onClick={loginAsGuest}>
+            Play as Guest
+          </button>
+        </div>
+      ) : !gameId ? ( // Only show lobby elements if not in a game
             <>
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
@@ -1009,9 +1354,7 @@ function App() {
             </div>
 
 		      </>
-)}
-
-        {gameId && (
+) : ( // Render game content if gameId is set
             <div className="app-game-container">
                 <div className="header">
                     <h1>Minesweeper Flags</h1>
@@ -1032,18 +1375,22 @@ function App() {
                     )}
                 </div>
 
-                <h2>
-                    {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                    {playerNumber !== 0 && ` (vs. ${opponentName})`}
-                </h2>
-                <p>
-                    {playerNumber !== 0 && turn && !gameOver ? `Current turn: Player ${turn}` : ""}
-                    {playerNumber !== 0 && bombMode && " — Select 5x5 bomb center"}
-                </p>
+                {playerNumber === 0 ? (
+                    <h2>You are Observing</h2>
+                ) : (
+                    <>
+                        <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
+                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{player1DisplayName || "Player 1"}</span>: {scores[1]} 🚩
+                        </p>
+                        <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
+                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{player2DisplayName || "Player 2"}</span>: {scores[2]} 🚩
+                        </p>
+                    </>
+                )}
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
-                <p>
-                    Score 🚩 {scores[1]} | 🚩 {scores[2]}
-                </p>
+                {playerNumber !== 0 && bombMode && <p className="app-message">— Select 5x5 bomb center</p>}
+
+
 		            {/* Display unrevealed mines count */}
                 <p className="mine-count-display">
                     Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
