@@ -1048,10 +1048,10 @@ function App() {
 
                    
                         <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
-                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{player1DisplayName || "Player 1"}: {scores[1]} </span>🚩
+                            <span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{game.player1DisplayName || "Player 1"}: {scores[1]} </span>🚩
                         </p>
                         <p style={{ fontWeight: 'bold', margin: '5px 0' }}>
-                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{player2DisplayName || "Player 2"}: {scores[2]} </span>🚩
+                            <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{data.player2DisplayName || "Player 2"}: {scores[2]} </span>🚩
                         </p>
                 {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
                 {playerNumber !== 0 && bombMode && <p className="app-message">— Select 5x5 bomb center</p>}
