@@ -754,7 +754,8 @@ function App() {
           fromId: invite.fromId,
           accept,
           gameType: invite.gameType,
-          gameRoster: invite.gameRoster // NEW: Pass the full gameRoster back
+          gameRoster: invite.gameRoster, // NEW: Pass the full gameRoster back
+		  inviteId: invite.inviteId // ADD THIS LINE
       });
       setInvite(null);
       setMessage("");
