@@ -1385,12 +1385,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             gameType: gameType,
             gameRoster: gameRoster // NEW: Send the full roster
         });
-        io.to(inviterPlayer.id).emit("game-invite", {
-            fromId: inviterPlayer.id,
-            fromName: inviterPlayer.name,
-            gameType: gameType,
-            gameRoster: gameRoster // NEW: Send the full roster to inviter too
-        });
+        // Removed the line that sends an invite back to the inviter
         console.log(`Invite sent from ${inviterPlayer.name} to ${invitedPlayer.name} for ${gameType} game.`);
 
     } else if (gameType === '2v2') {
@@ -1445,8 +1440,8 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         };
         console.log(`Created pending 2v2 invite ${inviteId}:`, pending2v2Invites[inviteId]);
 
-        // Send this full gameRoster and inviteId to all involved players
-        gameRoster.forEach(p => {
+        // Send this full gameRoster and inviteId to all involved players *except the inviter*
+        gameRoster.filter(p => p.userId !== inviterUserId).forEach(p => {
             io.to(p.socketId).emit("game-invite", {
                 fromId: inviterPlayer.id,
                 fromName: inviterPlayer.name,
@@ -1457,6 +1452,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             });
             console.log(`Invite sent from ${inviterPlayer.name} to ${p.name} for ${gameType} game with inviteId ${inviteId}.`);
         });
+        // Notify the inviter that the invite has been sent. This is not a "game-invite" event.
+        io.to(inviterPlayer.id).emit("invite-sent-acknowledgment", { gameType: gameType, inviteId: inviteId, invitedPlayers: gameRoster.filter(p => p.userId !== inviterUserId).map(p => p.name) });
+
     } else {
         console.warn(`Invite failed: Unknown game type ${gameType}.`);
         io.to(inviterPlayer.id).emit("invite-rejected", { fromName: "Server", reason: "Unknown game type." });
