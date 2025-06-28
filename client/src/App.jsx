@@ -1033,114 +1033,120 @@ function App() {
 
         {gameId && (
             <div className="app-game-container">
-                <div className="header">
-                    <h1>Minesweeper Flags</h1>
-                    {/* Only show 'Use Bomb' button if player, not observer */}
-                    {playerNumber !== 0 && playerNumber &&
-                      !bombsUsed[playerNumber] &&
-                      scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
-                      !gameOver && (
-                        <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
-                            Use Bomb
-                        </button>
-                      )}
-                    {/* Display Cancel Bomb button if bombMode is active for selection (only for players) */}
-                    {playerNumber !== 0 && bombMode && (
-                      <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
-                          Cancel Bomb
-                      </button>
-                    )}
-                </div>
+                {/* Game notifications moved to the very top */}
+                {message && <p className="app-message" style={{ color: message.includes("Error") ? 'red' : 'green', fontWeight: 'bold' }}>{message}</p>}
 
-                <h2>
-                    {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                    {playerNumber !== 0 && ` (vs. ${opponentName})`}
-                </h2>
-                {message && <p className="app-message" style={{ color: 'red', fontWeight: 'bold' }}>{message}</p>}
-                
-                {/* Score display logic */}
-                {gameId && gamePlayerNames[1] && gamePlayerNames[2] && (
-                  <div className="score-display">
-                    <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
-                      {gamePlayerNames[1]}: {scores[1]}
-                    </p>
-                    <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
-                      {gamePlayerNames[2]}: {scores[2]}
-                    </p>
-                  </div>
-                )}
-                
-		            {/* Display unrevealed mines count */}
-                <p className="mine-count-display">
-                    Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
-                </p>
+                <div className="game-layout-flex"> {/* New flex container for central content and observers */}
+                    <div className="game-central-content"> {/* New wrapper for main game elements */}
+                        <div className="header">
+                            <h1>Minesweeper Flags</h1>
+                            {/* Only show 'Use Bomb' button if player, not observer */}
+                            {playerNumber !== 0 && playerNumber &&
+                              !bombsUsed[playerNumber] &&
+                              scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
+                              !gameOver && (
+                                <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
+                                    Use Bomb
+                                </button>
+                              )}
+                            {/* Display Cancel Bomb button if bombMode is active for selection (only for players) */}
+                            {playerNumber !== 0 && bombMode && (
+                              <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
+                                  Cancel Bomb
+                              </button>
+                            )}
+                        </div>
 
-                {/* List of observers in the game */}
-                {observersInGame.length > 0 && (
-                  <div className="observers-list">
-                    <h4>Observers:</h4>
-                    <ul>
-                      {observersInGame.map((obs, index) => (
-                        <li key={index}>{obs.name}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-
-		            {/* Back to Lobby button always visible when in game */}
-                <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
-                    Back to Lobby
-                </button>
-
-                {gameOver && playerNumber !== 0 && ( // Only players can restart
-                    <>
-                        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
-                            Restart Game
-                        </button>
-                    </>
-                )}
-                {gameOver && playerNumber === 0 && ( // Observer sees game over message
-                    <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
-                )}
-
-
-                <div
-                    className="grid"
-                    style={{
-                      gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
-                    }}
-                    // Only attach mouse events for players in bomb mode
-                    onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
-                    onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
-                >
-                    {board.flatMap((row, y) =>
-                      row.map((tile, x) => {
-                        // Check if the current tile is part of the highlighted bomb area
-                        const isHighlighted = highlightedBombArea.some(
-                            (coord) => coord.x === x && coord.y === y
-                        );
-                        return (
-                          <div
-                            key={`${x}-${y}`}
-                            className={`tile ${
-                              tile.revealed ? "revealed" : "hidden"
-                            } ${tile.isMine && tile.revealed ? "mine" : ""} ${
-                              lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
-                            } ${
-                              lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
-                            } ${isHighlighted ? "highlighted-bomb-area" : "" /* Apply highlight class */
-                            }`}
-                            onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
-                          >
-                            {renderTile(tile)}
+                        <h2>
+                            {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
+                            {playerNumber !== 0 && ` (vs. ${opponentName})`}
+                        </h2>
+                        
+                        {/* Score display logic */}
+                        {gameId && gamePlayerNames[1] && gamePlayerNames[2] && (
+                          <div className="score-display">
+                            <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
+                              {gamePlayerNames[1]}: {scores[1]}
+                            </p>
+                            <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
+                              {gamePlayerNames[2]}: {scores[2]}
+                            </p>
                           </div>
-                        );
-                      })
-                    )}
-                </div>
+                        )}
+                        
+                        {/* Display unrevealed mines count */}
+                        <p className="mine-count-display">
+                            Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
+                        </p>
 
-                {/* Game Chat Section */}
+                        {/* Game control buttons */}
+                        <div className="game-control-buttons">
+                            <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
+                                Back to Lobby
+                            </button>
+
+                            {gameOver && playerNumber !== 0 && ( // Only players can restart
+                                <>
+                                    <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
+                                        Restart Game
+                                    </button>
+                                </>
+                            )}
+                            {gameOver && playerNumber === 0 && ( // Observer sees game over message
+                                <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
+                            )}
+                        </div>
+
+                        <div
+                            className="grid"
+                            style={{
+                              gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
+                            }}
+                            // Only attach mouse events for players in bomb mode
+                            onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
+                            onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
+                        >
+                            {board.flatMap((row, y) =>
+                              row.map((tile, x) => {
+                                // Check if the current tile is part of the highlighted bomb area
+                                const isHighlighted = highlightedBombArea.some(
+                                    (coord) => coord.x === x && coord.y === y
+                                );
+                                return (
+                                  <div
+                                    key={`${x}-${y}`}
+                                    className={`tile ${
+                                      tile.revealed ? "revealed" : "hidden"
+                                    } ${tile.isMine && tile.revealed ? "mine" : ""} ${
+                                      lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
+                                    } ${
+                                      lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                                    } ${isHighlighted ? "highlighted-bomb-area" : "" /* Apply highlight class */
+                                    }`}
+                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
+                                  >
+                                    {renderTile(tile)}
+                                  </div>
+                                );
+                              })
+                            )}
+                        </div>
+                    </div> {/* End of game-central-content */}
+
+                    {/* List of observers in the game - now in a sidebar-like position */}
+                    {observersInGame.length > 0 && (
+                      <div className="observers-list-sidebar"> {/* New class for styling */}
+                        <h4>Observers:</h4>
+                        <ul>
+                          {observersInGame.map((obs, index) => (
+                            <li key={index}>{obs.name}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                </div> {/* End of game-layout-flex */}
+
+                {/* Game Chat Section remains at the bottom */}
                 <div className="game-chat-container chat-container">
                   <h3>Game Chat</h3>
                   <div className="messages-display">
