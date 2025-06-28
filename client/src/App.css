@@ -77,28 +77,27 @@ html, body {
 
 .header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column; /* Stack items vertically in header */
+  align-items: center; /* Center items horizontally */
+  gap: 10px; /* Space between header items */
   margin-bottom: 10px;
 }
 
-/* Specific styling for elements within the game container */
+.game-title {
+    margin-top: 0;
+    margin-bottom: 5px;
+    color: #333333;
+}
+
+/* Specific styling for elements within the game container (general text color) */
 .app-game-container h1,
 .app-game-container h2,
 .app-game-container p,
 .app-game-container .scores-display,
 .app-game-container .mine-count-display,
-.app-game-container .observers-list h4 { /* Added observers-list h4 */
+.app-game-container .observers-list h4 {
   color: #333333; /* Dark gray for text for better readability on white */
 }
-
-.app-game-container .app-message {
-  color: red; /* Keep error messages red */
-}
-.app-game-container .app-message[style*="color: green"] {
-  color: green; /* Keep success messages green (ensure contrast) */
-}
-
 
 .bomb-button {
   background-color: #aa3333;
@@ -109,6 +108,7 @@ html, body {
   border-radius: 6px;
   cursor: pointer;
   transition: background-color 0.2s;
+  margin: 5px; /* Add some margin around buttons */
 }
 
 .bomb-button:disabled {
@@ -120,12 +120,34 @@ html, body {
   background-color: #cc4444;
 }
 
+/* Global app message style (used in lobby) */
 .app-message {
-  color: red;
+  padding: 8px;
+  border-radius: 8px;
+  background-color: #e0ffe0; /* Light green background for general messages */
+  border: 1px solid #aaddaa; /* Green border */
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  font-size: 1.1em;
   font-weight: bold;
-  margin-top: 5px;
-  margin-bottom: 5px;
+  color: #333; /* Default text color */
+  text-align: center; /* Ensure it's centered */
+  margin: 10px auto; /* Center in lobby */
+  max-width: 600px; /* Limit width */
 }
+
+/* Specific style for error messages */
+.app-message[style*="color: red"] {
+    background-color: #ffe0e0; /* Light red background */
+    border-color: #ddaaaa; /* Red border */
+    color: red; /* Ensure error message color is red */
+}
+/* Specific style for success messages */
+.app-message[style*="color: green"] {
+    background-color: #e0ffe0; /* Light green background */
+    border-color: #aaddaa; /* Green border */
+    color: green; /* Ensure success message color is green */
+}
+
 
 .grid {
   display: grid;
@@ -147,7 +169,6 @@ html, body {
   font-weight: bold;
   cursor: pointer;
   border-radius: 4px; /* Slightly rounded corners for tiles */
-  /* Removed general transition from here */
   box-sizing: border-box; /* Include padding and border in the element's total width and height */
 }
 
@@ -155,7 +176,6 @@ html, body {
   background-color: #ADD8E6; /* Changed to Light Blue */
   border: 2px solid #87CEEB; /* Sky Blue border */
   color: transparent; /* Hide text until revealed */
-  /* Added transition specifically for the hidden state */
   transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
@@ -164,13 +184,12 @@ html, body {
   border-color: #A0D0F0; /* Slightly lighter border on hover */
 }
 
-/* NEW: More specific rule for revealed tiles */
-.app-game-container .tile.revealed {
+/* More specific rule for revealed tiles */
+.tile.revealed {
   background-color: #FFFF00; /* Changed to yellow */
   border: 1px solid #CCC; /* Lighter border on yellow */
   color: #333; /* Darker text color for better contrast on yellow */
-  /* Ensure no transition applies when it becomes revealed, for instant change */
-  transition: none;
+  transition: none; /* No transition on reveal for instant change */
 }
 
 /* Colors for adjacent mine numbers */
@@ -209,9 +228,9 @@ html, body {
   margin-right: 10px;
 }
 
-/* Base styles for Google Login component (if any specific styling is needed) */
+/* Base styles for Facebook Login component */
 .facebook-login-button {
-  background-color: #4285f4;
+  background-color: #1877f2; /* Facebook blue */
   color: white;
   padding: 10px 20px;
   border: none;
@@ -227,7 +246,7 @@ html, body {
 }
 
 .facebook-login-button:hover {
-  background-color: #357ae8;
+  background-color: #166fe5; /* Darker Facebook blue */
 }
 
 .facebook-icon {
@@ -247,8 +266,6 @@ html, body {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   transition: background-color 0.3s ease;
 }
-
-
 
 .guest-login-button:hover {
   background-color: #455a64;
@@ -276,7 +293,7 @@ html, body {
     box-shadow: 0 0 10px rgba(255, 69, 0, 0.7); /* Changed to OrangeRed glow */
 }
 
-/* NEW: Styles for last clicked tile highlighting */
+/* Styles for last clicked tile highlighting */
 .tile.last-clicked-p1 {
     background-color: #FFA07A; /* Light Salmon, softer red */
     border: 2px solid #FF6347; /* Tomato, a vibrant red */
@@ -301,7 +318,6 @@ html, body {
     0% { box-shadow: 0 0 8px rgba(0, 0, 255, 0.6); }
     100% { box-shadow: 0 0 15px rgba(0, 0, 255, 1); }
 }
-
 
 
 .unfinished-game-item button:hover {
@@ -376,6 +392,22 @@ html, body {
     margin-top: 2px; /* Small space between text and timestamp */
     display: block; /* Ensure timestamp is on its own line */
 }
+
+/* NEW: Style for server messages in chat */
+.message.error-message {
+    background-color: #ffcccc; /* Light red for server errors */
+    border: 1px solid #ff9999;
+    color: #cc0000;
+    font-weight: bold;
+}
+.message.server-message { /* General server messages */
+    background-color: #e0f2f7; /* Light blueish for server messages */
+    border: 1px solid #b3e0ed;
+    color: #007bff;
+    font-style: italic;
+    text-align: center;
+}
+
 
 .message-input-form {
     display: flex;
@@ -462,15 +494,17 @@ html, body {
 
 /* NEW: Observers List in game view */
 .observers-list {
-  margin-top: 20px;
   background-color: #e6e6ea; /* Light gray, similar to other-message chat bubble */
   border: 1px solid #ccc;
   border-radius: 8px;
   padding: 10px;
-  max-width: 300px;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: none; /* Allow it to stretch in its grid cell */
+  margin: 0; /* Remove auto margins as grid handles centering */
   text-align: left;
+  box-sizing: border-box; /* Include padding/border in width */
+  flex-shrink: 0; /* Prevent shrinking when space is tight */
+  max-height: 300px; /* Limit height and make scrollable, slightly less than chat for visual differentiation */
+  overflow-y: auto;
 }
 
 .observers-list h4 {
@@ -492,4 +526,175 @@ html, body {
 
 .observers-list li:last-child {
   margin-bottom: 0;
+}
+
+/* --- NEW GAME LAYOUT CSS --- */
+
+.app-game-container {
+    display: flex; /* Use flex to center the grid wrapper */
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 10px;
+    box-sizing: border-box;
+    position: relative; /* For general positioning context */
+}
+
+.game-layout-grid {
+    display: grid;
+    /* Define 3 columns: left sidebar, board, right sidebar/empty */
+    /* And two rows: top row for game elements, bottom row for chats/observers */
+    grid-template-columns: 200px 1fr 300px; /* Left sidebar, flexible board, right sidebar */
+    grid-template-rows: auto 350px; /* Top row auto height, bottom row fixed height for panels */
+    gap: 20px; /* Gap between grid items */
+    width: 100%;
+    max-width: 1200px; /* Overall max width for the grid */
+    flex-grow: 1; /* Allow it to take up available vertical space */
+    align-items: start; /* Align grid items to the start (top) of their cells */
+    margin-top: 20px; /* Space from the top of the app container */
+}
+
+/* Positioning for top row elements */
+.left-sidebar {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+}
+
+.game-board-area {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-grow: 1; /* Allows the board area to take central space */
+    flex-shrink: 0; /* Prevent board from shrinking */
+    min-width: 670px; /* Adjusted to accommodate 16 tiles * 40px + 15 * 2px (gaps) */
+    position: relative; /* For centering the grid using absolute position */
+}
+
+/* Ensure the grid itself remains centered within its parent using absolute positioning */
+.game-board-area .grid {
+    position: absolute; /* Take it out of normal flow */
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%); /* Center perfectly */
+    margin: 0; /* Remove any default margins */
+}
+
+.right-sidebar {
+    grid-column: 3 / 4;
+    grid-row: 1 / 2;
+    /* This sidebar is now effectively empty of content, styling as a flex container */
+    display: flex; /* Keep it as a flex container even if empty */
+    flex-direction: column;
+    align-items: center;
+    padding: 15px;
+    border-radius: 10px;
+    background-color: #f0f0f0;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-sizing: border-box;
+    flex-shrink: 0;
+    min-height: 100px; /* Ensure it occupies some space */
+}
+
+
+/* Styling for the bottom panels */
+.game-bottom-panel {
+    display: flex;
+    flex-direction: column; /* Content inside panels stacks vertically */
+    align-items: center; /* Center content horizontally within each panel */
+    padding: 15px; /* Consistent padding with sidebars */
+    border-radius: 10px;
+    background-color: #f0f0f0;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-sizing: border-box;
+    overflow-y: auto; /* Allow scrolling for chat/observers if content overflows */
+    height: 100%; /* Take full height of grid row */
+}
+
+/* Positioning for bottom row elements (chats and observers) */
+.observer-list-panel {
+    grid-column: 1 / 2; /* Left column of bottom row */
+    grid-row: 2 / 3;
+}
+
+.game-chat-panel {
+    grid-column: 2 / 3; /* Middle column of bottom row */
+    grid-row: 2 / 3;
+}
+
+.server-chat-panel {
+    grid-column: 3 / 4; /* Right column of bottom row */
+    grid-row: 2 / 3;
+}
+
+/* Ensure chat containers fill their new grid cells and override previous auto margins */
+.game-chat-container, .server-chat-container {
+    width: 100%; /* Fill the horizontal space of its parent panel */
+    margin: 0; /* Remove default auto margin as parent panel handles it */
+    max-width: none; /* Override previous max-width if any */
+    height: 100%; /* Fill the vertical space of its parent panel */
+}
+
+
+/* Adjust responsive for mobile stacking */
+@media (max-width: 1024px) {
+    .game-layout-grid {
+        grid-template-columns: 1fr; /* Single column */
+        /* Stack all panels vertically: Left, Board, Right (hidden), Observers, Game Chat, Server Chat */
+        grid-template-rows: auto auto auto auto auto auto;
+        justify-items: center; /* Center items in the single column */
+    }
+
+    .left-sidebar {
+        grid-column: 1 / 2;
+        grid-row: 1 / 2;
+        width: 90%; /* Adjust width for mobile */
+        max-width: 400px;
+    }
+
+    .game-board-area {
+        grid-column: 1 / 2;
+        grid-row: 2 / 3;
+        min-width: unset;
+    }
+
+    .right-sidebar { /* Now also stacked */
+        grid-column: 1 / 2;
+        grid-row: 3 / 4;
+        display: none; /* Hide this sidebar as it is now empty of content */
+    }
+
+    .observer-list-panel {
+        grid-column: 1 / 2;
+        grid-row: 4 / 5; /* Stack below right sidebar (or board if right sidebar hidden) */
+        width: 90%; /* Adjust width for mobile */
+        max-width: 400px;
+    }
+
+    .game-chat-panel {
+        grid-column: 1 / 2;
+        grid-row: 5 / 6; /* Stack below observer list */
+        width: 90%; /* Adjust width for mobile */
+        max-width: 400px;
+    }
+
+    .server-chat-panel {
+        grid-column: 1 / 2;
+        grid-row: 6 / 7; /* Stack below game chat */
+        width: 90%; /* Adjust width for mobile */
+        max-width: 400px;
+    }
+    
+    /* Ensure chat containers maintain responsiveness within their stacked panels */
+    .game-chat-container, .server-chat-container, .observers-list {
+        max-height: 250px; /* Give a consistent max-height when stacked on mobile */
+    }
+}
+
+@media (max-width: 768px) {
+    .grid {
+        width: 100%; /* Allow grid to expand further on smaller screens */
+        max-width: 360px; /* Example max-width for phone screens */
+    }
 }
