@@ -549,7 +549,10 @@ function App() {
                     playMineRevealedSound();
                 } else {
                     // If no mine was newly revealed, play a generic click sound for non-bomb/mine interactions
-                    playClickSound();
+                    // Ensure the player number is correct for the current turn to play the sound
+                    if (playerNumber === game.turn) { // Only play click sound if it's currently the player's turn (after board update)
+                        playClickSound();
+                    }
                 }
             }
         });
@@ -711,7 +714,7 @@ function App() {
         socketRef.current = null; // Clear the ref to allow new connection if loggedIn becomes true again
       }
     };
-  }, [loggedIn, name, addGameMessage, gameId, board, playBombSound, playMineRevealedSound, playWinSound, playGameOverSound]); // Dependencies
+  }, [loggedIn, name]); // CRITICAL CHANGE: Dependencies are now limited to loggedIn and name.
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
@@ -860,7 +863,7 @@ function App() {
     } else if (playerNumber === turn && !gameOver) {
       // The sound for regular clicks is now handled in the board-update listener
       // to ensure sound plays only when a tile is actually revealed by the server.
-      // This prevents sound on clicks that don't change the board state (e.g., clicking an already revealed tile).
+      // This prevents sound on clicks that1 don't change the board state (e.g., clicking an already revealed tile).
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("tile-click", { gameId, x, y });
     } else if (playerNumber !== turn) {
