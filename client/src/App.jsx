@@ -1,9 +1,8 @@
 // App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
-import * as Tone from "tone"; // Import Tone.js
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 
@@ -116,133 +115,14 @@ function App() {
   const lobbyChatEndRef = useRef(null);
   // Removed gameChatEndRef as per request for no auto-scroll
 
-  // --- Tone.js Sound Players ---
-  const clickSynth = useRef(null);
-  const bombSynth = useRef(null);
-  const mineRevealedSynth = useRef(null);
-  const gameOverSynth = useRef(null);
-  const winSoundSynth = useRef(null);
-
-  // Initialize Tone.js synths on component mount
-  useEffect(() => {
-    // Initialize simple click sound (e.g., a short plucky sound)
-    clickSynth.current = new Tone.PolySynth(Tone.Synth, {
-      oscillator: {
-        type: "fmsquare",
-        modulationType: "sawtooth",
-        modulationIndex: 3,
-        harmonicity: 3.4
-      },
-      envelope: {
-        attack: 0.001,
-        decay: 0.1,
-        sustain: 0.05,
-        release: 0.1
-      }
-    }).toDestination();
-
-    // Initialize bomb sound (e.g., a low, short burst)
-    bombSynth.current = new Tone.NoiseSynth({
-      noise: {
-        type: "pink"
-      },
-      envelope: {
-        attack: 0.005,
-        decay: 0.2,
-        sustain: 0,
-        release: 0.2
-      }
-    }).toDestination();
-
-    // Initialize mine revealed sound (e.g., a distinct, perhaps slightly dissonant ping)
-    mineRevealedSynth.current = new Tone.Synth({
-        oscillator: { type: "square" },
-        envelope: {
-            attack: 0.01,
-            decay: 0.1,
-            sustain: 0.0,
-            release: 0.2
-        }
-    }).toDestination();
-
-    // Initialize game over sound (e.g., a descending, somber tone)
-    gameOverSynth.current = new Tone.Synth({
-        oscillator: { type: "triangle" },
-        envelope: {
-            attack: 0.1,
-            decay: 0.5,
-            sustain: 0,
-            release: 1
-        }
-    }).toDestination();
-
-    // Initialize win sound (e.g., an ascending, joyful tone)
-    winSoundSynth.current = new Tone.Synth({
-        oscillator: { type: "sine" },
-        envelope: {
-            attack: 0.05,
-            decay: 0.3,
-            sustain: 0,
-            release: 0.5
-        }
-    }).toDestination();
-
-
-    // Clean up synths on unmount
-    return () => {
-      if (clickSynth.current) clickSynth.current.dispose();
-      if (bombSynth.current) bombSynth.current.dispose();
-      if (mineRevealedSynth.current) mineRevealedSynth.current.dispose();
-      if (gameOverSynth.current) gameOverSynth.current.dispose();
-      if (winSoundSynth.current) winSoundSynth.current.dispose();
-    };
-  }, []);
-
-  // Play sound functions (ensure Tone.start() is called first on user interaction)
-  const playClickSound = useCallback(() => {
-    // console.log("Playing click sound."); // Debug log
-    if (clickSynth.current) {
-        clickSynth.current.triggerAttackRelease("C5", "16n"); // Changed to C5, shorter duration
-    }
-  }, []);
-
-  const playBombSound = useCallback(() => {
-    // console.log("Playing bomb sound."); // Debug log
-    if (bombSynth.current) {
-        bombSynth.current.triggerAttackRelease("8n", Tone.now(), 0.5); // Slightly longer noise burst
-    }
-  }, []);
-
-  const playMineRevealedSound = useCallback(() => {
-    // console.log("Playing mine revealed sound."); // Debug log
-    if (mineRevealedSynth.current) {
-        mineRevealedSynth.current.triggerAttackRelease("G2", "8n"); // Lower tone for mine
-    }
-  }, []);
-
-  const playGameOverSound = useCallback(() => {
-    // console.log("Playing game over sound."); // Debug log
-    if (gameOverSynth.current) {
-        gameOverSynth.current.triggerAttackRelease("C3", "1n"); // Long low tone
-    }
-  }, []);
-
-  const playWinSound = useCallback(() => {
-    // console.log("Playing win sound."); // Debug log
-    if (winSoundSynth.current) {
-        winSoundSynth.current.triggerAttackRelease("C5", "8n", "+0");
-        winSoundSynth.current.triggerAttackRelease("E5", "8n", "+0.2");
-        winSoundSynth.current.triggerAttackRelease("G5", "8n", "+0.4");
-    }
-  }, []);
-
-
   // Effect to scroll to the bottom of lobby chat (no change here)
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
       lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [lobbyMessages, loggedIn, gameId]);
+
+  // Removed game chat auto-scroll useEffect
 
   // --- Utility Functions ---
 
@@ -323,11 +203,13 @@ function App() {
     }
   }, []);
 
-  // --- Initial Authentication Check (runs only once on component mount) ---
-  // This useEffect determines if the user is already logged in from a previous session.
+  // --- Initial Authentication Check and Socket.IO Connection ---
+  // This useEffect will run once on mount for the main App component.
+  // It handles initial auth check and setting up the Socket.IO client.
   useEffect(() => {
-    console.log("App useEffect [initial auth]: Running initial auth check.");
-    const checkInitialAuth = async () => {
+    console.log("App useEffect: Running initial setup.");
+
+    const checkAuthStatusAndConnectSocket = async () => {
       try {
         const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
           method: "GET",
@@ -338,28 +220,293 @@ function App() {
           const data = await response.json();
           setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
           setLoggedIn(true);
-          setIsGuest(data.user.id.startsWith('guest_'));
+          // Check if the user ID indicates a guest (e.g., starts with 'guest_')
+          setIsGuest(data.user.id.startsWith('guest_')); 
           console.log("App.jsx: Initial auth check successful for:", data.user.displayName || data.user.name, "Is Guest:", data.user.id.startsWith('guest_'));
+
+          // NEW: Initialize Socket.IO connection ONLY once per component mount
+          // and manage connection status
+          if (!socketRef.current) {
+            console.log("Frontend: Initializing Socket.IO connection...");
+            socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
+              withCredentials: true,
+              // Optional: To help debug socket connection issues by forcing specific transports
+              // transports: ['websocket', 'polling'], 
+            });
+
+            // --- Attach Socket.IO Event Listeners after connection ---
+            socketRef.current.on('connect', () => {
+                console.log("Socket.IO client: Connected!");
+                setIsSocketConnected(true);
+                // After successful connection and potentially authentication
+                // we can trigger the join-lobby
+                // Only emit join-lobby if loggedIn is true (from initial auth check or pop-up)
+                if (loggedIn) { // Check loggedIn state
+                  socketRef.current.emit("join-lobby", name); // Use current state `name`
+                } else {
+                  console.log("Socket connected but not logged in yet. Waiting for login.");
+                }
+            });
+
+            socketRef.current.on('disconnect', (reason) => {
+                console.log(`Socket.IO client: Disconnected! Reason: ${reason}`);
+                setIsSocketConnected(false);
+                showMessage("Disconnected from server. Please refresh or try again."); // Global message for disconnect
+                addGameMessage("Server", "Disconnected from server.", true); // Also add to game chat if in game
+                setIsBombHighlightActive(false); // Clear bomb highlight on disconnect
+                setHighlightedBombArea([]);
+            });
+
+            socketRef.current.on('connect_error', (error) => {
+                console.error("Socket.IO client: Connection error!", error);
+                showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true); // Global message
+                addGameMessage("Server", `Connection error: ${error.message}`, true); // Also add to game chat
+                setIsSocketConnected(false);
+                setIsBombHighlightActive(false); // Clear bomb highlight on error
+                setHighlightedBombArea([]);
+            });
+
+            // The 'authenticated-socket-ready' event from the server means Passport session is loaded
+            socketRef.current.on('authenticated-socket-ready', () => {
+                console.log("Frontend: Server confirmed authenticated socket ready!");
+                // Now it's truly safe to emit things that rely on server-side session.
+                // Re-emit join-lobby just in case to ensure backend registers current socket with session.
+                if (loggedIn && name) { // Ensure loggedIn state and name exist
+                  socketRef.current.emit("join-lobby", name);
+                }
+            });
+
+            socketRef.current.on("join-error", (msg) => {
+              showMessage(msg, true); // Still use global message for lobby join errors
+              if (gameId) addGameMessage("Server", msg, true); // Add to game chat if in game
+              // Only reload if it's an unrecoverable auth issue or specific error
+              if (msg.includes("Authentication required")) {
+                setLoggedIn(false);
+                setName("");
+                setIsGuest(false); // Reset guest status on auth error
+              }
+              setIsBombHighlightActive(false); // Clear bomb highlight on error
+              setHighlightedBombArea([]);
+            });
+
+            socketRef.current.on("lobby-joined", (userName) => {
+              setLoggedIn(true);
+              setName(userName);
+              showMessage(`Lobby joined successfully as ${userName}!`);
+              // After joining lobby, request unfinished games and observable games
+              socketRef.current.emit("request-unfinished-games");
+              socketRef.current.emit("request-observable-games"); // NEW: Request observable games
+            });
+
+            socketRef.current.on("players-list", (players) => {
+              setPlayersList(players);
+            });
+
+            socketRef.current.on("game-invite", (inviteData) => {
+              setInvite(inviteData);
+              showMessage(`Invitation from ${inviteData.fromName}!`); // Global notification for invites
+            });
+
+            socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
+              showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true); // Global notification
+            });
+
+            socketRef.current.on("game-start", (data) => {
+              setGameId(data.gameId);
+              setPlayerNumber(data.playerNumber); // Will be 0 for observers
+              setBoard(JSON.parse(data.board)); // Parse the board string back to an object
+              setTurn(data.turn);
+              setScores(data.scores);
+              setBombsUsed(data.bombsUsed);
+              setGameOver(data.gameOver);
+              setOpponentName(data.opponentName); // N/A for observers
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Ensure bomb highlighting is off
+              setHighlightedBombArea([]); // Clear highlights
+              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              setGameMessages(data.gameChat || []); // Load initial game messages
+              setObserversInGame(data.observers || []); // NEW: Load initial observers
+              setServerMessages([]); // NEW: Clear server messages on game start
+
+              // Set player names for score display based on their player numbers
+              setGamePlayerNames({
+                1: data.player1Name, // Use the new data field
+                2: data.player2Name, // Use the new data field
+              });
+
+              setMessage(""); // Clear global message
+              addGameMessage("Server", "Game started!", false); // Add to server chat
+              console.log("Frontend: Game started! My player number:", data.playerNumber);
+              setUnfinishedGames([]); // Clear unfinished games list once a game starts
+              setObservableGames([]); // Clear observable games list once a game starts
+            });
+
+            socketRef.current.on("board-update", (game) => {
+              setBoard(JSON.parse(game.board));
+              setTurn(game.turn);
+              setScores(game.scores);
+              setBombsUsed(game.bombsUsed);
+              setGameOver(game.gameOver);
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Exit bomb highlighting mode
+              setHighlightedBombArea([]); // Clear highlights
+              setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
+              setObserversInGame(game.observers || []); // NEW: Update observers list on board update
+              setMessage(""); // Clear global message
+            });
+
+            socketRef.current.on("wait-bomb-center", () => {
+              setBombMode(true); // Backend signals to wait for center
+              addGameMessage("Server", "Select 5x5 bomb center.", false); // Add to server chat
+              setIsBombHighlightActive(true); // Activate bomb highlighting for mouse movement
+            });
+
+            socketRef.current.on("opponent-left", () => {
+              addGameMessage("Server", "Opponent left the game.", true); // Add to server chat
+              console.log("Opponent left. Player remains in game state.");
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Clear bomb highlight on opponent left
+              setHighlightedBombArea([]);
+            });
+
+            socketRef.current.on("bomb-error", (msg) => {
+              addGameMessage("Server", msg, true); // Add to server chat
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Clear bomb highlight on error
+              setHighlightedBombArea([]);
+            });
+
+            socketRef.current.on("receive-unfinished-games", (games) => {
+              const deserializedGames = games.map(game => ({
+                  ...game,
+                  board: JSON.parse(game.board) // Deserialize board for client-side use/preview
+              }));
+              setUnfinishedGames(deserializedGames);
+              console.log("Received unfinished games:", deserializedGames);
+            });
+
+            // NEW: Listener for observable games list
+            socketRef.current.on("receive-observable-games", (games) => {
+                setObservableGames(games);
+                console.log("Received observable games:", games);
+            });
+
+            socketRef.current.on("opponent-reconnected", ({ name }) => {
+                addGameMessage("Server", `${name} has reconnected!`, false); // Add to server chat
+            });
+
+            // NEW: Player reconnected notification (for observers)
+            socketRef.current.on("player-reconnected", ({ name, userId, role }) => {
+              addGameMessage("Server", `${name} (${role}) reconnected to this game!`, false); // Add to server chat
+              // If a player reconnects, ensure they are NOT in the observersInGame list
+              setObserversInGame(prev => prev.filter(o => o.userId !== userId));
+            });
+
+            // NEW: Player left notification (for observers)
+            socketRef.current.on("player-left", ({ name, userId, role }) => {
+              addGameMessage("Server", `${name} (${role}) left the game!`, true); // Add to server chat
+              // Remove player from observersInGame list (if they were somehow there, or if this is relevant for displaying current players)
+              setObserversInGame(prev => prev.filter(o => o.userId !== userId)); 
+            });
+
+            // NEW: Observer joined notification
+            socketRef.current.on("observer-joined", ({ name, userId }) => {
+                addGameMessage("Server", `${name} is now observing!`, false); // Add to server chat
+                setObserversInGame(prev => {
+                    const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
+                    return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
+                });
+            });
+
+            // NEW: Observer left notification
+            socketRef.current.on("observer-left", ({ name, userId }) => {
+                addGameMessage("Server", `${name} stopped observing.`, true); // Add to server chat
+                setObserversInGame(prev => prev.filter(obs => obs.userId !== userId));
+            });
+
+
+            socketRef.current.on("game-restarted", (data) => {
+              addGameMessage("Server", "Game restarted due to first click on blank tile!", false); // Add to server chat
+              setGameId(data.gameId);
+              setPlayerNumber(data.playerNumber); // Will be 0 for observers
+              setBoard(JSON.parse(data.board));
+              setTurn(data.turn);
+              setScores(data.scores);
+              setBombsUsed(data.bombsUsed);
+              setGameOver(data.gameOver);
+              setOpponentName(data.opponentName); // N/A for observers
+              setBombMode(false); // Reset backend's bombMode state
+              setIsBombHighlightActive(false); // Clear bomb highlight on restart
+              setHighlightedBombArea([]); // Clear highlights
+              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              setGameMessages(data.gameChat || []); // Load cleared game chat messages
+              setObserversInGame(data.observers || []); // NEW: Update observers list on restart
+              setServerMessages([]); // NEW: Clear server messages on restart
+
+              // Set player names for score display based on their player numbers
+              setGamePlayerNames({
+                1: data.player1Name, // Use the new data field
+                2: data.player2Name, // Use the new data field
+              });
+            });
+
+            // Chat specific listeners
+            socketRef.current.on("initial-lobby-messages", (messages) => {
+              setLobbyMessages(messages);
+            });
+
+            socketRef.current.on("receive-lobby-message", (message) => {
+              setLobbyMessages((prevMessages) => [...prevMessages, message]);
+            });
+
+            socketRef.current.on("receive-game-message", (message) => {
+              // This is for game chat between players, not server messages
+              setGameMessages((prevMessages) => [...prevMessages, message]);
+            });
+
+          } else {
+            console.log("Frontend: Socket.IO already initialized. Re-emitting join-lobby.");
+            // If already initialized, just re-emit join-lobby to ensure backend registers current socket
+            if (loggedIn && name) { // Only re-emit if already logged in and name is set
+                socketRef.current.emit("join-lobby", name);
+                socketRef.current.emit("request-unfinished-games"); // Re-request on re-lobby join
+                socketRef.current.emit("request-observable-games"); // Re-request on re-lobby join
+            }
+          }
+
         } else {
           setLoggedIn(false);
           setName("");
-          setIsGuest(false);
-          console.log("App.jsx: Initial auth check failed (response not ok).");
+          setIsGuest(false); // Ensure guest status is reset on failed auth check
+          console.log("Frontend: Auth check failed (response not ok).");
+          // If auth fails, ensure no socket is connected from a previous attempt
+          if (socketRef.current) {
+            socketRef.current.disconnect();
+            socketRef.current = null;
+            setIsSocketConnected(false);
+          }
         }
       } catch (err) {
-        console.error("Frontend: Error during initial auth check:", err);
+        console.error("Frontend: Error during auth check or socket setup:", err);
         setLoggedIn(false);
         setName("");
-        setIsGuest(false);
-        showMessage(`An error occurred during initial auth: ${err.message}. Please refresh.`, true);
+        setIsGuest(false); // Reset guest status on error
+        showMessage(`An error occurred: ${err.message}. Please refresh.`, true); // Global message for fatal error
+        addGameMessage("Server", `Fatal error: ${err.message}. Please refresh.`, true); // Also add to server chat
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+          setIsSocketConnected(false);
+        }
       }
     };
 
-    checkInitialAuth();
+    checkAuthStatusAndConnectSocket();
 
-    // Listener for messages from the OAuth pop-up window (for Google/Facebook login completion)
+    // NEW: Listener for messages from the OAuth pop-up window
     const handleAuthMessage = (event) => {
-      if (event.origin !== "https://minesweeper-flags-backend.onrender.com") {
+      // Ensure the message is from a trusted origin (your backend's domain)
+      if (event.origin !== "https://minesweeper-flags-backend.onrender.com") { // Adjust this to your backend's URL
         console.warn("Received message from untrusted origin:", event.origin);
         return;
       }
@@ -368,8 +515,8 @@ function App() {
         const { user } = event.data;
         console.log("App.jsx: Received AUTH_SUCCESS from pop-up:", user);
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
-        setLoggedIn(true); // This will trigger the socket useEffect
-        setIsGuest(user.id.startsWith('guest_'));
+        setLoggedIn(true);
+        setIsGuest(user.id.startsWith('guest_')); // Set guest status based on received user ID
         showMessage("Login successful!");
         window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
       } else if (event.data && event.data.type === 'AUTH_FAILURE') {
@@ -377,319 +524,19 @@ function App() {
         showMessage(`Login failed: ${event.data.message}`, true);
         setLoggedIn(false);
         setName("");
-        setIsGuest(false);
+        setIsGuest(false); // Reset guest status on failure
         window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
       }
     };
 
     window.addEventListener('message', handleAuthMessage);
 
-    // Cleanup for the message listener
+
+    // Cleanup function for useEffect: disconnect socket and remove listeners
     return () => {
-      window.removeEventListener('message', handleAuthMessage);
-    };
-  }, []); // EMPTY DEPENDENCY ARRAY: This effect runs only once on component mount.
-
-
-  // --- Socket.IO Connection and Event Listeners (depends on loggedIn and name) ---
-  // This useEffect is responsible for establishing/maintaining the socket connection
-  // when the user's logged-in status or name changes.
-  useEffect(() => {
-    // Only attempt to connect socket if logged in and socket is not already connected
-    if (loggedIn && name && !socketRef.current) {
-        console.log("Frontend: Initializing Socket.IO connection due to loggedIn status and name availability.");
-        socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
-            withCredentials: true,
-            // transports: ['websocket', 'polling'], // Uncomment for debugging
-        });
-
-        // --- Attach Socket.IO Event Listeners ---
-        socketRef.current.on('connect', () => {
-            console.log("Socket.IO client: Connected!");
-            setIsSocketConnected(true);
-            // Once connected AND authenticated, join the lobby
-            // The 'authenticated-socket-ready' event will ensure session is loaded on backend
-            // Then, the join-lobby will be emitted.
-            // If already authenticated by initial fetch, emit now.
-            // If authentication happens later (e.g., from pop-up), 'authenticated-socket-ready' handles it.
-            if (loggedIn && name) { // Ensure loggedIn and name are still valid
-                socketRef.current.emit("join-lobby", name);
-            }
-        });
-
-        socketRef.current.on('disconnect', (reason) => {
-            console.log(`Socket.IO client: Disconnected! Reason: ${reason}`);
-            setIsSocketConnected(false);
-            showMessage("Disconnected from server. Please refresh or try again.");
-            // Removed direct call to addGameMessage here as gameId might be null on disconnect
-            // This message should be handled by a global UI message or a server message specific handler.
-            // addGameMessage("Server", "Disconnected from server.", true);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-        });
-
-        socketRef.current.on('connect_error', (error) => {
-            console.error("Socket.IO client: Connection error!", error);
-            showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
-            // Removed direct call to addGameMessage here for same reason as disconnect
-            // addGameMessage("Server", `Connection error: ${error.message}`, true);
-            setIsSocketConnected(false);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-        });
-
-        socketRef.current.on('authenticated-socket-ready', () => {
-            console.log("Frontend: Server confirmed authenticated socket ready!");
-            // This event signals that the server-side session for this socket is loaded.
-            // It's a good place to re-emit join-lobby if we expect to be in the lobby.
-            if (loggedIn && name) {
-              socketRef.current.emit("join-lobby", name);
-            }
-        });
-
-        socketRef.current.on("join-error", (msg) => {
-            showMessage(msg, true);
-            // Check if gameId exists before trying to add a game message
-            if (gameId) { // Use the state variable, which is reactive
-                addGameMessage("Server", msg, true);
-            }
-            if (msg.includes("Authentication required")) {
-                setLoggedIn(false);
-                setName("");
-                setIsGuest(false);
-            }
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-        });
-
-
-        socketRef.current.on("lobby-joined", (userName) => {
-            // setName(userName); // Name should already be set by initial auth or pop-up callback
-            showMessage(`Lobby joined successfully as ${userName}!`);
-            socketRef.current.emit("request-unfinished-games");
-            socketRef.current.emit("request-observable-games");
-        });
-
-        socketRef.current.on("players-list", (players) => {
-            setPlayersList(players);
-        });
-
-        socketRef.current.on("game-invite", (inviteData) => {
-            setInvite(inviteData);
-            showMessage(`Invitation from ${inviteData.fromName}!`);
-        });
-
-        socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
-            showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
-        });
-
-        socketRef.current.on("game-start", (data) => {
-            setGameId(data.gameId);
-            setPlayerNumber(data.playerNumber);
-            setBoard(JSON.parse(data.board));
-            setTurn(data.turn);
-            setScores(data.scores);
-            setBombsUsed(data.bombsUsed);
-            setGameOver(data.gameOver);
-            setOpponentName(data.opponentName);
-            setBombMode(false);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-            setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
-            setGameMessages(data.gameChat || []);
-            setObserversInGame(data.observers || []);
-            setServerMessages([]); // Clear server messages on game start
-
-            setGamePlayerNames({
-                1: data.player1Name,
-                2: data.player2Name,
-            });
-
-            setMessage("");
-            addGameMessage("Server", "Game started!", false);
-            console.log("Frontend: Game started! My player number:", data.playerNumber);
-            setUnfinishedGames([]);
-            setObservableGames([]);
-        });
-
-        socketRef.current.on("board-update", (game) => {
-            // It's safer to compare against the previous board state, not `board` from closure if it's stale.
-            // Using a local variable `currentBoard` from ref for comparison can be tricky.
-            // For now, rely on state `board` which should be updated by React's render cycle.
-            // A deep copy ensures we compare actual values, not references.
-            const oldBoard = JSON.parse(JSON.stringify(board)); // Deep copy of the *current* state.board
-            const newBoard = JSON.parse(game.board); // New board data from the server
-
-            let mineRevealed = false;
-            let nonMineTileRevealed = false;
-            
-            // Perform comparison only if both oldBoard and newBoard are valid and have dimensions
-            if (oldBoard.length > 0 && newBoard.length > 0 && 
-                oldBoard[0].length > 0 && newBoard[0].length > 0) {
-                
-                for (let y = 0; y < newBoard.length; y++) {
-                    for (let x = 0; x < newBoard[y].length; x++) {
-                        // Check for newly revealed mine
-                        if (newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
-                            mineRevealed = true;
-                            // If a new mine is revealed, we prioritize that sound and can stop checking
-                            break; 
-                        }
-                        // Check for newly revealed non-mine tile
-                        if (!newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
-                            nonMineTileRevealed = true;
-                        }
-                    }
-                    if (mineRevealed) break; // Exit outer loop if a mine was found
-                }
-            }
-
-            setBoard(newBoard); // Update state with the new board
-            setTurn(game.turn);
-            setScores(game.scores);
-            setBombsUsed(game.bombsUsed);
-            setGameOver(game.gameOver);
-            setBombMode(false);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-            setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
-            setObserversInGame(game.observers || []);
-            setMessage("");
-
-            // Play appropriate sound based on revelation
-            if (mineRevealed) {
-                playMineRevealedSound();
-            } else if (nonMineTileRevealed) {
-                playClickSound();
-            }
-        });
-
-
-        socketRef.current.on("wait-bomb-center", () => {
-            setBombMode(true);
-            addGameMessage("Server", "Select 5x5 bomb center.", false);
-            setIsBombHighlightActive(true);
-            playBombSound(); // Play bomb sound when bomb mode is activated
-        });
-
-        socketRef.current.on("opponent-left", () => {
-            addGameMessage("Server", "Opponent left the game.", true);
-            console.log("Opponent left. Player remains in game state.");
-            setBombMode(false);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-        });
-
-        socketRef.current.on("bomb-error", (msg) => {
-            addGameMessage("Server", msg, true);
-            setBombMode(false);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-        });
-
-        socketRef.current.on("receive-unfinished-games", (games) => {
-            const deserializedGames = games.map(game => ({
-                ...game,
-                board: JSON.parse(game.board) // Deserialize board for client-side use/preview
-            }));
-            setUnfinishedGames(deserializedGames);
-            console.log("Received unfinished games:", deserializedGames);
-        });
-
-        socketRef.current.on("receive-observable-games", (games) => {
-            setObservableGames(games);
-            console.log("Received observable games:", games);
-        });
-
-        socketRef.current.on("opponent-reconnected", ({ name }) => {
-            addGameMessage("Server", `${name} has reconnected!`, false);
-        });
-
-        socketRef.current.on("player-reconnected", ({ name, userId, role }) => {
-            addGameMessage("Server", `${name} (${role}) reconnected to this game!`, false);
-            // If a player reconnects, ensure they are NOT in the observersInGame list
-            setObserversInGame(prev => prev.filter(o => o.userId !== userId));
-        });
-
-        socketRef.current.on("player-left", ({ name, userId, role }) => {
-            addGameMessage("Server", `${name} (${role}) left the game!`, true);
-            // Remove player from observersInGame list (if they were somehow there, or if this is relevant for displaying current players)
-            setObserversInGame(prev => prev.filter(o => o.userId !== userId));
-        });
-
-        socketRef.current.on("observer-joined", ({ name, userId }) => {
-            addGameMessage("Server", `${name} is now observing!`, false);
-            setObserversInGame(prev => {
-                const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
-                return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
-            });
-        });
-
-        socketRef.current.on("observer-left", ({ name, userId }) => {
-            addGameMessage("Server", `${name} stopped observing.`, true);
-            setObserversInGame(prev => prev.filter(obs => obs.userId !== userId));
-        });
-
-        socketRef.current.on("game-over", ({ winnerPlayerNumber, winByScore }) => {
-            setGameOver(true);
-            if (winnerPlayerNumber) {
-                addGameMessage("Server", `Game Over! Player ${winnerPlayerNumber} wins!`, false);
-                playWinSound(); // Play win sound
-            } else {
-                addGameMessage("Server", "Game Over! It's a draw!", false);
-                playGameOverSound(); // Play general game over sound for draw
-            }
-        });
-
-        socketRef.current.on("game-restarted", (data) => {
-            addGameMessage("Server", "Game restarted due to first click on blank tile!", false);
-            setGameId(data.gameId);
-            setPlayerNumber(data.playerNumber);
-            setBoard(JSON.parse(data.board));
-            setTurn(data.turn);
-            setScores(data.scores);
-            setBombsUsed(data.bombsUsed);
-            setGameOver(data.gameOver);
-            setOpponentName(data.opponentName);
-            setBombMode(false);
-            setIsBombHighlightActive(false);
-            setHighlightedBombArea([]);
-            setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
-            setGameMessages(data.gameChat || []);
-            setObserversInGame(data.observers || []);
-            setServerMessages([]); // Clear server messages on restart
-            setGamePlayerNames({
-                1: data.player1Name,
-                2: data.player2Name,
-            });
-        });
-
-        // Chat specific listeners
-        socketRef.current.on("initial-lobby-messages", (messages) => {
-            setLobbyMessages(messages);
-        });
-
-        socketRef.current.on("receive-lobby-message", (message) => {
-            setLobbyMessages((prevMessages) => [...prevMessages, message]);
-        });
-
-        socketRef.current.on("receive-game-message", (message) => {
-            setGameMessages((prevMessages) => [...prevMessages, message]);
-        });
-
-    } else if (!loggedIn && socketRef.current) {
-        // If user logs out or initial auth check fails after a socket was connected, disconnect it.
-        console.log("Frontend: Disconnecting socket as user is no longer logged in.");
-        socketRef.current.disconnect();
-        socketRef.current = null; // Clear the ref
-        setIsSocketConnected(false);
-    }
-
-    // Cleanup function for this useEffect: ensures socket is disconnected and listeners removed
-    // when component unmounts or if loggedIn/name changes such that the socket needs to be reset.
-    return () => {
+      console.log("App useEffect: Cleanup running.");
       if (socketRef.current) {
-        console.log("App useEffect [socket cleanup]: Disconnecting socket and removing listeners.");
+        console.log("App useEffect: Disconnecting socket and removing listeners.");
         socketRef.current.off('connect');
         socketRef.current.off('disconnect');
         socketRef.current.off('connect_error');
@@ -705,24 +552,23 @@ function App() {
         socketRef.current.off("opponent-left");
         socketRef.current.off("bomb-error");
         socketRef.current.off("receive-unfinished-games");
-        socketRef.current.off("receive-observable-games");
+        socketRef.current.off("receive-observable-games"); // NEW: Cleanup for observable games
         socketRef.current.off("opponent-reconnected");
-        socketRef.current.off("player-reconnected");
-        socketRef.current.off("player-left");
-        socketRef.current.off("observer-joined");
-        socketRef.current.off("observer-left");
-        socketRef.current.off("game-over");
+        socketRef.current.off("player-reconnected"); // NEW: Cleanup for player reconnected
+        socketRef.current.off("player-left"); // NEW: Cleanup for player left
+        socketRef.current.off("observer-joined"); // NEW: Cleanup for observer joined
+        socketRef.current.off("observer-left"); // NEW: Cleanup for observer left
         socketRef.current.off("game-restarted");
-        socketRef.current.off("initial-lobby-messages");
-        socketRef.current.off("receive-lobby-message");
-        socketRef.current.off("receive-game-message");
+        socketRef.current.off("initial-lobby-messages"); // New cleanup for chat
+        socketRef.current.off("receive-lobby-message");    // New cleanup for chat
+        socketRef.current.off("receive-game-message");     // New cleanup for chat
 
-        socketRef.current.disconnect(); // Explicitly disconnect
-        socketRef.current = null; // Clear the ref to allow new connection if loggedIn becomes true again
+        socketRef.current.disconnect(); // Disconnect the socket
+        socketRef.current = null; // Clear the ref
       }
+      window.removeEventListener('message', handleAuthMessage); // Clean up message listener
     };
-  }, [loggedIn, name]); // CRITICAL CHANGE: Dependencies are now limited to loggedIn and name.
-
+  }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
@@ -783,9 +629,10 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setName(data.user.displayName); // Backend will provide a guest name (should be the displayName we sent)
-        setLoggedIn(true); // This will trigger the socket useEffect
+        setLoggedIn(true);
         setIsGuest(true);
         showMessage("Logged in as guest!");
+        // The useEffect for socket connection will handle joining the lobby
       } else {
         const errorData = await response.json();
         showMessage(`Guest login failed: ${errorData.message || response.statusText}`, true);
@@ -824,18 +671,7 @@ function App() {
     }
   };
 
-  const handleClick = async (x, y) => { // Changed to async to await Tone.start()
-    // Always attempt to start Tone.js context on user interaction
-    try {
-        if (Tone.context.state !== 'running') {
-            await Tone.start();
-            console.log("Tone.js audio context started by user interaction.");
-        }
-        Tone.context.resume(); // Ensure context is resumed if suspended
-    } catch (e) {
-        console.error("Failed to start or resume Tone.js audio context:", e);
-    }
-
+  const handleClick = (x, y) => {
     // Only players (playerNumber 1 or 2) can click tiles
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
 
@@ -880,9 +716,6 @@ function App() {
       setIsBombHighlightActive(false); // Turn off highlighting after selection
       setHighlightedBombArea([]); // Clear highlights
     } else if (playerNumber === turn && !gameOver) {
-      // The sound for regular clicks is now handled in the board-update listener
-      // to ensure sound plays only when a tile is actually revealed by the server.
-      // This prevents sound on clicks that1 don't change the board state (e.g., clicking an already revealed tile).
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("tile-click", { gameId, x, y });
     } else if (playerNumber !== turn) {
@@ -974,10 +807,9 @@ function App() {
         credentials: "include",
       });
 
-      // Disconnect socket explicitly on logout
       if (socketRef.current) {
         socketRef.current.disconnect();
-        socketRef.current = null; // Clear the ref
+        socketRef.current = null;
         setIsSocketConnected(false); // Set socket connected status to false
       }
 
