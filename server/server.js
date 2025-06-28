@@ -1567,9 +1567,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     } else if (gameType === '2v2') {
         const pendingInvite = pending2v2Invites[inviteId];
         if (!pendingInvite) {
-            console.warn(`Respond invite failed: 2v2 invite ${inviteId} not found.`);
-            io.to(respondingPlayer.id).emit("invite-rejected", { fromName: "Server", reason: "Invitation not found or expired." });
-            io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name, reason: "Invitation not found or expired." });
+            console.warn(`Respond invite failed: 2v2 invite ${inviteId} not found (might have already been processed/expired). Responding player: ${respondingPlayer.name}`);
+            // If the invite is not found, it implies the game already started or was rejected/cleaned up.
+            // A more specific event should have already been sent to all participants.
+            // We should not send a generic 'invite-rejected' to the inviter in this scenario,
+            // as it would be redundant or misleading if the game successfully started.
+            io.to(respondingPlayer.id).emit("invite-rejected", { fromName: "Server", reason: "Invitation already processed or expired." });
             return;
         }
 
