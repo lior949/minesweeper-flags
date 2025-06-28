@@ -109,24 +109,20 @@ function App() {
   // Chat states
   const [lobbyMessages, setLobbyMessages] = useState([]);
   const [gameMessages, setGameMessages] = useState([]);
+  const [serverMessages, setServerMessages] = useState([]); // NEW: State for server messages
   const [lobbyMessageInput, setLobbyMessageInput] = useState("");
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
-  const gameChatEndRef = useRef(null);
+  // Removed gameChatEndRef as per request for no auto-scroll
 
-  // Effect to scroll to the bottom of chat
+  // Effect to scroll to the bottom of lobby chat (no change here)
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
       lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [lobbyMessages, loggedIn, gameId]);
 
-  useEffect(() => {
-    if (gameChatEndRef.current && gameId) {
-      gameChatEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [gameMessages, gameId]);
-
+  // Removed game chat auto-scroll useEffect
 
   // --- Utility Functions ---
 
@@ -193,11 +189,17 @@ function App() {
   const addGameMessage = useCallback((sender, text, isError = false) => {
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMessage = { sender, text, timestamp, isError };
-    setGameMessages(prevMessages => [...prevMessages, newMessage]);
+
+    if (sender === "Server") { // NEW: Server messages go to serverMessages state
+        setServerMessages(prevMessages => [...prevMessages, newMessage]);
+    } else { // Other messages go to gameMessages (player chat)
+        setGameMessages(prevMessages => [...prevMessages, newMessage]);
+    }
+
     if (isError) {
-      console.error(`Game Message Error: ${text}`);
+      console.error(`Message Error: ${text}`);
     } else {
-      console.log(`Game Message: ${text}`);
+      console.log(`Message: ${text}`);
     }
   }, []);
 
@@ -324,6 +326,7 @@ function App() {
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setGameMessages(data.gameChat || []); // Load initial game messages
               setObserversInGame(data.observers || []); // NEW: Load initial observers
+              setServerMessages([]); // NEW: Clear server messages on game start
 
               // Set player names for score display based on their player numbers
               setGamePlayerNames({
@@ -332,7 +335,7 @@ function App() {
               });
 
               setMessage(""); // Clear global message
-              addGameMessage("Server", "Game started!", false); // Add to game chat
+              addGameMessage("Server", "Game started!", false); // Add to server chat
               console.log("Frontend: Game started! My player number:", data.playerNumber);
               setUnfinishedGames([]); // Clear unfinished games list once a game starts
               setObservableGames([]); // Clear observable games list once a game starts
@@ -354,12 +357,12 @@ function App() {
 
             socketRef.current.on("wait-bomb-center", () => {
               setBombMode(true); // Backend signals to wait for center
-              addGameMessage("Server", "Select 5x5 bomb center.", false); // Add to game chat
+              addGameMessage("Server", "Select 5x5 bomb center.", false); // Add to server chat
               setIsBombHighlightActive(true); // Activate bomb highlighting for mouse movement
             });
 
             socketRef.current.on("opponent-left", () => {
-              addGameMessage("Server", "Opponent left the game.", true); // Add to game chat
+              addGameMessage("Server", "Opponent left the game.", true); // Add to server chat
               console.log("Opponent left. Player remains in game state.");
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on opponent left
@@ -367,7 +370,7 @@ function App() {
             });
 
             socketRef.current.on("bomb-error", (msg) => {
-              addGameMessage("Server", msg, true); // Add to game chat
+              addGameMessage("Server", msg, true); // Add to server chat
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on error
               setHighlightedBombArea([]);
@@ -389,26 +392,26 @@ function App() {
             });
 
             socketRef.current.on("opponent-reconnected", ({ name }) => {
-                addGameMessage("Server", `${name} has reconnected!`, false); // Add to game chat
+                addGameMessage("Server", `${name} has reconnected!`, false); // Add to server chat
             });
 
             // NEW: Player reconnected notification (for observers)
             socketRef.current.on("player-reconnected", ({ name, userId, role }) => {
-              addGameMessage("Server", `${name} (${role}) reconnected to this game!`, false); // Add to game chat
+              addGameMessage("Server", `${name} (${role}) reconnected to this game!`, false); // Add to server chat
               // If a player reconnects, ensure they are NOT in the observersInGame list
               setObserversInGame(prev => prev.filter(o => o.userId !== userId));
             });
 
             // NEW: Player left notification (for observers)
             socketRef.current.on("player-left", ({ name, userId, role }) => {
-              addGameMessage("Server", `${name} (${role}) left the game!`, true); // Add to game chat
+              addGameMessage("Server", `${name} (${role}) left the game!`, true); // Add to server chat
               // Remove player from observersInGame list (if they were somehow there, or if this is relevant for displaying current players)
               setObserversInGame(prev => prev.filter(o => o.userId !== userId)); 
             });
 
             // NEW: Observer joined notification
             socketRef.current.on("observer-joined", ({ name, userId }) => {
-                addGameMessage("Server", `${name} is now observing!`, false); // Add to game chat
+                addGameMessage("Server", `${name} is now observing!`, false); // Add to server chat
                 setObserversInGame(prev => {
                     const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
                     return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
@@ -417,13 +420,13 @@ function App() {
 
             // NEW: Observer left notification
             socketRef.current.on("observer-left", ({ name, userId }) => {
-                addGameMessage("Server", `${name} stopped observing.`, true); // Add to game chat
+                addGameMessage("Server", `${name} stopped observing.`, true); // Add to server chat
                 setObserversInGame(prev => prev.filter(obs => obs.userId !== userId));
             });
 
 
             socketRef.current.on("game-restarted", (data) => {
-              addGameMessage("Server", "Game restarted due to first click on blank tile!", false); // Add to game chat
+              addGameMessage("Server", "Game restarted due to first click on blank tile!", false); // Add to server chat
               setGameId(data.gameId);
               setPlayerNumber(data.playerNumber); // Will be 0 for observers
               setBoard(JSON.parse(data.board));
@@ -438,6 +441,7 @@ function App() {
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
               setGameMessages(data.gameChat || []); // Load cleared game chat messages
               setObserversInGame(data.observers || []); // NEW: Update observers list on restart
+              setServerMessages([]); // NEW: Clear server messages on restart
 
               // Set player names for score display based on their player numbers
               setGamePlayerNames({
@@ -456,6 +460,7 @@ function App() {
             });
 
             socketRef.current.on("receive-game-message", (message) => {
+              // This is for game chat between players, not server messages
               setGameMessages((prevMessages) => [...prevMessages, message]);
             });
 
@@ -487,7 +492,7 @@ function App() {
         setName("");
         setIsGuest(false); // Reset guest status on error
         showMessage(`An error occurred: ${err.message}. Please refresh.`, true); // Global message for fatal error
-        addGameMessage("Server", `Fatal error: ${err.message}. Please refresh.`, true); // Also add to game chat
+        addGameMessage("Server", `Fatal error: ${err.message}. Please refresh.`, true); // Also add to server chat
         if (socketRef.current) {
           socketRef.current.disconnect();
           socketRef.current = null;
@@ -674,10 +679,10 @@ function App() {
     if (bombMode) { // bombMode is true when backend sent 'wait-bomb-center'
       const MIN_COORD = 2; // Hardcoded in original, keep for now
       const MAX_COORD_X = WIDTH - 3; // Use WIDTH constant
-      const MAX_COORD_Y = HEIGHT - 3; // Use HEIGHT constant
+      const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
 
       if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
-        addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); // Send to game chat
+        addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); // Send to server chat
         return;
       }
 
@@ -701,41 +706,41 @@ function App() {
       }
 
       if (allTilesRevealed) {
-        addGameMessage("Server", "All tiles in the bomb's blast area are already revealed.", true); // Send to game chat
+        addGameMessage("Server", "All tiles in the bomb's blast area are already revealed.", true); // Send to server chat
         return;
       }
 
-      addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); // Indicate action in chat
+      addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("bomb-center", { gameId, x, y });
       setBombMode(false); // Exit bomb selection mode
       setIsBombHighlightActive(false); // Turn off highlighting after selection
       setHighlightedBombArea([]); // Clear highlights
     } else if (playerNumber === turn && !gameOver) {
-      addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in chat
+      addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("tile-click", { gameId, x, y });
     } else if (playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn!", true); // Send to game chat
+        addGameMessage("Server", "It's not your turn!", true); // Send to server chat
     }
   };
 
   const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
     // Only players (not observers) can use bombs
     if (playerNumber === 0) {
-        addGameMessage("Server", "Observers cannot use bombs.", true); // Send to game chat
+        addGameMessage("Server", "Observers cannot use bombs.", true); // Send to server chat
         return;
     }
 
     if (!isSocketConnected || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
       if (bombsUsed[playerNumber]) {
-        addGameMessage("Server", "You have already used your bomb!", true); // Send to game chat
+        addGameMessage("Server", "You have already used your bomb!", true); // Send to server chat
       } else if (gameOver) {
-        addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to game chat
+        addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to server chat
       } else if (!gameId) {
-        addGameMessage("Server", "Not in a game to use bomb.", true); // Send to game chat
+        addGameMessage("Server", "Not in a game to use bomb.", true); // Send to server chat
       } else if (playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn to use the bomb!", true); // Send to game chat
+        addGameMessage("Server", "It's not your turn to use the bomb!", true); // Send to server chat
       } else if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); // Send to game chat
+        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); // Send to server chat
       }
       return;
     }
@@ -745,9 +750,9 @@ function App() {
       socketRef.current.emit("use-bomb", { gameId });
       // When 'use-bomb' is emitted, we immediately activate visual highlighting
       setIsBombHighlightActive(true); 
-      addGameMessage("Server", "Bomb initiated. Select target.", false); // Send to game chat
+      addGameMessage("Server", "Bomb initiated. Select target.", false); // Send to server chat
     } else {
-      addGameMessage("Server", "You can only use the bomb when you are behind in score!", true); // Send to game chat
+      addGameMessage("Server", "You can only use the bomb when you are behind in score!", true); // Send to server chat
     }
   };
 
@@ -755,7 +760,7 @@ function App() {
     setBombMode(false); // Reset backend's waitingForBombCenter state
     setIsBombHighlightActive(false); // Deactivate visual bomb highlighting
     setHighlightedBombArea([]); // Clear highlights
-    addGameMessage("Server", "Bomb selection cancelled.", false); // Send to game chat
+    addGameMessage("Server", "Bomb selection cancelled.", false); // Send to server chat
   };
 
   const backToLobby = () => {
@@ -783,6 +788,7 @@ function App() {
     setLastClickedTile({ 1: null, 2: null });
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
+    setServerMessages([]); // NEW: Clear server messages on returning to lobby
     setObserversInGame([]); // Clear observers list in game
     setGamePlayerNames({ 1: '', 2: '' }); // Clear player names for score display
 
@@ -826,6 +832,7 @@ function App() {
       setLastClickedTile({ 1: null, 2: null });
       setLobbyMessages([]); // Clear chat history on logout
       setGameMessages([]);
+      setServerMessages([]); // NEW: Clear server messages on logout
       setUnfinishedGames([]);
       setObservableGames([]); // Clear observable games
       setObserversInGame([]); // Clear observers list in game
@@ -860,7 +867,7 @@ function App() {
     if (!tile.revealed) return "";
     if (tile.isMine) {
       if (tile.owner === 1) return <span style={{ color: "red" }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴</span>;
+      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴‍☠️</span>; // Changed to black flag for player 2
       return "";
     }
     // Corrected: Wrap the number in a span with the appropriate class for coloring
@@ -905,9 +912,9 @@ function App() {
       socketRef.current.emit("send-game-message", { gameId, message: gameMessageInput });
       setGameMessageInput("");
     } else if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Cannot send message.", true); // Send to game chat
+        addGameMessage("Server", "Not connected to server. Cannot send message.", true); // Send to server chat
     } else if (!gameId) {
-        addGameMessage("Server", "Not in a game to send message.", true); // Send to game chat
+        addGameMessage("Server", "Not in a game to send message.", true); // Send to server chat
     }
   };
 
@@ -997,7 +1004,7 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                score: 🚩 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🏴 - Last updated: {game.lastUpdated}
+                                score: 🚩 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🏴‍☠️ - Last updated: {game.lastUpdated}
                                  <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
@@ -1052,7 +1059,8 @@ function App() {
         {gameId && (
             <div className="app-game-container">
                 <div className="game-layout-grid"> {/* Main layout grid */}
-                    <div className="game-sidebar left-sidebar"> {/* Left sidebar for controls/info */}
+                    {/* Top Row - Left Sidebar (Controls & Info) */}
+                    <div className="game-sidebar left-sidebar">
                         <h1 className="game-title">Minesweeper Flags</h1>
                         <div className="game-controls">
                             {/* Only show 'Use Bomb' button if player, not observer */}
@@ -1070,7 +1078,7 @@ function App() {
                                   Cancel Bomb
                               </button>
                             )}
-                            {/* Back to Lobby button */}
+                            {/* Back to Lobby & Restart buttons */}
                             <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
                                 Back to Lobby
                             </button>
@@ -1106,7 +1114,8 @@ function App() {
                         </div>
                     </div> {/* End of left-sidebar */}
 
-                    <div className="game-board-area"> {/* Central game board area */}
+                    {/* Top Row - Central Game Board Area */}
+                    <div className="game-board-area">
                         <div
                             className="grid"
                             style={{
@@ -1131,7 +1140,7 @@ function App() {
                                       lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
                                     } ${
                                       lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
-                                    } ${isHighlighted ? "highlighted-bomb-area" : "" /* Apply highlight class */
+                                    } ${isHighlighted ? "highlighted-bomb-area" : ""
                                     }`}
                                     onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
                                   >
@@ -1143,8 +1152,13 @@ function App() {
                         </div>
                     </div> {/* End of game-board-area */}
                     
-                    <div className="game-sidebar right-sidebar"> {/* Right sidebar for observers and game chat */}
-                        {/* List of observers in the game */}
+                    {/* Top Row - Right Sidebar (now empty, primarily for layout spacing) */}
+                    <div className="game-sidebar right-sidebar">
+                        {/* No content here as observers and chat moved to bottom */}
+                    </div>
+
+                    {/* Bottom Row - Observer List (left) */}
+                    <div className="game-bottom-panel observer-list-panel">
                         {observersInGame.length > 0 && (
                             <div className="observers-list">
                                 <h4>Observers:</h4>
@@ -1155,8 +1169,10 @@ function App() {
                                 </ul>
                             </div>
                         )}
+                    </div>
 
-                        {/* Game Chat Section */}
+                    {/* Bottom Row - Game Chat (middle) */}
+                    <div className="game-bottom-panel game-chat-panel">
                         <div className="game-chat-container chat-container">
                             <h3>Game Chat</h3>
                             <div className="messages-display">
@@ -1165,7 +1181,7 @@ function App() {
                                         <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
                                     </div>
                                 ))}
-                                <div ref={gameChatEndRef} />
+                                {/* Removed ref={gameChatEndRef} for no auto-scroll */}
                             </div>
                             <form onSubmit={sendGameMessage} className="message-input-form">
                                 <input
@@ -1179,7 +1195,23 @@ function App() {
                                 <button type="submit" className="send-message-button" disabled={!isSocketConnected}>Send</button>
                             </form>
                         </div>
-                    </div> {/* End of right-sidebar */}
+                    </div>
+
+                    {/* Bottom Row - Server Messages Chat (right) */}
+                    <div className="game-bottom-panel server-chat-panel">
+                        <div className="server-chat-container chat-container"> {/* Reusing chat-container styles */}
+                            <h3>Server Messages</h3>
+                            <div className="messages-display">
+                                {serverMessages.map((msg, index) => (
+                                    <div key={index} className={`message ${msg.isError ? 'error-message' : 'server-message'}`}>
+                                        <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
+                                    </div>
+                                ))}
+                                {/* No ref for auto-scroll here as per request */}
+                            </div>
+                            {/* No input form for server messages */}
+                        </div>
+                    </div>
                 </div> {/* End of game-layout-grid */}
             </div>
         )}
