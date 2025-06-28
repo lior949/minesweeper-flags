@@ -174,7 +174,7 @@ html, body {
 
 .tile.hidden {
   background-color: #ADD8E6; /* Changed to Light Blue */
-  border: 2px solid #87CEEB; /* Sky Blue border */
+  border: 2px solid #000080; /* Sky Blue border */
   color: transparent; /* Hide text until revealed */
   transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
