@@ -522,7 +522,8 @@ const emitLobbyPlayersList = () => {
 
     // Modify to send all connected players with their game status
     const playersWithStatus = players.map(p => {
-        const gameMapping = userGameMap[p.userId];
+        // Ensure p.userId is not undefined before accessing userGameMap
+        const gameMapping = p.userId ? userGameMap[p.userId] : null; 
         let opponentName = null;
         let playerNames = {}; // To store all player names in 2v2 for detailed lobby display
         let teamName = null;
@@ -570,7 +571,7 @@ io.on("connection", (socket) => {
 
   // Passport.js attaches session to socket.request
   const user = socket.request.session?.passport?.user || null;
-  const userId = user ? user.id : null;
+  const userId = user ? user.id : null; // userId can be null here for unauthenticated users
   const userName = user ? user.displayName : null;
 
   if (userId) {
@@ -779,7 +780,7 @@ io.on("connection", (socket) => {
         }
     }
   } else {
-      console.log(`Unauthenticated socket ${socket.id} connected.`);
+      console.log(`Unauthenticated socket ${socket.id} connected. No userId available.`);
       // No `authenticated-socket-ready` emitted for unauthenticated sockets
   }
 
@@ -2306,7 +2307,7 @@ socket.on("disconnect", async () => {
   const disconnectedUserId = user ? user.id : null;
   const disconnectedUserName = user ? user.displayName : 'Unknown User';
 
-  if (disconnectedUserId) { // Only proceed if a userId can be identified
+  if (disconnectedUserId) { // Only proceed with user-specific cleanup if a userId can be identified
     // Correctly remove from userSocketMap as this specific socket is no longer active for this user
     delete userSocketMap[disconnectedUserId];
     console.log(`[Disconnect] User ${disconnectedUserId} socket removed from userSocketMap.`);
@@ -2330,11 +2331,11 @@ socket.on("disconnect", async () => {
         }
     }
 
-    if (gameId) {
+    if (gameId) { // Only proceed with game-specific logic if a gameId was found
       const game = games[gameId];
       console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId} as a ${role}.`);
 
-      if (game) {
+      if (game) { // Only proceed if the game object exists in memory
         if (role === 'player') {
           const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
           if (disconnectedPlayerInGame) {
@@ -2378,7 +2379,6 @@ socket.on("disconnect", async () => {
           // Notify others in the game that an observer left (disconnected)
           io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
         }
-        // socket.emit("request-observable-games"); // This line removed in previous fix, as socket is disconnected
       } else {
         // If game wasn't in memory but userGameMap pointed to it, it might be a stale entry. Clear it.
         delete userGameMap[disconnectedUserId];
@@ -2405,6 +2405,8 @@ socket.on("disconnect", async () => {
     }
   } else {
     console.log(`[Disconnect] Disconnected socket ${socket.id} has no associated userId (unauthenticated).`);
+    // No `emitLobbyPlayersList()` call here for unauthenticated disconnects, as it's not needed.
+    // The main players array filtering for `userSocketMap[p.userId] !== undefined` is sufficient outside this specific `if (disconnectedUserId)` block.
   }
 });
 
