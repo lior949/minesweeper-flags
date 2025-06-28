@@ -226,6 +226,8 @@ function App() {
           setLoggedIn(true);
           // Check if the user ID indicates a guest (e.g., starts with 'guest_')
           setIsGuest(data.user.id.startsWith('guest_')); 
+          // Set userId state here after successful login
+          setUserId(data.user.id);
           console.log("App.jsx: Initial auth check successful for:", data.user.displayName || data.user.name, "Is Guest:", data.user.id.startsWith('guest_'));
 
           // NEW: Initialize Socket.IO connection ONLY once per component mount
@@ -310,7 +312,8 @@ function App() {
               setInvite(inviteData);
               // Store all player names for 2v2 invite display
               if (inviteData.gameType === '2v2' && inviteData.gameRoster) { // Now expecting gameRoster
-                const currentUserId = socketRef.current.request.session?.passport?.user?.id || ''; // Get current user's ID
+                // FIX: Use the userId state variable for current user's ID
+                const currentUserId = userId || '';
                 const inviterUserId = inviteData.gameRoster.find(p => p.socketId === inviteData.fromId)?.userId;
 
                 const invitedNames = inviteData.gameRoster
@@ -549,6 +552,7 @@ function App() {
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
         setLoggedIn(true);
         setIsGuest(user.id.startsWith('guest_')); // Set guest status based on received user ID
+        setUserId(user.id); // Set userId here after successful OAuth login
         showMessage("Login successful!");
         window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
       } else if (event.data && event.data.type === 'AUTH_FAILURE') {
@@ -600,7 +604,7 @@ function App() {
       }
       window.removeEventListener('message', handleAuthMessage); // Clean up message listener
     };
-  }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
+  }, [loggedIn, name, addGameMessage, gameId, userId]); // Add userId to dependencies. Re-run if loggedIn or name changes. Add addGameMessage
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
@@ -663,6 +667,7 @@ function App() {
         setName(data.user.displayName); // Backend will provide a guest name (should be the displayName we sent)
         setLoggedIn(true);
         setIsGuest(true);
+        setUserId(data.user.id); // Set userId here after guest login
         showMessage("Logged in as guest!");
         // The useEffect for socket connection will handle joining the lobby
       } else {
@@ -754,7 +759,8 @@ function App() {
           fromId: invite.fromId,
           accept,
           gameType: invite.gameType,
-          gameRoster: invite.gameRoster // NEW: Pass the full gameRoster back
+          gameRoster: invite.gameRoster, // NEW: Pass the full gameRoster back
+		  inviteId: invite.inviteId // ADD THIS LINE
       });
       setInvite(null);
       setMessage("");
@@ -1158,7 +1164,7 @@ function App() {
                   <p>
                     2v2 Invitation from <b>{invite.fromName}</b>.<br/>
                     Your Team: <b>{invite.teamName}</b>.
-                    Rivals: <b>{invite.gameRoster.filter(p => p.userId !== (socketRef.current?.request?.session?.passport?.user?.id || 'NO_USER_ID') && p.userId !== invite.gameRoster.find(r => r.socketId === invite.fromId)?.userId).map(p => p.name).join(', ')}</b> {/* Filter out self and inviter */}
+                    Rivals: <b>{invite.gameRoster.filter(p => p.userId !== (userId || 'NO_USER_ID') && p.userId !== invite.gameRoster.find(r => r.socketId === invite.fromId)?.userId).map(p => p.name).join(', ')}</b> {/* Filter out self and inviter */}
                   </p>
                 ) : (
                   <p>
