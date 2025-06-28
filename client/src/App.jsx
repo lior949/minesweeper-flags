@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import * as Tone from "tone"; // Import Tone.js
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 
@@ -718,7 +718,7 @@ function App() {
         socketRef.current = null; // Clear the ref to allow new connection if loggedIn becomes true again
       }
     };
-  }, [loggedIn, name, addGameMessage, playBombSound, playMineRevealedSound, playWinSound, playGameOverSound, board, playerNumber]); // Added board and playerNumber to dependencies for board-update specific sound logic
+  }, [loggedIn, name]); // CRITICAL CHANGE: Dependencies are now limited to loggedIn and name.
 
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
