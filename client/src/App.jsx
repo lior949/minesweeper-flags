@@ -891,6 +891,7 @@ function App() {
     setInvitationStage(0);
 
     // Request unfinished games and observable games again to refresh the list in the lobby
+    // This check is already in place. The issue was in the JSX render, not here.
     if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit("request-unfinished-games");
       socketRef.current.emit("request-observable-games"); // NEW: Re-request observable games
@@ -1121,7 +1122,7 @@ function App() {
                 <li
                   key={p.id}
                   className={`player-item 
-                              ${p.id === socketRef.current.id ? 'self-player' : ''}
+                              ${socketRef.current && p.id === socketRef.current.id ? 'self-player' : ''} 
                               ${selectedPartner && selectedPartner.id === p.id ? 'selected-partner' : ''}
                               ${selectedRivals.some(r => r.id === p.id) ? 'selected-rival' : ''}
                               `}
