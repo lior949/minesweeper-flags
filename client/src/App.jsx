@@ -827,27 +827,23 @@ function App() {
         return;
     }
     
-    // Check if it's the current player's turn (for both 1v1 and 2v2)
-    if (playerNumber !== turn) { // This is the core change for turn-based bomb usage
-        addGameMessage("Server", "It's not your turn to use the bomb!", true);
-        return;
-    }
+    // Determine the relevant scores and bomb usage based on game type
+    // These variables are now calculated in the main render function scope below.
+    // So, we just need to use them here.
 
-    if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true);
-        return;
-    }
-    if (!gameId) {
-        addGameMessage("Server", "Not in a game to use bomb.", true);
-        return;
-    }
-    if (gameOver) {
-        addGameMessage("Server", "Game is over, cannot use bomb.", true);
-        return;
-    }
-    if (currentBombUsedStatus) {
-        addGameMessage("Server", "Your team has already used its bomb!", true);
-        return;
+    if (!isSocketConnected || !gameId || gameOver || currentBombUsedStatus || !(gameType === '1v1' ? playerNumber === turn : true)) {
+      if (currentBombUsedStatus) {
+        addGameMessage("Server", "Your team has already used its bomb!", true); // Send to server chat
+      } else if (gameOver) {
+        addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to server chat
+      } else if (!gameId) {
+        addGameMessage("Server", "Not in a game to use bomb.", true); // Send to server chat
+      } else if (gameType === '1v1' && playerNumber !== turn) {
+        addGameMessage("Server", "It's not your turn to use the bomb!", true); // Send to server chat
+      } else if (!isSocketConnected) {
+        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); // Send to server chat
+      }
+      return;
     }
 
     // Only allow bomb usage if player's team is strictly behind in score
@@ -1290,11 +1286,11 @@ function App() {
                             {/* Score display logic adjusted for 2v2 */}
                             {gameType === '2v2' ? (
                                 <div className="score-display">
-                                    <p>
-                                        Team 1: (<span style={{ color: turn === 1 ? 'green' : 'inherit' }}>{gamePlayerNames[1]}</span>, <span style={{ color: turn === 2 ? 'green' : 'inherit' }}>{gamePlayerNames[2]}</span>): {scores[1]} 🚩
+                                    <p style={{ color: (turn === 1 || turn === 2) ? 'green' : 'inherit' }}>
+                                        Team 1 ({gamePlayerNames[1]}, {gamePlayerNames[2]}): {scores[1]} 🚩
                                     </p>
-                                    <p>
-                                        Team 2: (<span style={{ color: turn === 3 ? 'green' : 'inherit' }}>{gamePlayerNames[3]}</span>, <span style={{ color: turn === 4 ? 'green' : 'inherit' }}>{gamePlayerNames[4]}</span>): {scores[2]} �‍☠️
+                                    <p style={{ color: (turn === 3 || turn === 4) ? 'green' : 'inherit' }}>
+                                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]}): {scores[2]} 🏴‍☠️
                                     </p>
                                 </div>
                             ) : (
