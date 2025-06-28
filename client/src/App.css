@@ -185,7 +185,7 @@ html, body {
 }
 
 /* More specific rule for revealed tiles */
-.tile.revealed {
+.app-game-container .tile.revealed { /* Added .app-game-container for increased specificity */
   background-color: #FFFF00; /* Changed to yellow */
   border: 1px solid #CCC; /* Lighter border on yellow */
   color: #333; /* Darker text color for better contrast on yellow */
