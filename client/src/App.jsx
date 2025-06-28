@@ -768,7 +768,7 @@ function App() {
       const MAX_COORD_X = WIDTH - 3; // Use WIDTH constant
       const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
 
-      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || cy > MAX_COORD_Y) {
+      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) { // Fixed: was `cy > MAX_COORD_Y`
         addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); // Send to server chat
         return;
       }
