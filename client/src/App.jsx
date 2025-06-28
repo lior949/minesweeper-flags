@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import * as Tone from "tone"; // Import Tone.js
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 
@@ -520,6 +520,27 @@ function App() {
             const oldBoard = JSON.parse(JSON.stringify(board)); // Deep copy for comparison
             const newBoard = JSON.parse(game.board); // New board data
 
+            // Check if any tile was newly revealed (not a mine) or if a mine was newly revealed
+            let mineRevealed = false;
+            let nonMineTileRevealed = false; // Flag to check if any non-mine tile was revealed
+            if (oldBoard.length > 0 && newBoard.length > 0) { // Ensure boards are initialized for comparison
+                for (let y = 0; y < newBoard.length; y++) {
+                    for (let x = 0; x < newBoard[y].length; x++) {
+                        if (newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
+                            mineRevealed = true;
+                            // No need to check other tiles if a mine is found, it takes precedence
+                            break;
+                        }
+                        // If not a mine, check if a non-mine tile was newly revealed
+                        if (!newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
+                            nonMineTileRevealed = true;
+                        }
+                    }
+                    if (mineRevealed) break; // Exit outer loop if mine found
+                }
+            }
+
+
             setBoard(newBoard); // Update state with the new board
             setTurn(game.turn);
             setScores(game.scores);
@@ -532,28 +553,11 @@ function App() {
             setObserversInGame(game.observers || []);
             setMessage("");
 
-            // Play mine revealed sound if a new mine was revealed in this update
-            if (newBoard && oldBoard && newBoard.length === oldBoard.length && newBoard[0].length === oldBoard[0].length) {
-                let mineRevealed = false;
-                for (let y = 0; y < newBoard.length; y++) {
-                    for (let x = 0; x < newBoard[y].length; x++) {
-                        // Check if a tile was a mine in the new board, is now revealed, and was NOT revealed in the old board
-                        if (newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
-                            mineRevealed = true;
-                            break;
-                        }
-                    }
-                    if (mineRevealed) break;
-                }
-                if (mineRevealed) {
-                    playMineRevealedSound();
-                } else {
-                    // If no mine was newly revealed, play a generic click sound for non-bomb/mine interactions
-                    // Ensure the player number is correct for the current turn to play the sound
-                    if (playerNumber === game.turn) { // Only play click sound if it's currently the player's turn (after board update)
-                        playClickSound();
-                    }
-                }
+            // Play appropriate sound based on revelation
+            if (mineRevealed) {
+                playMineRevealedSound();
+            } else if (nonMineTileRevealed) {
+                playClickSound();
             }
         });
 
@@ -714,7 +718,8 @@ function App() {
         socketRef.current = null; // Clear the ref to allow new connection if loggedIn becomes true again
       }
     };
-  }, [loggedIn, name]); // CRITICAL CHANGE: Dependencies are now limited to loggedIn and name.
+  }, [loggedIn, name, addGameMessage, playBombSound, playMineRevealedSound, playWinSound, playGameOverSound, board, playerNumber]); // Added board and playerNumber to dependencies for board-update specific sound logic
+
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
