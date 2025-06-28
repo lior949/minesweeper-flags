@@ -1,6 +1,7 @@
 // App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
+// Removed Tone.js import as per request
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
 import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
@@ -767,7 +768,7 @@ function App() {
       const MAX_COORD_X = WIDTH - 3; // Use WIDTH constant
       const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
 
-      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
+      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || cy > MAX_COORD_Y) {
         addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); // Send to server chat
         return;
       }
@@ -817,21 +818,8 @@ function App() {
     }
     
     // Determine the relevant scores and bomb usage based on game type
-    let currentPlayerScore;
-    let opponentPlayerOrTeamScore;
-    let currentBombUsedStatus;
-
-    if (gameType === '1v1') {
-      currentPlayerScore = scores[playerNumber];
-      opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
-      currentBombUsedStatus = bombsUsed[playerNumber];
-    } else { // 2v2 mode
-      const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
-      const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
-      currentPlayerScore = scores[myTeamNumber];
-      opponentPlayerOrTeamScore = scores[opponentTeamNumber];
-      currentBombUsedStatus = bombsUsed[myTeamNumber];
-    }
+    // These variables are now calculated in the main render function scope below.
+    // So, we just need to use them here.
 
     if (!isSocketConnected || !gameId || gameOver || currentBombUsedStatus || !(gameType === '1v1' ? playerNumber === turn : true)) {
       if (currentBombUsedStatus) {
@@ -1079,6 +1067,27 @@ function App() {
       </div>
     );
   }
+
+    // --- Variables for Bomb Logic and Conditional Rendering ---
+    // These need to be calculated here so they are in scope for the JSX
+    let currentPlayerScore = 0;
+    let opponentPlayerOrTeamScore = 0;
+    let currentBombUsedStatus = false;
+
+    if (gameId && playerNumber !== null && scores) {
+        if (gameType === '1v1') {
+            currentPlayerScore = scores[playerNumber];
+            opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
+            currentBombUsedStatus = bombsUsed[playerNumber];
+        } else if (gameType === '2v2') {
+            const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+            const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
+            currentPlayerScore = scores[myTeamNumber];
+            opponentPlayerOrTeamScore = scores[opponentTeamNumber];
+            currentBombUsedStatus = bombsUsed[myTeamNumber];
+        }
+    }
+
 
   return (
     <div className="lobby">
