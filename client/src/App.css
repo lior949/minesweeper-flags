@@ -545,7 +545,7 @@ html, body {
     /* Define 3 columns: left sidebar, board, right sidebar/empty */
     /* And two rows: top row for game elements, bottom row for chats/observers */
     grid-template-columns: 200px 1fr 300px; /* Left sidebar, flexible board, right sidebar */
-    grid-template-rows: auto 350px; /* Top row auto height, bottom row fixed height for panels */
+    grid-template-rows: 1fr 350px; /* TOP ROW: 1fr (takes all available space); BOTTOM ROW: fixed 350px */
     gap: 20px; /* Gap between grid items */
     width: 100%;
     max-width: 1200px; /* Overall max width for the grid */
@@ -569,16 +569,13 @@ html, body {
     flex-grow: 1; /* Allows the board area to take central space */
     flex-shrink: 0; /* Prevent board from shrinking */
     min-width: 670px; /* Adjusted to accommodate 16 tiles * 40px + 15 * 2px (gaps) */
-    position: relative; /* For centering the grid using absolute position */
+    /* REMOVED: position: relative; */
 }
 
-/* Ensure the grid itself remains centered within its parent using absolute positioning */
+/* Ensure the grid itself remains centered within its parent using flexbox */
 .game-board-area .grid {
-    position: absolute; /* Take it out of normal flow */
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%); /* Center perfectly */
-    margin: 0; /* Remove any default margins */
+    /* REMOVED: position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); */
+    margin: 0 auto; /* Keep horizontal centering */
 }
 
 .right-sidebar {
