@@ -309,9 +309,14 @@ function App() {
             socketRef.current.on("game-invite", (inviteData) => {
               setInvite(inviteData);
               // Store all player names for 2v2 invite display
-              if (inviteData.gameType === '2v2' && inviteData.invitedPlayers) {
-                const invitedNames = inviteData.invitedPlayers.map(p => p.name).join(', ');
-                showMessage(`2v2 Invitation from ${inviteData.fromName}! Your team: ${inviteData.teamName}. Opponent Team: ${invitedNames}`);
+              if (inviteData.gameType === '2v2' && inviteData.gameRoster) { // Now expecting gameRoster
+                const currentUserId = socketRef.current.request.session?.passport?.user?.id || ''; // Get current user's ID
+                const inviterUserId = inviteData.gameRoster.find(p => p.socketId === inviteData.fromId)?.userId;
+
+                const invitedNames = inviteData.gameRoster
+                                           .filter(p => p.userId !== currentUserId && p.userId !== inviterUserId)
+                                           .map(p => p.name).join(', ');
+                showMessage(`2v2 Invitation from ${inviteData.fromName}! Your team: ${inviteData.teamName}. Opponent Team (rivals): ${invitedNames}`);
               } else {
                 showMessage(`Invitation from ${inviteData.fromName}!`); // Global notification for invites
               }
@@ -745,7 +750,12 @@ function App() {
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept, gameType: invite.gameType, invitedPlayers: invite.invitedPlayers });
+      socketRef.current.emit("respond-invite", {
+          fromId: invite.fromId,
+          accept,
+          gameType: invite.gameType,
+          gameRoster: invite.gameRoster // NEW: Pass the full gameRoster back
+      });
       setInvite(null);
       setMessage("");
       // Clear 2v2 selection if an invite is accepted/rejected
@@ -1144,7 +1154,7 @@ function App() {
                   <p>
                     2v2 Invitation from <b>{invite.fromName}</b>.<br/>
                     Your Team: <b>{invite.teamName}</b>.
-                    Rivals: <b>{invite.invitedPlayers.map(p => p.name).join(', ')}</b>
+                    Rivals: <b>{invite.gameRoster.filter(p => p.userId !== (socketRef.current?.request?.session?.passport?.user?.id || 'NO_USER_ID') && p.userId !== invite.gameRoster.find(r => r.socketId === invite.fromId)?.userId).map(p => p.name).join(', ')}</b> {/* Filter out self and inviter */}
                   </p>
                 ) : (
                   <p>
