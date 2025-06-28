@@ -1605,9 +1605,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
       if (gameType === '2v2' && Array.isArray(gameRoster)) { // Use gameRoster here
           // Iterate over the gameRoster to find other invited players (not inviter, not responder)
           gameRoster.filter(p => p.userId !== respondingUserId && p.userId !== inviterPlayer.userId).forEach(p => {
-              const otherInvitedSocket = userSocketMap[p.userId];
-              if (otherInvitedSocket) {
-                  io.to(otherInvitedSocket).emit("invite-rejected", { fromName: inviterPlayer.name, reason: `${respondingPlayer.name} declined.` });
+              const targetSocket = userSocketMap[p.userId];
+              if (targetSocket) {
+                  io.to(targetSocket).emit("invite-rejected", { fromName: inviterPlayer.name, reason: `${respondingPlayer.name} declined.` });
               }
           });
       }
@@ -1865,19 +1865,23 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const user = socket.request.session?.passport?.user || null;
     const userId = user ? user.id : null;
     const player = game.players.find((p) => p.userId === userId);
-    // Determine player's team
+    
+    if (!player) {
+        console.warn(`User ${userId} not found in game ${gameId} attempting to use bomb.`);
+        return;
+    }
+    
+    // Server-side turn check: ONLY the player whose turn it is can use the bomb.
+    if (player.number !== game.turn) {
+        console.warn(`Player ${player.name} (${player.userId}) tried to use bomb out of turn. Current turn: ${game.turn}`);
+        io.to(socket.id).emit("bomb-error", "It's not your turn to use the bomb!");
+        return;
+    }
+
     const playerTeam = player.team;
 
-    // Turn check applies differently for 1v1 vs 2v2
-    const isPlayersTurn = (game.gameType === '1v1' && player.number === game.turn) || (game.gameType === '2v2' && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === playerTeam));
-
-    if (!player || !isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
-        if (player && !isPlayersTurn) {
-            console.warn(`Player ${player.name} tried to use bomb out of turn. Current turn: ${game.turn}`);
-            io.to(socket.id).emit("bomb-error", "It's not your turn or your team's turn to use the bomb.");
-        } else if (game.bombsUsed[playerTeam]) {
-            io.to(socket.id).emit("bomb-error", "Your team has already used its bomb!");
-        }
+    if (game.bombsUsed[playerTeam]) {
+        io.to(socket.id).emit("bomb-error", "Your team has already used its bomb!");
         return;
     }
     
@@ -1903,19 +1907,23 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const user = socket.request.session?.passport?.user || null;
     const userId = user ? user.id : null;
     const player = game.players.find((p) => p.userId === userId);
-    // Determine player's team
+    
+    if (!player) {
+        console.warn(`User ${userId} not found in game ${gameId} attempting to place bomb.`);
+        return;
+    }
+
+    // Server-side turn check: ONLY the player whose turn it is can place the bomb.
+    if (player.number !== game.turn) {
+        console.warn(`Player ${player.name} (${player.userId}) tried to place bomb out of turn. Current turn: ${game.turn}`);
+        io.to(socket.id).emit("bomb-error", "It's not your turn to place the bomb!");
+        return;
+    }
+
     const playerTeam = player.team;
 
-    // Turn check applies differently for 1v1 vs 2v2
-    const isPlayersTurn = (game.gameType === '1v1' && player.number === game.turn) || (game.gameType === '2v2' && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === playerTeam));
-
-    if (!player || !isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
-        if (player && !isPlayersTurn) {
-            console.warn(`Player ${player.name} tried to place bomb out of turn. Current turn: ${game.turn}`);
-            io.to(socket.id).emit("bomb-error", "It's not your turn or your team's turn to place the bomb.");
-        } else if (game.bombsUsed[playerTeam]) {
-            io.to(socket.id).emit("bomb-error", "Your team has already used its bomb!");
-        }
+    if (game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
+        io.to(socket.id).emit("bomb-error", "Your team has already used its bomb!");
         return;
     }
 
