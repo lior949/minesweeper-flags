@@ -312,8 +312,8 @@ function App() {
 
               // Set player names for score display based on their player numbers
               setGamePlayerNames({
-                1: data.playerNumber === 1 ? name : data.opponentName,
-                2: data.playerNumber === 2 ? name : data.opponentName,
+                1: data.player1Name, // Use the new data field
+                2: data.player2Name, // Use the new data field
               });
 
               setMessage("");
@@ -425,8 +425,8 @@ function App() {
 
               // Set player names for score display based on their player numbers
               setGamePlayerNames({
-                1: data.playerNumber === 1 ? name : data.opponentName,
-                2: data.playerNumber === 2 ? name : data.opponentName,
+                1: data.player1Name, // Use the new data field
+                2: data.player2Name, // Use the new data field
               });
             });
 
@@ -461,7 +461,7 @@ function App() {
           // If auth fails, ensure no socket is connected from a previous attempt
           if (socketRef.current) {
             socketRef.current.disconnect();
-            socketRef.current = null;
+            socket.current = null;
             setIsSocketConnected(false);
           }
         }
