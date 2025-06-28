@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import * as Tone from "tone"; // Import Tone.js
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 
@@ -822,6 +822,13 @@ function App() {
   };
 
   const handleClick = (x, y) => {
+    // Always attempt to start Tone.js context on user interaction
+    if (Tone.context.state !== 'running') {
+        Tone.start().then(() => {
+            console.log("Tone.js audio context started by user interaction.");
+        }).catch(e => console.error("Failed to start Tone.js audio context:", e));
+    }
+
     // Only players (playerNumber 1 or 2) can click tiles
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
 
