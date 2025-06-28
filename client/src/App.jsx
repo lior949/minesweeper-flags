@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
-import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 
@@ -80,14 +80,14 @@ function App() {
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
-  const [playerNumber, setPlayerNumber] = useState(null); // 1, 2 for players; 0 for observer
+  const [playerNumber, setPlayerNumber] = useState(null); // 1, 2 for players; 0 for observer (now 1,2,3,4 for 2v2)
   const [board, setBoard] = useState([]);
   const [turn, setTurn] = useState(null);
-  const [scores, setScores] = useState({ 1: 0, 2: 0 });
-  const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false });
+  const [scores, setScores] = useState({ 1: 0, 2: 0 }); // Now team scores
+  const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false }); // Now team bombs
   const [bombMode, setBombMode] = useState(false); // Backend's waitingForBombCenter
   const [gameOver, setGameOver] = useState(false);
-  const [opponentName, setOpponentName] = useState(""); // Only relevant for players
+  const [opponentName, setOpponentName] = useState(""); // Only relevant for 1v1
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
   const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
@@ -95,8 +95,12 @@ function App() {
   const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
   const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
   // NEW: State to store player names by their player number in the current game
-  const [gamePlayerNames, setGamePlayerNames] = useState({ 1: '', 2: '' });
-
+  const [gamePlayerNames, setGamePlayerNames] = useState({ 1: '', 2: '' }); // Will extend for 2v2
+  const [gameType, setGameType] = useState('1v1'); // '1v1' or '2v2'
+  const [is2v2Mode, setIs2v2Mode] = useState(false); // Checkbox state for 2v2
+  const [selectedPartner, setSelectedPartner] = useState(null); // For 2v2 invitation
+  const [selectedRivals, setSelectedRivals] = useState([]); // For 2v2 invitation (max 2)
+  const [invitationStage, setInvitationStage] = useState(0); // 0: no invite, 1: select partner, 2: select rivals
 
   // NEW: State for bomb highlighting
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
@@ -115,14 +119,13 @@ function App() {
   const lobbyChatEndRef = useRef(null);
   // Removed gameChatEndRef as per request for no auto-scroll
 
+
   // Effect to scroll to the bottom of lobby chat (no change here)
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
       lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [lobbyMessages, loggedIn, gameId]);
-
-  // Removed game chat auto-scroll useEffect
 
   // --- Utility Functions ---
 
@@ -304,7 +307,13 @@ function App() {
 
             socketRef.current.on("game-invite", (inviteData) => {
               setInvite(inviteData);
-              showMessage(`Invitation from ${inviteData.fromName}!`); // Global notification for invites
+              // Store all player names for 2v2 invite display
+              if (inviteData.gameType === '2v2' && inviteData.invitedPlayers) {
+                const invitedNames = inviteData.invitedPlayers.map(p => p.name).join(', ');
+                showMessage(`2v2 Invitation from ${inviteData.fromName}! Your team: ${inviteData.teamName}. Opponent Team: ${invitedNames}`);
+              } else {
+                showMessage(`Invitation from ${inviteData.fromName}!`); // Global notification for invites
+              }
             });
 
             socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
@@ -313,30 +322,33 @@ function App() {
 
             socketRef.current.on("game-start", (data) => {
               setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber); // Will be 0 for observers
+              setPlayerNumber(data.playerNumber); // Will be 0 for observers, 1-4 for players in 2v2
               setBoard(JSON.parse(data.board)); // Parse the board string back to an object
               setTurn(data.turn);
-              setScores(data.scores);
-              setBombsUsed(data.bombsUsed);
+              setScores(data.scores); // Team scores
+              setBombsUsed(data.bombsUsed); // Team bombs
               setGameOver(data.gameOver);
-              setOpponentName(data.opponentName); // N/A for observers
+              setOpponentName(data.opponentName || ""); // Only relevant for 1v1
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Ensure bomb highlighting is off
               setHighlightedBombArea([]); // Clear highlights
-              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null, 3: null, 4: null }); // Extend for 2v2
               setGameMessages(data.gameChat || []); // Load initial game messages
               setObserversInGame(data.observers || []); // NEW: Load initial observers
               setServerMessages([]); // NEW: Clear server messages on game start
+              setGameType(data.gameType); // Store game type
 
               // Set player names for score display based on their player numbers
               setGamePlayerNames({
-                1: data.player1Name, // Use the new data field
-                2: data.player2Name, // Use the new data field
+                1: data.player1Name || "Player 1",
+                2: data.player2Name || "Player 2",
+                3: data.player3Name || "Player 3", // For 2v2
+                4: data.player4Name || "Player 4", // For 2v2
               });
 
               setMessage(""); // Clear global message
-              addGameMessage("Server", "Game started!", false); // Add to server chat
-              console.log("Frontend: Game started! My player number:", data.playerNumber);
+              addGameMessage("Server", `Game (${data.gameType}) started!`, false); // Add to server chat
+              console.log(`Frontend: Game (${data.gameType}) started! My player number:`, data.playerNumber);
               setUnfinishedGames([]); // Clear unfinished games list once a game starts
               setObservableGames([]); // Clear observable games list once a game starts
             });
@@ -344,13 +356,13 @@ function App() {
             socketRef.current.on("board-update", (game) => {
               setBoard(JSON.parse(game.board));
               setTurn(game.turn);
-              setScores(game.scores);
-              setBombsUsed(game.bombsUsed);
+              setScores(game.scores); // Team scores
+              setBombsUsed(game.bombsUsed); // Team bombs
               setGameOver(game.gameOver);
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Exit bomb highlighting mode
               setHighlightedBombArea([]); // Clear highlights
-              setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
+              setLastClickedTile(game.lastClickedTile || { 1: null, 2: null, 3: null, 4: null }); // Extend for 2v2
               setObserversInGame(game.observers || []); // NEW: Update observers list on board update
               setMessage(""); // Clear global message
             });
@@ -425,8 +437,19 @@ function App() {
             });
 
 
+            socketRef.current.on("game-over", ({ winnerPlayerNumber, winByScore, winningTeamName, team1Score, team2Score }) => {
+                setGameOver(true);
+                if (winningTeamName) {
+                    addGameMessage("Server", `Game Over! Team ${winningTeamName} wins with score ${winByScore}!`, false);
+                } else if (winnerPlayerNumber) {
+                    addGameMessage("Server", `Game Over! Player ${winnerPlayerNumber} wins!`, false);
+                } else {
+                    addGameMessage("Server", "Game Over! It's a draw!", false);
+                }
+            });
+
             socketRef.current.on("game-restarted", (data) => {
-              addGameMessage("Server", "Game restarted due to first click on blank tile!", false); // Add to server chat
+              addGameMessage("Server", "Game restarted due to first click on blank tile!", false);
               setGameId(data.gameId);
               setPlayerNumber(data.playerNumber); // Will be 0 for observers
               setBoard(JSON.parse(data.board));
@@ -434,19 +457,22 @@ function App() {
               setScores(data.scores);
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
-              setOpponentName(data.opponentName); // N/A for observers
+              setOpponentName(data.opponentName || ""); // N/A for observers
               setBombMode(false); // Reset backend's bombMode state
               setIsBombHighlightActive(false); // Clear bomb highlight on restart
               setHighlightedBombArea([]); // Clear highlights
-              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null });
+              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null, 3: null, 4: null });
               setGameMessages(data.gameChat || []); // Load cleared game chat messages
               setObserversInGame(data.observers || []); // NEW: Update observers list on restart
               setServerMessages([]); // NEW: Clear server messages on restart
+              setGameType(data.gameType);
 
               // Set player names for score display based on their player numbers
               setGamePlayerNames({
-                1: data.player1Name, // Use the new data field
-                2: data.player2Name, // Use the new data field
+                1: data.player1Name || "Player 1",
+                2: data.player2Name || "Player 2",
+                3: data.player3Name || "Player 3",
+                4: data.player4Name || "Player 4",
               });
             });
 
@@ -650,9 +676,50 @@ function App() {
 
   // --- User Interaction Functions (using socketRef.current for emits) ---
 
-  const invitePlayer = (id) => {
-    if (loggedIn && socketRef.current && socketRef.current.connected && id !== socketRef.current.id) {
-      socketRef.current.emit("invite-player", id);
+  const handlePlayerClick = (player) => {
+    if (player.id === socketRef.current.id) {
+      showMessage("You cannot invite yourself.", true);
+      return;
+    }
+    if (player.gameId) {
+      showMessage(`${player.name} is currently ${player.role === 'player' ? `in a game vs. ${player.opponentName}` : 'observing a game'}.`, true);
+      return;
+    }
+
+    if (!is2v2Mode) { // 1v1 mode
+      invitePlayer([player.id], '1v1'); // Send socket ID for 1v1
+    } else { // 2v2 mode
+      if (invitationStage === 0) { // Should not happen, checkbox triggers stage 1
+        showMessage("Please select 2v2 mode first.", true);
+      } else if (invitationStage === 1) { // Select partner
+        setSelectedPartner(player);
+        setInvitationStage(2);
+        showMessage(`Selected ${player.name} as your partner. Now double-click two rivals.`);
+      } else if (invitationStage === 2) { // Select rivals
+        // Check if player is already selected as partner or rival
+        const isAlreadySelected = (selectedPartner && selectedPartner.id === player.id) ||
+                                  selectedRivals.some(rival => rival.id === player.id);
+        if (isAlreadySelected) {
+          showMessage(`${player.name} is already selected.`, true);
+          return;
+        }
+
+        const newRivals = [...selectedRivals, player];
+        setSelectedRivals(newRivals);
+        if (newRivals.length === 2) {
+          showMessage(`Selected rivals: ${newRivals[0].name}, ${newRivals[1].name}. All players selected.`);
+          // Automatically send invitation when all four are selected
+          sendTeamInvite(selectedPartner, newRivals);
+        } else {
+          showMessage(`Selected ${player.name} as a rival. Select one more rival.`);
+        }
+      }
+    }
+  };
+
+  const invitePlayer = (targetSocketIds, type) => {
+    if (loggedIn && socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit("invite-player", { targetSocketIds, gameType: type });
       showMessage("Invitation sent.");
     } else if (!socketRef.current || !socketRef.current.connected) {
         showMessage("Not connected to server. Please wait or refresh.", true);
@@ -661,18 +728,37 @@ function App() {
     }
   };
 
+  const sendTeamInvite = (partner, rivals) => {
+    if (!partner || rivals.length !== 2) {
+      showMessage("Please select one partner and two rivals.", true);
+      return;
+    }
+    const allPlayerIds = [partner.id, rivals[0].id, rivals[1].id]; // Exclude self from this list, server adds inviter
+    invitePlayer(allPlayerIds, '2v2');
+    // Reset selection after sending invite
+    setSelectedPartner(null);
+    setSelectedRivals([]);
+    setIs2v2Mode(false); // Disable 2v2 mode after invite
+    setInvitationStage(0);
+  };
+
   const respondInvite = (accept) => {
     if (invite && socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept });
+      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept, gameType: invite.gameType, invitedPlayers: invite.invitedPlayers });
       setInvite(null);
       setMessage("");
+      // Clear 2v2 selection if an invite is accepted/rejected
+      setSelectedPartner(null);
+      setSelectedRivals([]);
+      setIs2v2Mode(false);
+      setInvitationStage(0);
     } else if (!socketRef.current || !socketRef.current.connected) {
         showMessage("Not connected to server. Cannot respond to invite.", true);
     }
   };
 
   const handleClick = (x, y) => {
-    // Only players (playerNumber 1 or 2) can click tiles
+    // Only players (playerNumber 1, 2, 3, 4) can click tiles
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
 
     // If waiting for bomb center, emit bomb-center event
@@ -729,15 +815,19 @@ function App() {
         addGameMessage("Server", "Observers cannot use bombs.", true); // Send to server chat
         return;
     }
+    // Determine the team number for the current player
+    const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+    const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
 
-    if (!isSocketConnected || !gameId || gameOver || bombsUsed[playerNumber] || playerNumber !== turn) {
-      if (bombsUsed[playerNumber]) {
-        addGameMessage("Server", "You have already used your bomb!", true); // Send to server chat
+
+    if (!isSocketConnected || !gameId || gameOver || bombsUsed[myTeamNumber] || !(gameType === '1v1' ? playerNumber === turn : true)) {
+      if (bombsUsed[myTeamNumber]) {
+        addGameMessage("Server", "Your team has already used its bomb!", true); // Send to server chat
       } else if (gameOver) {
         addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to server chat
       } else if (!gameId) {
         addGameMessage("Server", "Not in a game to use bomb.", true); // Send to server chat
-      } else if (playerNumber !== turn) {
+      } else if (gameType === '1v1' && playerNumber !== turn) {
         addGameMessage("Server", "It's not your turn to use the bomb!", true); // Send to server chat
       } else if (!isSocketConnected) {
         addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); // Send to server chat
@@ -745,14 +835,14 @@ function App() {
       return;
     }
 
-    // Only allow bomb usage if player is behind in score
-    if (scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1]) {
+    // Only allow bomb usage if player's team is behind in score
+    if (scores[myTeamNumber] < scores[opponentTeamNumber]) {
       socketRef.current.emit("use-bomb", { gameId });
       // When 'use-bomb' is emitted, we immediately activate visual highlighting
       setIsBombHighlightActive(true); 
       addGameMessage("Server", "Bomb initiated. Select target.", false); // Send to server chat
     } else {
-      addGameMessage("Server", "You can only use the bomb when you are behind in score!", true); // Send to server chat
+      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); // Send to server chat
     }
   };
 
@@ -785,13 +875,19 @@ function App() {
     setMessage(""); // Clear global message
     setUnfinishedGames([]);
     setObservableGames([]); // Clear observable games
-    setLastClickedTile({ 1: null, 2: null });
+    setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); // Reset for 2v2
     setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
     setGameMessages([]); // Clear game chat
     setServerMessages([]); // NEW: Clear server messages on returning to lobby
     setObserversInGame([]); // Clear observers list in game
-    setGamePlayerNames({ 1: '', 2: '' }); // Clear player names for score display
+    setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); // Clear player names for score display
+    setGameType('1v1'); // Reset game type
 
+    // Clear 2v2 invitation related states
+    setSelectedPartner(null);
+    setSelectedRivals([]);
+    setIs2v2Mode(false);
+    setInvitationStage(0);
 
     // Request unfinished games and observable games again to refresh the list in the lobby
     if (socketRef.current && socketRef.current.connected) {
@@ -829,14 +925,21 @@ function App() {
       setGameOver(false);
       setOpponentName("");
       setInvite(null);
-      setLastClickedTile({ 1: null, 2: null });
+      setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); // Reset for 2v2
       setLobbyMessages([]); // Clear chat history on logout
       setGameMessages([]);
       setServerMessages([]); // NEW: Clear server messages on logout
       setUnfinishedGames([]);
       setObservableGames([]); // Clear observable games
       setObserversInGame([]); // Clear observers list in game
-      setGamePlayerNames({ 1: '', 2: '' }); // Clear player names for score display
+      setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); // Clear player names for score display
+      setGameType('1v1'); // Reset game type
+
+      // Clear 2v2 invitation related states
+      setSelectedPartner(null);
+      setSelectedRivals([]);
+      setIs2v2Mode(false);
+      setInvitationStage(0);
 
     } catch (err) {
       console.error("Logout failed", err);
@@ -866,8 +969,9 @@ function App() {
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
     if (tile.isMine) {
-      if (tile.owner === 1) return <span style={{ color: "red" }}>🚩</span>;
-      if (tile.owner === 2) return <span style={{ color: "blue" }}>🏴‍☠️</span>; // Changed to black flag for player 2
+      // Adjusted for 2v2, use team flags
+      if (tile.ownerTeam === 1) return <span style={{ color: "red" }}>🚩</span>;
+      if (tile.ownerTeam === 2) return <span style={{ color: "blue" }}>🏴‍☠️</span>; // Changed to black flag for player 2
       return "";
     }
     // Corrected: Wrap the number in a span with the appropriate class for coloring
@@ -918,6 +1022,20 @@ function App() {
     }
   };
 
+  const handle2v2CheckboxChange = (e) => {
+    const isChecked = e.target.checked;
+    setIs2v2Mode(isChecked);
+    if (isChecked) {
+      setInvitationStage(1); // Start invitation process: select partner
+      showMessage("2v2 mode enabled. Double-click your partner, then two rivals.", false);
+    } else {
+      setInvitationStage(0); // Reset invitation stage
+      setSelectedPartner(null);
+      setSelectedRivals([]);
+      showMessage("2v2 mode disabled.", false);
+    }
+  };
+
 
   // --- Conditional Rendering based on App State ---
 
@@ -959,23 +1077,34 @@ function App() {
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
             <button onClick={logout} className="bomb-button">Logout</button>
+
+            <div className="game-mode-selection">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={is2v2Mode}
+                  onChange={handle2v2CheckboxChange}
+                  disabled={!!selectedPartner || selectedRivals.length > 0} // Disable if selection has started
+                />
+                2v2 Game Mode
+              </label>
+            </div>
+            {is2v2Mode && invitationStage === 1 && <p>Double-click to select your partner:</p>}
+            {is2v2Mode && invitationStage === 2 && <p>Double-click to select rivals (2 needed): <br/>Selected: {selectedRivals.map(r => r.name).join(', ')}</p>}
+            {is2v2Mode && selectedPartner && <p>Your Partner: <b>{selectedPartner.name}</b></p>}
+
             {playersList.length === 0 && <p>No other players online</p>}
             <ul className="player-list">
               {playersList.map((p) => (
                 <li
                   key={p.id}
-                  className="player-item"
-                  onDoubleClick={() => {
-                    // Only allow inviting if player is not in a game and not self
-                    if (!p.gameId && p.id !== socketRef.current.id) {
-                      invitePlayer(p.id);
-                    } else if (p.id === socketRef.current.id) {
-                      showMessage("You cannot invite yourself.", true);
-                    } else {
-                      showMessage(`${p.name} is currently ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}.`, true);
-                    }
-                  }}
-                  title={p.gameId ? `${p.name} is ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}` : "Double-click to invite"}
+                  className={`player-item 
+                              ${p.id === socketRef.current.id ? 'self-player' : ''}
+                              ${selectedPartner && selectedPartner.id === p.id ? 'selected-partner' : ''}
+                              ${selectedRivals.some(r => r.id === p.id) ? 'selected-rival' : ''}
+                              `}
+                  onDoubleClick={() => handlePlayerClick(p)}
+                  title={p.gameId ? `${p.name} is ${p.role === 'player' ? `in a game vs. ${p.opponentName}` : 'observing a game'}` : (is2v2Mode ? "Double-click to select" : "Double-click to invite for 1v1")}
                 >
                   {p.name}
                   {p.gameId && (
@@ -988,9 +1117,17 @@ function App() {
             </ul>
             {invite && (
               <div className="invite-popup">
-                <p>
-                  Invitation from <b>{invite.fromName}</b>
-                </p>
+                {invite.gameType === '2v2' ? (
+                  <p>
+                    2v2 Invitation from <b>{invite.fromName}</b>.<br/>
+                    Your Team: <b>{invite.teamName}</b>.
+                    Rivals: <b>{invite.invitedPlayers.map(p => p.name).join(', ')}</b>
+                  </p>
+                ) : (
+                  <p>
+                    Invitation from <b>{invite.fromName}</b>
+                  </p>
+                )}
                 <button onClick={() => respondInvite(true)}>Accept</button>
                 <button onClick={() => respondInvite(false)}>Reject</button>
               </div>
@@ -1004,7 +1141,18 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                score: 🚩 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🏴‍☠️ - Last updated: {game.lastUpdated}
+                                {game.gameType === '2v2' ? (
+                                    <>
+                                        Team 1 ({game.player1Name}, {game.player2Name}) vs Team 2 ({game.player3Name}, {game.player4Name})
+                                        - Score: 🚩 {game.scores?.[1] || 0} | {game.scores?.[2] || 0} 🏴‍☠️
+                                    </>
+                                ) : (
+                                    <>
+                                        {game.playerNumber === 1 ? `${name} vs ${game.opponentName}` : `${game.opponentName} vs ${name}`}
+                                        - Score: 🚩 {game.scores?.[1] || 0} | {game.scores?.[2] || 0} 🏴‍☠️
+                                    </>
+                                )}
+                                - Last updated: {game.lastUpdated}
                                  <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
@@ -1021,7 +1169,16 @@ function App() {
                     <ul className="observable-game-list">
                         {observableGames.map(game => (
                             <li key={game.gameId} className="observable-game-item">
-                                {game.player1Name} vs. {game.player2Name} - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
+                                {game.gameType === '2v2' ? (
+                                    <>
+                                        Team 1 ({game.player1Name}, {game.player2Name}) vs Team 2 ({game.player3Name}, {game.player4Name})
+                                    </>
+                                ) : (
+                                    <>
+                                        {game.player1Name} vs. {game.player2Name}
+                                    </>
+                                )}
+                                - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
                                 <button onClick={() => observeGame(game.gameId)} className="bomb-button">Observe</button>
                             </li>
                         ))}
@@ -1064,14 +1221,14 @@ function App() {
                         <h1 className="game-title">Minesweeper Flags</h1>
                         <div className="game-controls">
                             {/* Only show 'Use Bomb' button if player, not observer */}
-                            {playerNumber !== 0 && playerNumber &&
-                              !bombsUsed[playerNumber] &&
-                              scores[playerNumber] < scores[playerNumber === 1 ? 2 : 1] &&
+                            {playerNumber !== 0 && ( // Players 1,2,3,4 can use bomb
+                              !bombsUsed[(playerNumber === 1 || playerNumber === 2) ? 1 : 2] && // Check bomb used for current team
+                              scores[(playerNumber === 1 || playerNumber === 2) ? 1 : 2] < scores[(playerNumber === 1 || playerNumber === 2) ? 2 : 1] && // Check score against opponent team
                               !gameOver && (
                                 <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
                                     Use Bomb
                                 </button>
-                              )}
+                              ))}
                             {/* Display Cancel Bomb button if bombMode is active for selection (only for players) */}
                             {playerNumber !== 0 && bombMode && (
                               <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
@@ -1091,19 +1248,29 @@ function App() {
                         <div className="game-info">
                             <h2>
                                 {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                                {playerNumber !== 0 && ` (vs. ${opponentName})`}
+                                {gameType === '1v1' ? ` (vs. ${opponentName})` : ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2 })`}
                             </h2>
-                            {/* Score display logic */}
-                            {gameId && gamePlayerNames[1] && gamePlayerNames[2] && (
-                            <div className="score-display">
-                                <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
-                                {gamePlayerNames[1]}: {scores[1]}
-                                </p>
-                                <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
-                                {gamePlayerNames[2]}: {scores[2]}
-                                </p>
-                            </div>
+                            {/* Score display logic adjusted for 2v2 */}
+                            {gameType === '2v2' ? (
+                                <div className="score-display">
+                                    <p style={{ color: (turn === 1 || turn === 2) ? 'green' : 'inherit' }}>
+                                        Team 1 ({gamePlayerNames[1]}, {gamePlayerNames[2]}): {scores[1]} 🚩
+                                    </p>
+                                    <p style={{ color: (turn === 3 || turn === 4) ? 'green' : 'inherit' }}>
+                                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]}): {scores[2]} 🏴‍☠️
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="score-display">
+                                    <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
+                                    {gamePlayerNames[1]}: {scores[1]} 🚩
+                                    </p>
+                                    <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
+                                    {gamePlayerNames[2]}: {scores[2]} 🏴‍☠️
+                                    </p>
+                                </div>
                             )}
+
                             {/* Display unrevealed mines count */}
                             <p className="mine-count-display">
                                 Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
@@ -1140,6 +1307,10 @@ function App() {
                                       lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
                                     } ${
                                       lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                                    } ${
+                                      gameType === '2v2' && lastClickedTile[3]?.x === x && lastClickedTile[3]?.y === y ? "last-clicked-p3" : ""
+                                    } ${
+                                      gameType === '2v2' && lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p4" : ""
                                     } ${isHighlighted ? "highlighted-bomb-area" : ""
                                     }`}
                                     onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
