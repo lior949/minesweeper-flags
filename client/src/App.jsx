@@ -461,7 +461,7 @@ function App() {
           // If auth fails, ensure no socket is connected from a previous attempt
           if (socketRef.current) {
             socketRef.current.disconnect();
-            socket.current = null;
+            socketRef.current = null;
             setIsSocketConnected(false);
           }
         }
@@ -1004,7 +1004,7 @@ function App() {
                 )}
             </div>
 
-            {/* Lobby Chat Section */}
+            {/* Lobby Chat Section */ }
             <div className="lobby-chat-container chat-container">
               <h3>Lobby Chat</h3>
               <div className="messages-display">
@@ -1033,12 +1033,14 @@ function App() {
 
         {gameId && (
             <div className="app-game-container">
-                {/* Game notifications moved to the very top */}
-                {message && <p className="app-message" style={{ color: message.includes("Error") ? 'red' : 'green', fontWeight: 'bold' }}>{message}</p>}
+                {/* Game notifications fixed position */}
+                <div className="game-notification-fixed">
+                    {message && <p className="app-message" style={{ color: message.includes("Error") ? 'red' : 'green', fontWeight: 'bold' }}>{message}</p>}
+                </div>
 
-                <div className="game-layout-flex"> {/* New flex container for central content and observers */}
-                    <div className="game-central-content"> {/* New wrapper for main game elements */}
-                        <div className="header">
+                <div className="game-layout-wrapper"> {/* Main layout wrapper */}
+                    <div className="game-sidebar left-sidebar"> {/* Left sidebar for controls/info */}
+                        <div className="header game-controls">
                             <h1>Minesweeper Flags</h1>
                             {/* Only show 'Use Bomb' button if player, not observer */}
                             {playerNumber !== 0 && playerNumber &&
@@ -1055,48 +1057,43 @@ function App() {
                                   Cancel Bomb
                               </button>
                             )}
-                        </div>
-
-                        <h2>
-                            {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                            {playerNumber !== 0 && ` (vs. ${opponentName})`}
-                        </h2>
-                        
-                        {/* Score display logic */}
-                        {gameId && gamePlayerNames[1] && gamePlayerNames[2] && (
-                          <div className="score-display">
-                            <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
-                              {gamePlayerNames[1]}: {scores[1]}
-                            </p>
-                            <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
-                              {gamePlayerNames[2]}: {scores[2]}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {/* Display unrevealed mines count */}
-                        <p className="mine-count-display">
-                            Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
-                        </p>
-
-                        {/* Game control buttons */}
-                        <div className="game-control-buttons">
+                            {/* Back to Lobby button */}
                             <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
                                 Back to Lobby
                             </button>
-
+                        </div>
+                        <div className="game-info">
+                            <h2>
+                                {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
+                                {playerNumber !== 0 && ` (vs. ${opponentName})`}
+                            </h2>
+                            {/* Score display logic */}
+                            {gameId && gamePlayerNames[1] && gamePlayerNames[2] && (
+                            <div className="score-display">
+                                <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
+                                {gamePlayerNames[1]}: {scores[1]}
+                                </p>
+                                <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
+                                {gamePlayerNames[2]}: {scores[2]}
+                                </p>
+                            </div>
+                            )}
+                            {/* Display unrevealed mines count */}
+                            <p className="mine-count-display">
+                                Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
+                            </p>
                             {gameOver && playerNumber !== 0 && ( // Only players can restart
-                                <>
-                                    <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
-                                        Restart Game
-                                    </button>
-                                </>
+                                <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
+                                    Restart Game
+                                </button>
                             )}
                             {gameOver && playerNumber === 0 && ( // Observer sees game over message
                                 <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
                             )}
                         </div>
+                    </div> {/* End of left-sidebar */}
 
+                    <div className="game-board-area"> {/* Central game board area */}
                         <div
                             className="grid"
                             style={{
@@ -1131,44 +1128,46 @@ function App() {
                               })
                             )}
                         </div>
-                    </div> {/* End of game-central-content */}
+                    </div> {/* End of game-board-area */}
+                    
+                    <div className="game-sidebar right-sidebar"> {/* Right sidebar for observers and game chat */}
+                        {/* List of observers in the game */}
+                        {observersInGame.length > 0 && (
+                            <div className="observers-list">
+                                <h4>Observers:</h4>
+                                <ul>
+                                {observersInGame.map((obs, index) => (
+                                    <li key={index}>{obs.name}</li>
+                                ))}
+                                </ul>
+                            </div>
+                        )}
 
-                    {/* List of observers in the game - now in a sidebar-like position */}
-                    {observersInGame.length > 0 && (
-                      <div className="observers-list-sidebar"> {/* New class for styling */}
-                        <h4>Observers:</h4>
-                        <ul>
-                          {observersInGame.map((obs, index) => (
-                            <li key={index}>{obs.name}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                </div> {/* End of game-layout-flex */}
-
-                {/* Game Chat Section remains at the bottom */}
-                <div className="game-chat-container chat-container">
-                  <h3>Game Chat</h3>
-                  <div className="messages-display">
-                    {gameMessages.map((msg, index) => (
-                      <div key={index} className={`message ${msg.sender === name ? 'my-message' : 'other-message'}`}>
-                        <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
-                      </div>
-                    ))}
-                    <div ref={gameChatEndRef} />
-                  </div>
-                  <form onSubmit={sendGameMessage} className="message-input-form">
-                    <input
-                      type="text"
-                      value={gameMessageInput}
-                      onChange={(e) => setGameMessageInput(e.target.value)}
-                      placeholder="Type a game message..."
-                      className="message-input"
-                      disabled={!isSocketConnected}
-                    />
-                    <button type="submit" className="send-message-button" disabled={!isSocketConnected}>Send</button>
-                  </form>
-                </div>
+                        {/* Game Chat Section */}
+                        <div className="game-chat-container chat-container">
+                            <h3>Game Chat</h3>
+                            <div className="messages-display">
+                                {gameMessages.map((msg, index) => (
+                                <div key={index} className={`message ${msg.sender === name ? 'my-message' : 'other-message'}`}>
+                                    <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
+                                </div>
+                                ))}
+                                <div ref={gameChatEndRef} />
+                            </div>
+                            <form onSubmit={sendGameMessage} className="message-input-form">
+                                <input
+                                type="text"
+                                value={gameMessageInput}
+                                onChange={(e) => setGameMessageInput(e.target.value)}
+                                placeholder="Type a game message..."
+                                className="message-input"
+                                disabled={!isSocketConnected}
+                                />
+                                <button type="submit" className="send-message-button" disabled={!isSocketConnected}>Send</button>
+                            </form>
+                        </div>
+                    </div> {/* End of right-sidebar */}
+                </div> {/* End of game-layout-wrapper */}
             </div>
         )}
     </div>
