@@ -200,45 +200,35 @@ function App() {
 
   // Play sound functions (ensure Tone.start() is called first on user interaction)
   const playClickSound = useCallback(() => {
-    if (Tone.context.state !== 'running') {
-      Tone.start(); // Start audio context on first user interaction
-    }
+    // console.log("Playing click sound."); // Debug log
     if (clickSynth.current) {
-        clickSynth.current.triggerAttackRelease("C4", "8n"); // Play C4 for an 8th note
+        clickSynth.current.triggerAttackRelease("C5", "16n"); // Changed to C5, shorter duration
     }
   }, []);
 
   const playBombSound = useCallback(() => {
-    if (Tone.context.state !== 'running') {
-      Tone.start();
-    }
+    // console.log("Playing bomb sound."); // Debug log
     if (bombSynth.current) {
-        bombSynth.current.triggerAttackRelease("16n", Tone.now(), 0.5); // Short noise burst
+        bombSynth.current.triggerAttackRelease("8n", Tone.now(), 0.5); // Slightly longer noise burst
     }
   }, []);
 
   const playMineRevealedSound = useCallback(() => {
-    if (Tone.context.state !== 'running') {
-      Tone.start();
-    }
+    // console.log("Playing mine revealed sound."); // Debug log
     if (mineRevealedSynth.current) {
-        mineRevealedSynth.current.triggerAttackRelease("G3", "8n"); // Lower tone for mine
+        mineRevealedSynth.current.triggerAttackRelease("G2", "8n"); // Lower tone for mine
     }
   }, []);
 
   const playGameOverSound = useCallback(() => {
-    if (Tone.context.state !== 'running') {
-      Tone.start();
-    }
+    // console.log("Playing game over sound."); // Debug log
     if (gameOverSynth.current) {
         gameOverSynth.current.triggerAttackRelease("C3", "1n"); // Long low tone
     }
   }, []);
 
   const playWinSound = useCallback(() => {
-    if (Tone.context.state !== 'running') {
-      Tone.start();
-    }
+    // console.log("Playing win sound."); // Debug log
     if (winSoundSynth.current) {
         winSoundSynth.current.triggerAttackRelease("C5", "8n", "+0");
         winSoundSynth.current.triggerAttackRelease("E5", "8n", "+0.2");
@@ -456,7 +446,10 @@ function App() {
 
         socketRef.current.on("join-error", (msg) => {
             showMessage(msg, true);
-            if (gameId) addGameMessage("Server", msg, true);
+            // Check if gameId exists before trying to add a game message
+            if (gameId) { // Use the state variable, which is reactive
+                addGameMessage("Server", msg, true);
+            }
             if (msg.includes("Authentication required")) {
                 setLoggedIn(false);
                 setName("");
@@ -465,6 +458,7 @@ function App() {
             setIsBombHighlightActive(false);
             setHighlightedBombArea([]);
         });
+
 
         socketRef.current.on("lobby-joined", (userName) => {
             // setName(userName); // Name should already be set by initial auth or pop-up callback
@@ -516,30 +510,36 @@ function App() {
         });
 
         socketRef.current.on("board-update", (game) => {
-            // Store previous board for sound logic, but ensure it's not the same reference
-            const oldBoard = JSON.parse(JSON.stringify(board)); // Deep copy for comparison
-            const newBoard = JSON.parse(game.board); // New board data
+            // It's safer to compare against the previous board state, not `board` from closure if it's stale.
+            // Using a local variable `currentBoard` from ref for comparison can be tricky.
+            // For now, rely on state `board` which should be updated by React's render cycle.
+            // A deep copy ensures we compare actual values, not references.
+            const oldBoard = JSON.parse(JSON.stringify(board)); // Deep copy of the *current* state.board
+            const newBoard = JSON.parse(game.board); // New board data from the server
 
-            // Check if any tile was newly revealed (not a mine) or if a mine was newly revealed
             let mineRevealed = false;
-            let nonMineTileRevealed = false; // Flag to check if any non-mine tile was revealed
-            if (oldBoard.length > 0 && newBoard.length > 0) { // Ensure boards are initialized for comparison
+            let nonMineTileRevealed = false;
+            
+            // Perform comparison only if both oldBoard and newBoard are valid and have dimensions
+            if (oldBoard.length > 0 && newBoard.length > 0 && 
+                oldBoard[0].length > 0 && newBoard[0].length > 0) {
+                
                 for (let y = 0; y < newBoard.length; y++) {
                     for (let x = 0; x < newBoard[y].length; x++) {
+                        // Check for newly revealed mine
                         if (newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
                             mineRevealed = true;
-                            // No need to check other tiles if a mine is found, it takes precedence
-                            break;
+                            // If a new mine is revealed, we prioritize that sound and can stop checking
+                            break; 
                         }
-                        // If not a mine, check if a non-mine tile was newly revealed
+                        // Check for newly revealed non-mine tile
                         if (!newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
                             nonMineTileRevealed = true;
                         }
                     }
-                    if (mineRevealed) break; // Exit outer loop if mine found
+                    if (mineRevealed) break; // Exit outer loop if a mine was found
                 }
             }
-
 
             setBoard(newBoard); // Update state with the new board
             setTurn(game.turn);
@@ -718,7 +718,7 @@ function App() {
         socketRef.current = null; // Clear the ref to allow new connection if loggedIn becomes true again
       }
     };
-  }, [loggedIn, name]); // CRITICAL CHANGE: Dependencies are now limited to loggedIn and name.
+  }, [loggedIn, name, addGameMessage, playBombSound, playMineRevealedSound, playWinSound, playGameOverSound, board]); // Add board to dependencies, it's used in board-update listener callbacks indirectly via setState
 
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
@@ -821,12 +821,16 @@ function App() {
     }
   };
 
-  const handleClick = (x, y) => {
+  const handleClick = async (x, y) => { // Changed to async to await Tone.start()
     // Always attempt to start Tone.js context on user interaction
-    if (Tone.context.state !== 'running') {
-        Tone.start().then(() => {
+    try {
+        if (Tone.context.state !== 'running') {
+            await Tone.start();
             console.log("Tone.js audio context started by user interaction.");
-        }).catch(e => console.error("Failed to start Tone.js audio context:", e));
+        }
+        Tone.context.resume(); // Ensure context is resumed if suspended
+    } catch (e) {
+        console.error("Failed to start or resume Tone.js audio context:", e);
     }
 
     // Only players (playerNumber 1 or 2) can click tiles
