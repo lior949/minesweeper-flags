@@ -173,15 +173,15 @@ html, body {
 }
 
 .tile.hidden {
-  background-color: #ADD8E6; /* Changed to Light Blue */
-  border: 2px solid #000080; /* Sky Blue border */
+  background-color: #34495e; /* Darker blue */
+  border: 2px solid #2c3e50; /* Even darker blue for border */
   color: transparent; /* Hide text until revealed */
   transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
 .tile.hidden:hover {
-  background-color: #90CAF9; /* Lighter blue on hover */
-  border-color: #A0D0F0; /* Slightly lighter border on hover */
+  background-color: #4a627a; /* Slightly lighter dark blue on hover */
+  border-color: #3f5269; /* Slightly lighter dark blue for border on hover */
 }
 
 /* More specific rule for revealed tiles */
