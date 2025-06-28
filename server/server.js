@@ -370,7 +370,6 @@ app.get("/logout", (req, res, next) => {
   });
 });
 
-
 // Login Check Route
 app.get("/me", (req, res) => {
   console.log("------------------- /me Request Received -------------------");
@@ -522,8 +521,7 @@ const emitLobbyPlayersList = () => {
 
     // Modify to send all connected players with their game status
     const playersWithStatus = players.map(p => {
-        // Ensure p.userId is not undefined before accessing userGameMap
-        const gameMapping = p.userId ? userGameMap[p.userId] : null; 
+        const gameMapping = userGameMap[p.userId];
         let opponentName = null;
         let playerNames = {}; // To store all player names in 2v2 for detailed lobby display
         let teamName = null;
@@ -571,7 +569,7 @@ io.on("connection", (socket) => {
 
   // Passport.js attaches session to socket.request
   const user = socket.request.session?.passport?.user || null;
-  const userId = user ? user.id : null; // userId can be null here for unauthenticated users
+  const userId = user ? user.id : null;
   const userName = user ? user.displayName : null;
 
   if (userId) {
@@ -630,7 +628,7 @@ io.on("connection", (socket) => {
                         const playerNum = index + 1;
                         let playerObj = players.find(p => p.userId === pUid);
                         if (!playerObj) { // If player not in global players list, add them
-                            playerObj = { id: userSocketMap[pUid] || null, userId: pUid, name: playerNames[playerNum], number: playerNum }; // Include id and number
+                            playerObj = { userId: pUid, name: playerNames[playerNum], number: playerNum };
                             players.push(playerObj);
                         }
                         playerObj.socketId = userSocketMap[pUid] || null; // Update socketId from userSocketMap
@@ -780,7 +778,7 @@ io.on("connection", (socket) => {
         }
     }
   } else {
-      console.log(`Unauthenticated socket ${socket.id} connected. No userId available.`);
+      console.log(`Unauthenticated socket ${socket.id} connected.`);
       // No `authenticated-socket-ready` emitted for unauthenticated sockets
   }
 
@@ -821,8 +819,6 @@ io.on("connection", (socket) => {
   socket.on("send-lobby-message", (message) => {
     const user = socket.request.session?.passport?.user || null;
     const userName = user ? user.displayName : 'Anonymous'; // Fallback for sender name
-    // No userId check here as anonymous can send lobby messages
-
     const timestamp = new Date().toLocaleTimeString();
     const fullMessage = { sender: userName, text: message, timestamp: timestamp };
     lobbyMessages.push(fullMessage);
@@ -1129,7 +1125,7 @@ socket.on("resume-game", async ({ gameId }) => {
         const playerNum = index + 1;
         let playerObj = players.find(p => p.userId === pUid);
         if (!playerObj) { // If player not in global players list, add them
-            playerObj = { id: userSocketMap[pUid] || null, userId: pUid, name: playerNamesForClient[playerNum], number: playerNum }; // Added 'id' here
+            playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
             players.push(playerObj);
         }
         // Assign the current socket ID if this is the resuming player, or get from map for other players
@@ -1283,7 +1279,7 @@ socket.on("resume-game", async ({ gameId }) => {
             game.players = playerUids.map((pUid, index) => {
                 const playerNum = index + 1;
                 let playerObj = players.find(p => p.userId === pUid);
-                if (!playerObj) playerObj = { id: userSocketMap[pUid] || null, userId: pUid, name: playerNamesForClient[playerNum], number: playerNum }; // Added 'id' here
+                if (!playerObj) playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
                 playerObj.socketId = userSocketMap[pUid] || null;
                 playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
                 return playerObj;
@@ -1347,7 +1343,7 @@ socket.on("resume-game", async ({ gameId }) => {
 socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const inviterUser = socket.request.session?.passport?.user || null;
     const inviterUserId = inviterUser ? inviterUser.id : null;
-    const inviterPlayer = players.find((p) => p.userId === inviterUserId); // Use inviterUserId for lookup here
+    const inviterPlayer = players.find((p) => p.userId === inviterUserId);
 
     if (!inviterPlayer) {
         console.warn(`Invite failed: Inviter not found. userId: ${inviterUserId}`);
@@ -1356,7 +1352,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
     if (gameType === '1v1') {
         const targetSocketId = targetSocketIds[0];
-        const invitedPlayer = players.find((p) => p.id === targetSocketId); // Find by socket.id
+        const invitedPlayer = players.find((p) => p.id === targetSocketId);
         if (!invitedPlayer) {
             console.warn(`Invite failed: Invitee not found for 1v1. targetSocketId: ${targetSocketId}`);
             io.to(inviterPlayer.id).emit("invite-rejected", { fromName: "Server", reason: "Invited player not found." });
@@ -1472,7 +1468,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const respondingUser = socket.request.session?.passport?.user || null;
     const respondingUserId = respondingUser ? respondingUser.id : null;
 
-    const respondingPlayer = players.find((p) => p.userId === respondingUserId); // Use userId for lookup
+    const respondingPlayer = players.find((p) => p.userId === respondingUserId);
     const inviterPlayer = players.find((p) => p.id === fromId); // fromId is inviter's socket.id
 
     if (!respondingPlayer || !inviterPlayer) {
@@ -1624,7 +1620,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             pendingInvite.gameRoster.forEach(rosterPlayer => {
                 let playerObj = players.find(p => p.userId === rosterPlayer.userId);
                 if (!playerObj) { // If player not in global players list, add them (should rarely happen here)
-                    playerObj = { id: userSocketMap[rosterPlayer.userId] || null, userId: rosterPlayer.userId, name: rosterPlayer.name }; // Added 'id' here
+                    playerObj = { userId: rosterPlayer.userId, name: rosterPlayer.name };
                     players.push(playerObj);
                 }
                 playerObj.socketId = userSocketMap[rosterPlayer.userId] || null; // Update socketId
@@ -1699,16 +1695,16 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
   // Tile Click Event (main game action)
   socket.on("tile-click", async ({ gameId, x, y }) => {
+    const game = games[gameId];
+    if (!game || game.gameOver) {
+        console.warn(`Tile click: Game ${gameId} not found or game over.`);
+        return;
+    }
+
     const user = socket.request.session?.passport?.user || null;
     const userId = user ? user.id : null;
     if (!userId) {
         console.warn(`Tile click: Unauthenticated user ${socket.id}.`);
-        return;
-    }
-
-    const game = games[gameId];
-    if (!game || game.gameOver) {
-        console.warn(`Tile click: Game ${gameId} not found or game over.`);
         return;
     }
 
@@ -1892,6 +1888,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
   // Handle Game Chat Messages
   socket.on("send-game-message", async ({ gameId, message }) => {
+    const game = games[gameId];
+    if (!game) {
+      console.warn(`Attempted to send message to non-existent game ${gameId}`);
+      return;
+    }
     const user = socket.request.session?.passport?.user || null;
     const userId = user ? user.id : null;
     const userName = user ? user.displayName : 'Anonymous';
@@ -1899,12 +1900,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     if (!userId) {
         console.warn(`Unauthenticated user tried to send game message to ${gameId}`);
         return;
-    }
-
-    const game = games[gameId];
-    if (!game) {
-      console.warn(`Attempted to send message to non-existent game ${gameId}`);
-      return;
     }
 
     // Only allow players or active observers to send messages
@@ -1940,16 +1935,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
   // Use Bomb Event
   socket.on("use-bomb", ({ gameId }) => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    if (!userId) {
-        console.warn(`Unauthenticated user tried to use bomb for game ${gameId}`);
-        return;
-    }
-
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
     const player = game.players.find((p) => p.userId === userId);
     
     if (!player) {
@@ -1987,16 +1977,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
   // Bomb Center Selected Event
   socket.on("bomb-center", async ({ gameId, x, y }) => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    if (!userId) {
-        console.warn(`Unauthenticated user tried to use bomb for game ${gameId}`);
-        return;
-    }
-
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
     const player = game.players.find((p) => p.userId === userId);
     
     if (!player) {
@@ -2138,16 +2123,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
   // Restart Game Event (Manual Restart Button)
   socket.on("restart-game", async ({ gameId }) => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    if (!userId) {
-        console.warn(`Unauthenticated user tried to restart game ${gameId}`);
-        return;
-    }
-
     const game = games[gameId];
     if (!game) return;
     
+    const user = socket.request.session?.passport?.user || null;
+    const userId = user ? user.id : null;
     const requestingPlayer = game.players.find(p => p.userId === userId);
     if (!requestingPlayer) return;
 
@@ -2213,18 +2193,13 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
  // Leave Game Event (Player or Observer voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
+  const game = games[gameId];
   const user = socket.request.session?.passport?.user || null;
   const userId = user ? user.id : null;
   const userName = user ? user.displayName : 'Unknown User';
 
-  if (!userId) {
-        console.warn(`Unauthenticated user tried to leave game ${gameId}`);
-        return;
-    }
 
-  const game = games[gameId];
-
-  if (game) { // Check if game exists in memory
+  if (game && userId) {
     const gameMapping = userGameMap[userId];
     if (!gameMapping || gameMapping.gameId !== gameId) {
         console.warn(`User ${userId} tried to leave game ${gameId} but was not mapped to it.`);
@@ -2278,7 +2253,7 @@ socket.on("leave-game", async ({ gameId }) => {
       io.to(gameId).emit("observer-left", { name: userName, userId: userId });
     }
   } else {
-      console.warn(`Attempt to leave game failed: game ${gameId} not found.`);
+      console.warn(`Attempt to leave game failed: game ${gameId} not found or userId missing.`);
   }
 
   // Attempt to re-add player/observer to lobby list if they were logged in
@@ -2307,106 +2282,103 @@ socket.on("disconnect", async () => {
   const disconnectedUserId = user ? user.id : null;
   const disconnectedUserName = user ? user.displayName : 'Unknown User';
 
-  if (disconnectedUserId) { // Only proceed with user-specific cleanup if a userId can be identified
+  if (disconnectedUserId) {
     // Correctly remove from userSocketMap as this specific socket is no longer active for this user
     delete userSocketMap[disconnectedUserId];
     console.log(`[Disconnect] User ${disconnectedUserId} socket removed from userSocketMap.`);
+  }
 
-    // Filter players list: This list represents users who are currently online.
-    // We only remove a user from this global list if there's no other active socket for their userId.
-    players = players.filter(p => userSocketMap[p.userId] !== undefined); 
-    console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-    emitLobbyPlayersList(); // Use the helper to update lobby list
+  // Filter players list: This list represents users who are currently online.
+  // We only remove a user from this global list if there's no other active socket for their userId.
+  players = players.filter(p => userSocketMap[p.userId] !== undefined); 
+  console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+  emitLobbyPlayersList(); // Use the helper to update lobby list
 
 
-    // Check if the disconnected user was in a game (as player or observer)
-    let gameId = null;
-    let role = null;
-    // Iterate through userGameMap to find if the disconnected user was in any game
-    for (const uid in userGameMap) {
-        if (uid === disconnectedUserId) {
-            gameId = userGameMap[uid].gameId;
-            role = userGameMap[uid].role;
-            break;
-        }
-    }
-
-    if (gameId) { // Only proceed with game-specific logic if a gameId was found
-      const game = games[gameId];
-      console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId} as a ${role}.`);
-
-      if (game) { // Only proceed if the game object exists in memory
-        if (role === 'player') {
-          const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
-          if (disconnectedPlayerInGame) {
-            disconnectedPlayerInGame.socketId = null; // Mark their socket as null
-            console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
-          }
-
-          // The userGameMap entry for players should *not* be deleted here.
-          // It must persist so the player can resume the game.
-          // The game status in Firestore should reflect it's waiting for resume.
-          try {
-            await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-              status: 'waiting_for_resume', // Set game status to waiting_for_resume
-              lastUpdated: Timestamp.now()
-            }, { merge: true });
-            console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
-          } catch (error) {
-            console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on disconnect:", error);
-          }
-
-          // Notify other players in the game that a player disconnected
-          game.players.filter(p => p.userId !== disconnectedUserId && p.socketId).forEach(player => {
-              io.to(player.socketId).emit("opponent-left");
-              console.log(`Notified player ${player.name} that ${disconnectedUserName} disconnected.`);
-          });
-          io.to(gameId).emit("player-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'player' });
-
-        } else if (role === 'observer') {
-          // Remove observer's socketId from the in-memory game object
-          const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
-          if (disconnectedObserverInGame) {
-              disconnectedObserverInGame.socketId = null;
-              console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
-          }
-          // Do NOT remove observer from Firestore or game.observers list on disconnect,
-          // just mark their socket as null. They will be removed on explicit 'leave-game' or if game ends.
-          // Or, you could remove them from the in-memory `observers` array if you want to consider them fully gone
-          // until they explicitly observe again, and remove from Firestore too.
-          // For now, let's keep them in the array but with null socketId until they leave or rejoin.
-
-          // Notify others in the game that an observer left (disconnected)
-          io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
-        }
-      } else {
-        // If game wasn't in memory but userGameMap pointed to it, it might be a stale entry. Clear it.
-        delete userGameMap[disconnectedUserId];
-        console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
+  // Check if the disconnected user was in a game (as player or observer)
+  let gameId = null;
+  let role = null;
+  // Iterate through userGameMap to find if the disconnected user was in any game
+  for (const uid in userGameMap) {
+      if (uid === disconnectedUserId) {
+          gameId = userGameMap[uid].gameId;
+          role = userGameMap[uid].role;
+          break;
       }
-    }
+  }
 
-    // NEW: Handle disconnect for pending 2v2 invites
-    // Find any pending invite where the disconnected user was a participant
-    for (const inviteId in pending2v2Invites) {
-        const invite = pending2v2Invites[inviteId];
-        if (invite.gameRoster.some(p => p.userId === disconnectedUserId)) {
-            console.log(`[Disconnect] User ${disconnectedUserName} (${disconnectedUserId}) disconnected, cancelling pending 2v2 invite ${inviteId}.`);
-            
-            // Notify all participants in this pending invite about the cancellation
-            invite.gameRoster.forEach(p => {
-                const targetSocket = userSocketMap[p.userId];
-                if (targetSocket && p.userId !== disconnectedUserId) { // Don't try to send to disconnected user
-                    io.to(targetSocket).emit("invite-rejected", { fromName: "Server", reason: `${disconnectedUserName} disconnected, cancelling the 2v2 invitation.` });
-                }
-            });
-            delete pending2v2Invites[inviteId]; // Clean up the pending invite
+  if (gameId) {
+    const game = games[gameId];
+    console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId} as a ${role}.`);
+
+    if (game) {
+      if (role === 'player') {
+        const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
+        if (disconnectedPlayerInGame) {
+          disconnectedPlayerInGame.socketId = null; // Mark their socket as null
+          console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
         }
+
+        // The userGameMap entry for players should *not* be deleted here.
+        // It must persist so the player can resume the game.
+        // The game status in Firestore should reflect it's waiting for resume.
+        try {
+          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+            status: 'waiting_for_resume', // Set game status to waiting_for_resume
+            lastUpdated: Timestamp.now()
+          }, { merge: true });
+          console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
+        } catch (error) {
+          console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on disconnect:", error);
+        }
+
+        // Notify other players in the game that a player disconnected
+        game.players.filter(p => p.userId !== disconnectedUserId && p.socketId).forEach(player => {
+            io.to(player.socketId).emit("opponent-left");
+            console.log(`Notified player ${player.name} that ${disconnectedUserName} disconnected.`);
+        });
+        io.to(gameId).emit("player-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'player' });
+
+      } else if (role === 'observer') {
+        // Remove observer's socketId from the in-memory game object
+        const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
+        if (disconnectedObserverInGame) {
+            disconnectedObserverInGame.socketId = null;
+            console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
+        }
+        // Do NOT remove observer from Firestore or game.observers list on disconnect,
+        // just mark their socket as null. They will be removed on explicit 'leave-game' or if game ends.
+        // Or, you could remove them from the in-memory `observers` array if you want to consider them fully gone
+        // until they explicitly observe again, and remove from Firestore too.
+        // For now, let's keep them in the array but with null socketId until they leave or rejoin.
+
+        // Notify others in the game that an observer left (disconnected)
+        io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
+      }
+      socket.emit("request-observable-games"); // Refresh observable games
+    } else {
+      // If game wasn't in memory but userGameMap pointed to it, it might be a stale entry. Clear it.
+      delete userGameMap[disconnectedUserId];
+      console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
     }
-  } else {
-    console.log(`[Disconnect] Disconnected socket ${socket.id} has no associated userId (unauthenticated).`);
-    // No `emitLobbyPlayersList()` call here for unauthenticated disconnects, as it's not needed.
-    // The main players array filtering for `userSocketMap[p.userId] !== undefined` is sufficient outside this specific `if (disconnectedUserId)` block.
+  }
+
+  // NEW: Handle disconnect for pending 2v2 invites
+  // Find any pending invite where the disconnected user was a participant
+  for (const inviteId in pending2v2Invites) {
+      const invite = pending2v2Invites[inviteId];
+      if (invite.gameRoster.some(p => p.userId === disconnectedUserId)) {
+          console.log(`[Disconnect] User ${disconnectedUserName} (${disconnectedUserId}) disconnected, cancelling pending 2v2 invite ${inviteId}.`);
+          
+          // Notify all participants in this pending invite about the cancellation
+          invite.gameRoster.forEach(p => {
+              const targetSocket = userSocketMap[p.userId];
+              if (targetSocket && p.userId !== disconnectedUserId) { // Don't try to send to disconnected user
+                  io.to(targetSocket).emit("invite-rejected", { fromName: "Server", reason: `${disconnectedUserName} disconnected, cancelling the 2v2 invitation.` });
+              }
+          });
+          delete pending2v2Invites[inviteId]; // Clean up the pending invite
+      }
   }
 });
 
