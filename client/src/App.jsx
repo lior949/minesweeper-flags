@@ -91,7 +91,7 @@ function App() {
   const [invite, setInvite] = useState(null);
   const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
   const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null }); // Track last clicked tile for each player
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null, 3: null, 4: null }); // Track last clicked tile for each player
   const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
   const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
   // NEW: State to store player names by their player number in the current game
@@ -471,8 +471,8 @@ function App() {
               setGamePlayerNames({
                 1: data.player1Name || "Player 1",
                 2: data.player2Name || "Player 2",
-                3: data.player3Name || "Player 3",
-                4: data.player4Name || "Player 4",
+                3: data.player3Name || "Player 3", // For 2v2
+                4: data.player4Name || "Player 4", // For 2v2
               });
             });
 
@@ -815,13 +815,26 @@ function App() {
         addGameMessage("Server", "Observers cannot use bombs.", true); // Send to server chat
         return;
     }
-    // Determine the team number for the current player
-    const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
-    const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
+    
+    // Determine the relevant scores and bomb usage based on game type
+    let currentPlayerScore;
+    let opponentPlayerOrTeamScore;
+    let currentBombUsedStatus;
 
+    if (gameType === '1v1') {
+      currentPlayerScore = scores[playerNumber];
+      opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
+      currentBombUsedStatus = bombsUsed[playerNumber];
+    } else { // 2v2 mode
+      const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+      const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
+      currentPlayerScore = scores[myTeamNumber];
+      opponentPlayerOrTeamScore = scores[opponentTeamNumber];
+      currentBombUsedStatus = bombsUsed[myTeamNumber];
+    }
 
-    if (!isSocketConnected || !gameId || gameOver || bombsUsed[myTeamNumber] || !(gameType === '1v1' ? playerNumber === turn : true)) {
-      if (bombsUsed[myTeamNumber]) {
+    if (!isSocketConnected || !gameId || gameOver || currentBombUsedStatus || !(gameType === '1v1' ? playerNumber === turn : true)) {
+      if (currentBombUsedStatus) {
         addGameMessage("Server", "Your team has already used its bomb!", true); // Send to server chat
       } else if (gameOver) {
         addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to server chat
@@ -835,14 +848,14 @@ function App() {
       return;
     }
 
-    // Only allow bomb usage if player's team is behind in score
-    if (scores[myTeamNumber] < scores[opponentTeamNumber]) {
+    // Only allow bomb usage if player's team is strictly behind in score
+    if (currentPlayerScore < opponentPlayerOrTeamScore) { // Condition remains strictly less than
       socketRef.current.emit("use-bomb", { gameId });
       // When 'use-bomb' is emitted, we immediately activate visual highlighting
       setIsBombHighlightActive(true); 
       addGameMessage("Server", "Bomb initiated. Select target.", false); // Send to server chat
     } else {
-      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); // Send to server chat
+      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); // Updated message
     }
   };
 
@@ -1222,8 +1235,8 @@ function App() {
                         <div className="game-controls">
                             {/* Only show 'Use Bomb' button if player, not observer */}
                             {playerNumber !== 0 && ( // Players 1,2,3,4 can use bomb
-                              !bombsUsed[(playerNumber === 1 || playerNumber === 2) ? 1 : 2] && // Check bomb used for current team
-                              scores[(playerNumber === 1 || playerNumber === 2) ? 1 : 2] < scores[(playerNumber === 1 || playerNumber === 2) ? 2 : 1] && // Check score against opponent team
+                              !currentBombUsedStatus && // Check bomb used for current player/team
+                              currentPlayerScore < opponentPlayerOrTeamScore && // Check score against opponent
                               !gameOver && (
                                 <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
                                     Use Bomb
