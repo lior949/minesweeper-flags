@@ -1,6 +1,7 @@
 // App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
+import * as Tone from "tone"; // Import Tone.js
 import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
 import FacebookLogin from "./FacebookLogin"; // Assuming GoogleLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
@@ -114,6 +115,137 @@ function App() {
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
   // Removed gameChatEndRef as per request for no auto-scroll
+
+  // --- Tone.js Sound Players ---
+  const clickSynth = useRef(null);
+  const bombSynth = useRef(null);
+  const mineRevealedSynth = useRef(null);
+  const gameOverSynth = useRef(null);
+  const winSoundSynth = useRef(null);
+
+  // Initialize Tone.js synths on component mount
+  useEffect(() => {
+    // Initialize simple click sound (e.g., a short plucky sound)
+    clickSynth.current = new Tone.PolySynth(Tone.Synth, {
+      oscillator: {
+        type: "fmsquare",
+        modulationType: "sawtooth",
+        modulationIndex: 3,
+        harmonicity: 3.4
+      },
+      envelope: {
+        attack: 0.001,
+        decay: 0.1,
+        sustain: 0.05,
+        release: 0.1
+      }
+    }).toDestination();
+
+    // Initialize bomb sound (e.g., a low, short burst)
+    bombSynth.current = new Tone.NoiseSynth({
+      noise: {
+        type: "pink"
+      },
+      envelope: {
+        attack: 0.005,
+        decay: 0.2,
+        sustain: 0,
+        release: 0.2
+      }
+    }).toDestination();
+
+    // Initialize mine revealed sound (e.g., a distinct, perhaps slightly dissonant ping)
+    mineRevealedSynth.current = new Tone.Synth({
+        oscillator: { type: "square" },
+        envelope: {
+            attack: 0.01,
+            decay: 0.1,
+            sustain: 0.0,
+            release: 0.2
+        }
+    }).toDestination();
+
+    // Initialize game over sound (e.g., a descending, somber tone)
+    gameOverSynth.current = new Tone.Synth({
+        oscillator: { type: "triangle" },
+        envelope: {
+            attack: 0.1,
+            decay: 0.5,
+            sustain: 0,
+            release: 1
+        }
+    }).toDestination();
+
+    // Initialize win sound (e.g., an ascending, joyful tone)
+    winSoundSynth.current = new Tone.Synth({
+        oscillator: { type: "sine" },
+        envelope: {
+            attack: 0.05,
+            decay: 0.3,
+            sustain: 0,
+            release: 0.5
+        }
+    }).toDestination();
+
+
+    // Clean up synths on unmount
+    return () => {
+      if (clickSynth.current) clickSynth.current.dispose();
+      if (bombSynth.current) bombSynth.current.dispose();
+      if (mineRevealedSynth.current) mineRevealedSynth.current.dispose();
+      if (gameOverSynth.current) gameOverSynth.current.dispose();
+      if (winSoundSynth.current) winSoundSynth.current.dispose();
+    };
+  }, []);
+
+  // Play sound functions (ensure Tone.start() is called first on user interaction)
+  const playClickSound = useCallback(() => {
+    if (Tone.context.state !== 'running') {
+      Tone.start(); // Start audio context on first user interaction
+    }
+    if (clickSynth.current) {
+        clickSynth.current.triggerAttackRelease("C4", "8n"); // Play C4 for an 8th note
+    }
+  }, []);
+
+  const playBombSound = useCallback(() => {
+    if (Tone.context.state !== 'running') {
+      Tone.start();
+    }
+    if (bombSynth.current) {
+        bombSynth.current.triggerAttackRelease("16n", Tone.now(), 0.5); // Short noise burst
+    }
+  }, []);
+
+  const playMineRevealedSound = useCallback(() => {
+    if (Tone.context.state !== 'running') {
+      Tone.start();
+    }
+    if (mineRevealedSynth.current) {
+        mineRevealedSynth.current.triggerAttackRelease("G3", "8n"); // Lower tone for mine
+    }
+  }, []);
+
+  const playGameOverSound = useCallback(() => {
+    if (Tone.context.state !== 'running') {
+      Tone.start();
+    }
+    if (gameOverSynth.current) {
+        gameOverSynth.current.triggerAttackRelease("C3", "1n"); // Long low tone
+    }
+  }, []);
+
+  const playWinSound = useCallback(() => {
+    if (Tone.context.state !== 'running') {
+      Tone.start();
+    }
+    if (winSoundSynth.current) {
+        winSoundSynth.current.triggerAttackRelease("C5", "8n", "+0");
+        winSoundSynth.current.triggerAttackRelease("E5", "8n", "+0.2");
+        winSoundSynth.current.triggerAttackRelease("G5", "8n", "+0.4");
+    }
+  }, []);
+
 
   // Effect to scroll to the bottom of lobby chat (no change here)
   useEffect(() => {
@@ -243,8 +375,6 @@ function App() {
                 // Only emit join-lobby if loggedIn is true (from initial auth check or pop-up)
                 if (loggedIn) { // Check loggedIn state
                   socketRef.current.emit("join-lobby", name); // Use current state `name`
-                } else {
-                  console.log("Socket connected but not logged in yet. Waiting for login.");
                 }
             });
 
@@ -353,12 +483,33 @@ function App() {
               setLastClickedTile(game.lastClickedTile || { 1: null, 2: null });
               setObserversInGame(game.observers || []); // NEW: Update observers list on board update
               setMessage(""); // Clear global message
+
+              // Check if a mine was revealed in this update and play sound
+              const oldBoard = JSON.parse(JSON.stringify(board)); // Deep copy of old board
+              const newBoard = JSON.parse(game.board);
+
+              if (newBoard && oldBoard && newBoard.length === oldBoard.length && newBoard[0].length === oldBoard[0].length) {
+                let mineRevealed = false;
+                for (let y = 0; y < newBoard.length; y++) {
+                  for (let x = 0; x < newBoard[y].length; x++) {
+                    if (newBoard[y][x].isMine && newBoard[y][x].revealed && !oldBoard[y][x].revealed) {
+                      mineRevealed = true;
+                      break;
+                    }
+                  }
+                  if (mineRevealed) break;
+                }
+                if (mineRevealed) {
+                  playMineRevealedSound();
+                }
+              }
             });
 
             socketRef.current.on("wait-bomb-center", () => {
               setBombMode(true); // Backend signals to wait for center
               addGameMessage("Server", "Select 5x5 bomb center.", false); // Add to server chat
               setIsBombHighlightActive(true); // Activate bomb highlighting for mouse movement
+              playBombSound(); // Play bomb sound when bomb mode is activated
             });
 
             socketRef.current.on("opponent-left", () => {
@@ -422,6 +573,21 @@ function App() {
             socketRef.current.on("observer-left", ({ name, userId }) => {
                 addGameMessage("Server", `${name} stopped observing.`, true); // Add to server chat
                 setObserversInGame(prev => prev.filter(obs => obs.userId !== userId));
+            });
+
+            socketRef.current.on("game-over", ({ winnerPlayerNumber, winByScore }) => {
+                setGameOver(true);
+                if (winnerPlayerNumber) {
+                    addGameMessage("Server", `Game Over! Player ${winnerPlayerNumber} wins!`, false);
+                    playWinSound(); // Play win sound
+                } else {
+                    addGameMessage("Server", "Game Over! It's a draw!", false);
+                    playGameOverSound(); // Play general game over sound for draw
+                }
+                // Play game over sound always
+                if (!winnerPlayerNumber) { // if it's a draw
+                    playGameOverSound();
+                }
             });
 
 
@@ -558,6 +724,7 @@ function App() {
         socketRef.current.off("player-left"); // NEW: Cleanup for player left
         socketRef.current.off("observer-joined"); // NEW: Cleanup for observer joined
         socketRef.current.off("observer-left"); // NEW: Cleanup for observer left
+        socketRef.current.off("game-over"); // NEW: Cleanup for game over
         socketRef.current.off("game-restarted");
         socketRef.current.off("initial-lobby-messages"); // New cleanup for chat
         socketRef.current.off("receive-lobby-message");    // New cleanup for chat
@@ -568,7 +735,7 @@ function App() {
       }
       window.removeEventListener('message', handleAuthMessage); // Clean up message listener
     };
-  }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
+  }, [loggedIn, name, addGameMessage, gameId, board, playBombSound, playMineRevealedSound, playWinSound, playGameOverSound]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
@@ -716,6 +883,7 @@ function App() {
       setIsBombHighlightActive(false); // Turn off highlighting after selection
       setHighlightedBombArea([]); // Clear highlights
     } else if (playerNumber === turn && !gameOver) {
+      playClickSound(); // Play sound on tile click
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("tile-click", { gameId, x, y });
     } else if (playerNumber !== turn) {
@@ -1004,7 +1172,7 @@ function App() {
                     <ul className="unfinished-game-list">
                         {unfinishedGames.map(game => (
                             <li key={game.gameId} className="unfinished-game-item">
-                                score: 🚩 {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🏴‍☠️ - Last updated: {game.lastUpdated}
+                                score: � {game.playerNumber === 1 ? `${name} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${game.opponentName}` : `${game.opponentName} ${game.scores?.[1] || 0} | ${game.scores?.[2] || 0} ${name}`} 🏴‍☠️ - Last updated: {game.lastUpdated}
                                  <button onClick={() => resumeGame(game.gameId)} className="bomb-button">Resume</button>
                             </li>
                         ))}
