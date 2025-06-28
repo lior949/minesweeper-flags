@@ -421,7 +421,9 @@ function App() {
             console.log(`Socket.IO client: Disconnected! Reason: ${reason}`);
             setIsSocketConnected(false);
             showMessage("Disconnected from server. Please refresh or try again.");
-            addGameMessage("Server", "Disconnected from server.", true);
+            // Removed direct call to addGameMessage here as gameId might be null on disconnect
+            // This message should be handled by a global UI message or a server message specific handler.
+            // addGameMessage("Server", "Disconnected from server.", true);
             setIsBombHighlightActive(false);
             setHighlightedBombArea([]);
         });
@@ -429,7 +431,8 @@ function App() {
         socketRef.current.on('connect_error', (error) => {
             console.error("Socket.IO client: Connection error!", error);
             showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
-            addGameMessage("Server", `Connection error: ${error.message}`, true);
+            // Removed direct call to addGameMessage here for same reason as disconnect
+            // addGameMessage("Server", `Connection error: ${error.message}`, true);
             setIsSocketConnected(false);
             setIsBombHighlightActive(false);
             setHighlightedBombArea([]);
@@ -718,7 +721,7 @@ function App() {
         socketRef.current = null; // Clear the ref to allow new connection if loggedIn becomes true again
       }
     };
-  }, [loggedIn, name, addGameMessage, playBombSound, playMineRevealedSound, playWinSound, playGameOverSound, board]); // Add board to dependencies, it's used in board-update listener callbacks indirectly via setState
+  }, [loggedIn, name]); // CRITICAL CHANGE: Dependencies are now limited to loggedIn and name.
 
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
