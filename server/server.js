@@ -550,6 +550,10 @@ io.on("connection", (socket) => {
                     const gameData = doc.data();
                     const deserializedBoard = JSON.parse(gameData.board);
 
+                    // Ensure names are robust, with fallbacks
+                    const player1NameFromFirestore = gameData.player1_name || "Player 1";
+                    const player2NameFromFirestore = gameData.player2_name || "Player 2";
+
                     // Reconstruct in-memory game object
                     game = {
                         gameId: gameData.gameId,
@@ -572,14 +576,14 @@ io.on("connection", (socket) => {
                     // Find or create player objects for the in-memory game structure
                     let player1 = players.find(p => p.userId === gameData.player1_userId);
                     if (!player1) {
-                        player1 = { userId: gameData.player1_userId, name: gameData.player1_name, number: 1 };
+                        player1 = { userId: gameData.player1_userId, name: player1NameFromFirestore, number: 1 };
                         players.push(player1); // Add to global players list
                     }
                     player1.socketId = userSocketMap[player1.userId] || null; // Update socketId from userSocketMap
 
                     let player2 = players.find(p => p.userId === gameData.player2_userId);
                     if (!player2) {
-                        player2 = { userId: gameData.player2_userId, name: gameData.player2_name, number: 2 };
+                        player2 = { userId: gameData.player2_userId, name: player2NameFromFirestore, number: 2 };
                         players.push(player2); // Add to global players list
                     }
                     player2.socketId = userSocketMap[player2.userId] || null; // Update socketId from userSocketMap
@@ -612,7 +616,9 @@ io.on("connection", (socket) => {
                                 lastClickedTile: game.lastClickedTile, // Include lastClickedTile
                                 opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
                                 gameChat: game.messages, // Send game chat history
-                                observers: game.observers // Send observer list
+                                observers: game.observers, // Send observer list
+                                player1Name: player1NameFromFirestore, // Use the robust names
+                                player2Name: player2NameFromFirestore // Use the robust names
                             });
                             console.log(`Emitted game-start to reconnected player ${playerInGame.name} for game ${gameId}.`);
                             io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' }); // Notify others in game
@@ -645,7 +651,9 @@ io.on("connection", (socket) => {
                             lastClickedTile: game.lastClickedTile,
                             opponentName: "N/A", // No opponent for observer
                             gameChat: game.messages,
-                            observers: game.observers // Send current observer list
+                            observers: game.observers, // Send current observer list
+                            player1Name: player1NameFromFirestore, // Use the robust names
+                            player2Name: player2NameFromFirestore // Use the robust names
                         });
                         console.log(`Emitted game-start to reconnected observer ${userName} for game ${gameId}.`);
                         io.to(gameId).emit("observer-joined", { name: userName, userId: userId }); // Notify others in game
@@ -676,7 +684,9 @@ io.on("connection", (socket) => {
                         lastClickedTile: game.lastClickedTile,
                         opponentName: opponentPlayer ? opponentPlayer.name : "Opponent",
                         gameChat: game.messages,
-                        observers: game.observers
+                        observers: game.observers,
+                        player1Name: game.players[0].name || "Player 1", // Use robust names
+                        player2Name: game.players[1].name || "Player 2" // Use robust names
                     });
                     console.log(`Re-sent active game state for game ${gameId} to player ${playerInGame.name}.`);
                     io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' }); // Notify other observers
@@ -701,7 +711,9 @@ io.on("connection", (socket) => {
                         lastClickedTile: game.lastClickedTile,
                         opponentName: "N/A", // No opponent for observer
                         gameChat: game.messages,
-                        observers: game.observers
+                        observers: game.observers,
+                        player1Name: game.players[0].name || "Player 1", // Use robust names
+                        player2Name: game.players[1].name || "Player 2" // Use robust names
                     });
                     console.log(`Re-sent active game state for game ${gameId} to observer ${userName}.`);
                     io.to(gameId).emit("observer-joined", { name: userName, userId: userId }); // Notify others in game
@@ -737,10 +749,7 @@ io.on("connection", (socket) => {
     console.log(`[Join Lobby] Players after filter for existing userId: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
 
     players.push({ id: socket.id, userId: userId, name: userName }); // Store userId and current socket.id
-    console.log(`[Join Lobby] Players after push: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-
-    socket.join("lobby"); // IMPORTANT: Join the lobby room
-    console.log(`Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
+    console.log(`[Join Lobby] Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
     socket.emit("lobby-joined", userName); // Send back the name used
     socket.emit("initial-lobby-messages", lobbyMessages); // Send lobby chat history to new joiner
 
@@ -868,8 +877,8 @@ io.on("connection", (socket) => {
                     if (!alreadyObserving) {
                          observableGames.push({
                             gameId: gameData.gameId,
-                            player1Name: gameData.player1_name,
-                            player2Name: gameData.player2_name,
+                            player1Name: gameData.player1_name || "Player 1", // Ensure names are sent
+                            player2Name: gameData.player2_name || "Player 2", // Ensure names are sent
                             scores: gameData.scores,
                             status: gameData.status,
                             lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A',
@@ -931,6 +940,11 @@ socket.on("resume-game", async ({ gameId }) => {
     const opponentUserId = gameData.player1_userId === userId ? gameData.player2_userId : gameData.player1_userId;
     const opponentName = gameData.player1_userId === userId ? gameData.player2_name : gameData.player1_name;
 
+    // Ensure names are robust, with fallbacks
+    const player1NameFromFirestore = gameData.player1_name || "Player 1";
+    const player2NameFromFirestore = gameData.player2_name || "Player 2";
+
+
     // Check if the game is already in memory
     if (games[gameId]) {
       const existingGame = games[gameId];
@@ -975,7 +989,9 @@ socket.on("resume-game", async ({ gameId }) => {
               lastClickedTile: existingGame.lastClickedTile, // Include lastClickedTile
               opponentName: opponentName, // Use the derived name
               gameChat: existingGame.messages, // Send game chat history
-              observers: existingGame.observers // Send observer list
+              observers: existingGame.observers, // Send observer list
+              player1Name: existingGame.players[0].name || "Player 1", // Use robust names
+              player2Name: existingGame.players[1].name || "Player 2" // Use robust names
           });
           console.log(`User ${userName} (re)connected to game ${gameId} from in-memory state.`);
 
@@ -1025,7 +1041,7 @@ socket.on("resume-game", async ({ gameId }) => {
     // Find or create player objects (important for 'players' list and socket mapping)
     let player1 = players.find(p => p.userId === p1UserId);
     if (!player1) {
-        player1 = { userId: p1UserId, name: gameData.player1_name, number: 1 };
+        player1 = { userId: p1UserId, name: player1NameFromFirestore, number: 1 };
         players.push(player1); // Add to online players if they weren't there
     }
     // Assign the current socket ID if this is the resuming player, or get from map for opponent
@@ -1034,7 +1050,7 @@ socket.on("resume-game", async ({ gameId }) => {
 
     let player2 = players.find(p => p.userId === p2UserId);
     if (!player2) {
-        player2 = { userId: p2UserId, name: gameData.player2_name, number: 2 };
+        player2 = { userId: p2UserId, name: player2NameFromFirestore, number: 2 };
         players.push(player2); // Add to online players if they weren't there
     }
     // Assign the current socket ID if this is the resuming player, or get from map for opponent
@@ -1076,7 +1092,9 @@ socket.on("resume-game", async ({ gameId }) => {
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile
         opponentName: opponentPlayerInGame ? opponentPlayerInGame.name : "Opponent",
         gameChat: game.messages, // Send game chat history
-        observers: game.observers // Send observer list
+        observers: game.observers, // Send observer list
+        player1Name: player1NameFromFirestore, // Use robust names
+        player2Name: player2NameFromFirestore // Use robust names
       });
       console.log(`User ${userName} successfully resumed game ${gameId}.`);
       io.to(gameId).emit("player-reconnected", { name: userName, userId: userId, role: 'player' }); // Notify other observers
@@ -1145,6 +1163,11 @@ socket.on("resume-game", async ({ gameId }) => {
         if (!game) {
             // Load game into memory if not already there
             const deserializedBoard = JSON.parse(gameData.board);
+
+            // Ensure names are robust, with fallbacks
+            const player1NameFromFirestore = gameData.player1_name || "Player 1";
+            const player2NameFromFirestore = gameData.player2_name || "Player 2";
+
             game = {
                 gameId: gameData.gameId,
                 board: deserializedBoard,
@@ -1164,11 +1187,11 @@ socket.on("resume-game", async ({ gameId }) => {
 
             // Populate players for in-memory game from Firestore data
             let player1 = players.find(p => p.userId === gameData.player1_userId);
-            if (!player1) player1 = { userId: gameData.player1_userId, name: gameData.player1_name, number: 1 };
+            if (!player1) player1 = { userId: gameData.player1_userId, name: player1NameFromFirestore, number: 1 };
             player1.socketId = userSocketMap[player1.userId] || null;
 
             let player2 = players.find(p => p.userId === gameData.player2_userId);
-            if (!player2) player2 = { userId: gameData.player2_userId, name: gameData.player2_name, number: 2 };
+            if (!player2) player2 = { userId: gameData.player2_userId, name: player2NameFromFirestore, number: 2 };
             player2.socketId = userSocketMap[player2.userId] || null;
 
             game.players = [player1, player2];
@@ -1213,7 +1236,9 @@ socket.on("resume-game", async ({ gameId }) => {
             lastClickedTile: game.lastClickedTile,
             opponentName: "N/A", // Observers don't have an "opponent"
             gameChat: game.messages,
-            observers: game.observers // Send the list of current observers in this game
+            observers: game.observers, // Send the list of current observers in this game
+            player1Name: game.players[0].name || "Player 1", // Use robust names
+            player2Name: game.players[1].name || "Player 2" // Use robust names
         });
 
         // Notify players and other observers in the game about the new observer
@@ -1362,7 +1387,9 @@ socket.on("resume-game", async ({ gameId }) => {
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
         opponentName: respondingPlayer.name,
         gameChat: game.messages, // Send game chat history
-        observers: game.observers // Send observer list
+        observers: game.observers, // Send observer list
+        player1Name: inviterPlayer.name, // Ensure names are sent
+        player2Name: respondingPlayer.name // Ensure names are sent
       });
       io.to(respondingPlayer.id).emit("game-start", {
         gameId: game.gameId,
@@ -1375,7 +1402,9 @@ socket.on("resume-game", async ({ gameId }) => {
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
         opponentName: inviterPlayer.name,
         gameChat: game.messages, // Send game chat history
-        observers: game.observers // Send observer list
+        observers: game.observers, // Send observer list
+        player1Name: inviterPlayer.name, // Ensure names are sent
+        player2Name: respondingPlayer.name // Ensure names are sent
       });
 
     } else {
@@ -1499,7 +1528,7 @@ socket.on("resume-game", async ({ gameId }) => {
         }
 
         // Emit to all players AND observers in the game room
-        io.to(gameId).emit("game-restarted", {
+        io.to(gameId).emit("game-restarted", { // Use game-restarted event
             gameId: game.gameId,
             playerNumber: player.number, // This will be the player's own number, not observer's 0
             board: JSON.stringify(game.board),
@@ -1510,7 +1539,9 @@ socket.on("resume-game", async ({ gameId }) => {
             lastClickedTile: game.lastClickedTile,
             opponentName: game.players.find(op => op.userId !== userId)?.name || "Opponent", // Only relevant for players
             gameChat: game.messages,
-            observers: game.observers // Send observer list
+            observers: game.observers, // Send observer list
+            player1Name: game.players[0].name || "Player 1", // Ensure names are sent
+            player2Name: game.players[1].name || "Player 2" // Ensure names are sent
         });
         console.log(`[GAME RESTARTED] Game ${gameId} state after reset. Players: ${game.players.map(p => p.name).join(', ')}. Observers: ${game.observers.map(o => o.name).join(', ')}`);
         return; // Important: Exit after restarting
@@ -1815,7 +1846,9 @@ socket.on("resume-game", async ({ gameId }) => {
         lastClickedTile: game.lastClickedTile,
         opponentName: game.players.find(op => op.userId !== userId)?.name || "Opponent", // Only relevant for players
         gameChat: game.messages,
-        observers: game.observers // Send observer list
+        observers: game.observers, // Send observer list
+        player1Name: game.players[0].name || "Player 1", // Ensure names are sent
+        player2Name: game.players[1].name || "Player 2" // Ensure names are sent
     });
   });
 
