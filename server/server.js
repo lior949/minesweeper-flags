@@ -400,6 +400,8 @@ let players = []; // Lobby players: [{ id: socket.id, userId, name }]
 // Active games: gameId: { gameType: '1v1' | '2v2', players: [{userId, name, number, socketId, team}], board, scores: {1:0, 2:0}, bombsUsed: {1:false, 2:false}, turn, gameOver, lastClickedTile, messages: [], observers: [{userId, name, socketId}] } // Added gameType, team in players, scores/bombsUsed are team-based
 let games = {};
 const pendingInvites = {}; // Stores pending invites: { targetUserId: { inviteId: { ...inviteData } } }
+// NEW: Store pending 2v2 acceptances
+const pending2v2Acceptances = {}; // { inviteId: { inviterId, acceptedUsers: Set<userId>, requiredPlayers: Set<userId> } }
 
 // --- Chat State ---
 const lobbyMessages = []; // Stores messages for the lobby chat
@@ -719,7 +721,7 @@ io.on("connection", (socket) => {
                 if (playerInGame) {
                     playerInGame.socketId = socket.id;
                     socket.join(gameId);
-                    io.to(playerInGame.socketId).emit("game-start", {
+                    io.to(socket.id).emit("game-start", {
                         gameId: game.gameId,
                         gameType: game.gameType,
                         playerNumber: playerInGame.number,
@@ -1275,7 +1277,10 @@ socket.on("resume-game", async ({ gameId }) => {
             game.players = playerUids.map((pUid, index) => {
                 const playerNum = index + 1;
                 let playerObj = players.find(p => p.userId === pUid);
-                if (!playerObj) playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
+                if (!playerObj) { // If player not in global players list, add them
+                    playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
+                    players.push(playerObj);
+                }
                 playerObj.socketId = userSocketMap[pUid] || null;
                 playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
                 return playerObj;
@@ -1421,6 +1426,18 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         };
     }
 
+    // NEW: For 2v2 invites, initialize pending2v2Acceptances
+    if (gameType === '2v2') {
+        pending2v2Acceptances[inviteId] = {
+            inviterId: inviterUserId,
+            acceptedUsers: new Set(), // Will store userIds of those who accepted
+            // Required players are inviter + 3 invitees
+            requiredPlayers: new Set(allInvolvedUserIds)
+        };
+        console.log(`Initialized pending2v2Acceptances for inviteId ${inviteId}. Required players: ${Array.from(pending2v2Acceptances[inviteId].requiredPlayers).join(', ')}`);
+    }
+
+
     // Now emit the invite to each recipient's current socket
     for (const invitedP of invitedPlayersData) {
         if (invitedP.id === inviterPlayer.id) continue; // Skip self
@@ -1460,12 +1477,16 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
+    // Clean up this specific invite from the responder's pendingInvites regardless of accept/reject path
+    // This is because the invite is now "handled" by this user.
+    delete pendingInvites[respondingUserId][inviteId];
+    socket.emit("update-invites", pendingInvites[respondingUserId] || {}); // Update client's pending invites
+
+
     // Check if the responding user is already in a game
     if (userGameMap[respondingUserId]) {
         socket.emit("game-error", `You are already in game ${userGameMap[respondingUserId].gameId}. Leave that game first.`);
         console.warn(`Respond invite failed: Responding user ${respondingUserId} already in game ${userGameMap[respondingUserId].gameId}.`);
-        delete pendingInvites[respondingUserId][inviteId]; // Clean up this specific invite
-        socket.emit("update-invites", pendingInvites[respondingUserId] || {}); // Update client's pending invites
         return;
     }
 
@@ -1473,13 +1494,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     if (!inviterPlayer) {
         socket.emit("game-error", "Inviter not found. They might have disconnected.");
         console.warn(`Respond invite failed: Inviter not found for inviteId ${inviteId}.`);
-        delete pendingInvites[respondingUserId][inviteId];
-        socket.emit("update-invites", pendingInvites[respondingUserId] || {});
+        // No need to delete from pendingInvites here, already done above.
         return;
     }
 
     // For 2v2, collect all user IDs that were part of the initial invitation
-    let allPlayerUserIdsInInvite = [inviterPlayer.userId, respondingUserId];
+    let allPlayerUserIdsInInvite = [inviterPlayer.userId];
     if (originalInvite.gameType === '2v2' && Array.isArray(originalInvite.invitedPlayersInfo)) {
         originalInvite.invitedPlayersInfo.forEach(p => {
             if (!allPlayerUserIdsInInvite.includes(p.userId)) {
@@ -1499,208 +1519,317 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
         // Notify other initially invited players in 2v2 that the game was rejected due to someone already being in a game
         if (originalInvite.gameType === '2v2') {
-            originalInvite.invitedPlayersInfo.filter(p => ![inviterPlayer.userId, respondingUserId].includes(p.userId)).forEach(p => {
-                const otherInvitedSocket = userSocketMap[p.userId];
-                if (otherInvitedSocket) {
-                    io.to(otherInvitedSocket).emit("invite-rejected", { fromName: inviterPlayer.name, reason: reason });
+            allPlayerUserIdsInInvite.forEach(invitedUid => {
+                // Ensure we don't send to inviter or responder again if already sent
+                if (invitedUid !== inviterPlayer.userId && invitedUid !== respondingUserId) {
+                    const otherInvitedSocket = userSocketMap[invitedUid];
+                    if (otherInvitedSocket) {
+                        io.to(otherInvitedSocket).emit("invite-rejected", { fromName: inviterPlayer.name, reason: `Game failed to start: ${reason}` });
+                    }
                 }
             });
         }
-        delete pendingInvites[respondingUserId][inviteId]; // Clean up
-        socket.emit("update-invites", pendingInvites[respondingUserId] || {});
+        // Clean up pending2v2Acceptances if it exists for this inviteId (it should)
+        if (pending2v2Acceptances[inviteId]) {
+            delete pending2v2Acceptances[inviteId];
+            console.log(`Cleaned up pending2v2Acceptances for inviteId ${inviteId} due to player in another game.`);
+        }
         return;
     }
 
 
     if (accept) {
-      const gameId = uuidv4(); // Generate a unique game ID for the new game
-      const newBoard = generateBoard();
-      const scores = { 1: 0, 2: 0 }; // Scores for Team 1 and Team 2
-      const bombsUsed = { 1: false, 2: false }; // Bombs for Team 1 and Team 2
-      const turn = 1; // Always start with player 1
-      const gameOver = false;
-      const lastClickedTile = { 1: null, 2: null, 3: null, 4: null }; // Initialize for 4 players
-
-      const gamePlayers = [];
-      let player1Name, player2Name, player3Name, player4Name;
-      let player1_userId, player2_userId, player3_userId, player4_userId;
-
       if (originalInvite.gameType === '1v1') {
-          // Player 1 is inviter, Player 2 is responder
-          gamePlayers.push(
+          const gameId = uuidv4(); // Generate a unique game ID for the new game
+          const newBoard = generateBoard();
+          const scores = { 1: 0, 2: 0 };
+          const bombsUsed = { 1: false, 2: false };
+          const turn = 1;
+          const gameOver = false;
+          const lastClickedTile = { 1: null, 2: null }; // For 1v1
+
+          const gamePlayers = [
             { userId: inviterPlayer.userId, name: inviterPlayer.name, number: 1, socketId: inviterPlayer.id, team: 1 },
             { userId: respondingPlayer.userId, name: respondingPlayer.name, number: 2, socketId: respondingPlayer.id, team: 2 },
-          );
-          player1_userId = inviterPlayer.userId; player1Name = inviterPlayer.name;
-          player2_userId = respondingPlayer.userId; player2Name = respondingPlayer.name;
-          player3_userId = null; player3Name = null;
-          player4_userId = null; player4Name = null;
+          ];
 
-      } else if (originalInvite.gameType === '2v2') {
-          // For 2v2, we need all four players involved from the original invite.
-          // `originalInvite.invitedPlayersInfo` holds the details of the 3 other players invited by the sender.
-          // The `respondingPlayer` is one of those `invitedPlayersInfo`.
+          const game = {
+            gameId,
+            gameType: '1v1',
+            board: newBoard,
+            players: gamePlayers,
+            turn,
+            scores,
+            bombsUsed,
+            gameOver,
+            lastClickedTile,
+            messages: [],
+            observers: []
+          };
+          games[gameId] = game;
 
-          const allInvitedPlayersIncludingResponder = originalInvite.invitedPlayersInfo.map(info => players.find(p => p.userId === info.userId)).filter(Boolean);
-          const allFourPlayerObjects = [inviterPlayer, ...allInvitedPlayersIncludingResponder];
-
-          const uniquePlayersForGame = [];
-          const seenUserIds = new Set();
-          for (const p of allFourPlayerObjects) {
-              if (p && !seenUserIds.has(p.userId)) {
-                  uniquePlayersForGame.push(p);
-                  seenUserIds.add(p.userId);
-              }
-          }
-
-          if (uniquePlayersForGame.length !== 4) {
-              console.error("Error: Not exactly 4 unique players found for 2v2 game after filtering original invitees.");
-              io.to(respondingPlayer.id).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "Not all 2v2 players are available for game start." });
-              io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name, reason: "Not all 2v2 players are available for game start." });
-              // Notify other invited players as well
-              originalInvite.invitedPlayersInfo.filter(p => ![inviterPlayer.userId, respondingUserId].includes(p.userId)).forEach(p => {
-                  const otherInvitedSocket = userSocketMap[p.userId];
-                  if (otherInvitedSocket) {
-                      io.to(otherInvitedSocket).emit("invite-rejected", { fromName: inviterPlayer.name, reason: `Game failed to start: ${respondingPlayer.name} accepted, but not all players were ready.` });
-                  }
-              });
-              return;
-          }
-
-          // Assign players to positions P1, P2, P3, P4 and teams
-          // A consistent assignment is needed. For example:
-          // P1: Inviter (Team 1)
-          // P2: Responding Player (Team 1) if they were the partner, otherwise a rival's partner
-          // P3, P4: The remaining two players
-          // For simplicity, let's just take the unique players and assign based on some consistent order.
-          // For now, let's keep it based on `uniquePlayersForGame` order and assume inviter is first in that list.
-          // This might need refinement based on how your frontend determines "partners" vs "rivals" in the invite.
-
-          gamePlayers.push(
-            { userId: uniquePlayersForGame[0].userId, name: uniquePlayersForGame[0].name, number: 1, socketId: userSocketMap[uniquePlayersForGame[0].userId] || null, team: 1 },
-            { userId: uniquePlayersForGame[1].userId, name: uniquePlayersForGame[1].name, number: 2, socketId: userSocketMap[uniquePlayersForGame[1].userId] || null, team: 1 },
-            { userId: uniquePlayersForGame[2].userId, name: uniquePlayersForGame[2].name, number: 3, socketId: userSocketMap[uniquePlayersForGame[2].userId] || null, team: 2 },
-            { userId: uniquePlayersForGame[3].userId, name: uniquePlayersForGame[3].name, number: 4, socketId: userSocketMap[uniquePlayersForGame[3].userId] || null, team: 2 },
-          );
-
-          player1_userId = uniquePlayersForGame[0].userId; player1Name = uniquePlayersForGame[0].name;
-          player2_userId = uniquePlayersForGame[1].userId; player2Name = uniquePlayersForGame[1].name;
-          player3_userId = uniquePlayersForGame[2].userId; player3Name = uniquePlayersForGame[2].name;
-          player4_userId = uniquePlayersForGame[3].userId; player4Name = uniquePlayersForGame[3].name;
-
-          // Ensure all players are marked as being in this new game in userGameMap
+          // Update userGameMap for all players involved
           gamePlayers.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
+          console.log(`Game ${gameId} (1v1) started. Players: ${gamePlayers.map(p => p.name).join(', ')}`);
 
-          // Notify all other invited players that the game has started
-          originalInvite.invitedPlayersInfo.filter(p => ![inviterPlayer.userId, respondingUserId].includes(p.userId)).forEach(p => {
-              const otherInvitedSocket = userSocketMap[p.userId];
-              if (otherInvitedSocket) {
-                  io.to(otherInvitedSocket).emit("game-started-by-invite", { gameId, gameType: originalInvite.gameType });
+          // Add all players to the game-specific Socket.IO room
+          gamePlayers.forEach(p => {
+              if (p.socketId) {
+                 io.sockets.sockets.get(p.socketId)?.join(gameId);
               }
           });
 
-      }
-
-
-      const game = {
-        gameId,
-        gameType: originalInvite.gameType, // Store game type from original invite
-        board: newBoard,
-        players: gamePlayers,
-        turn,
-        scores,
-        bombsUsed,
-        gameOver,
-        lastClickedTile,
-        messages: [], // Initialize game chat messages
-        observers: [] // Initialize empty observers array for a new game
-      };
-      games[gameId] = game;
-
-      // Update userGameMap for all players involved
-      gamePlayers.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-      console.log(`Game ${gameId} (${game.gameType}) started. Players: ${gamePlayers.map(p => p.name).join(', ')}`);
-
-      // Add all players to the game-specific Socket.IO room
-      gamePlayers.forEach(p => {
-          if (p.socketId) { // Only join if socket is active
-             io.sockets.sockets.get(p.socketId)?.join(gameId);
+          // Save game state to Firestore
+          try {
+              const serializedBoard = JSON.stringify(game.board);
+              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                  gameId: game.gameId,
+                  gameType: game.gameType,
+                  board: serializedBoard,
+                  player1_userId: inviterPlayer.userId, player1_name: inviterPlayer.name,
+                  player2_userId: respondingPlayer.userId, player2_name: respondingPlayer.name,
+                  player3_userId: null, player3_name: null,
+                  player4_userId: null, player4_name: null,
+                  turn: game.turn,
+                  scores: game.scores,
+                  bombsUsed: game.bombsUsed,
+                  gameOver: game.gameOver,
+                  lastClickedTile: game.lastClickedTile,
+                  status: 'active',
+                  lastUpdated: Timestamp.now(),
+                  winnerId: null,
+                  loserId: null,
+                  messages: game.messages,
+                  observers: game.observers
+              }, { merge: true });
+              console.log(`Game ${gameId} saved to Firestore.`);
+          } catch (error) {
+              console.error("Error saving new 1v1 game to Firestore:", error);
+              delete games[gameId];
+              gamePlayers.forEach(p => delete userGameMap[p.userId]);
+              emitLobbyPlayersList();
+              return;
           }
-      });
 
-      // Save game state to Firestore (with serialized board)
-      try {
-          const serializedBoard = JSON.stringify(game.board); // Serialize board for Firestore
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-              gameId: game.gameId,
-              gameType: game.gameType,
-              board: serializedBoard, // Save serialized board
-              player1_userId: player1_userId,
-              player2_userId: player2_userId,
-              player3_userId: player3_userId, // For 2v2
-              player4_userId: player4_userId, // For 2v2
-              player1_name: player1Name,
-              player2_name: player2Name,
-              player3_name: player3Name, // For 2v2
-              player4_name: player4Name, // For 2v2
-              turn: game.turn,
-              scores: game.scores,
-              bombsUsed: game.bombsUsed,
-              gameOver: game.gameOver,
-              lastClickedTile: game.lastClickedTile, // Save lastClickedTile to Firestore
-              status: 'active', // Mark as active
-              lastUpdated: Timestamp.now(),
-              winnerId: null,
-              loserId: null,
-              messages: game.messages, // Save initial empty message array to Firestore
-              observers: game.observers // Save empty observers array to Firestore
-          }, { merge: true }); // Use merge: true for robustness
-          console.log(`Game ${gameId} saved to Firestore.`);
-      } catch (error) {
-          console.error("Error saving new game to Firestore:", error); // Log the full error object
-          // Revert in-memory changes if DB save fails
-          delete games[gameId];
-          gamePlayers.forEach(p => delete userGameMap[p.userId]);
-          emitLobbyPlayersList(); // Re-emit lobby list if game creation failed and players should be available
-          return;
-      }
+          // Emit game-start to all players
+          gamePlayers.forEach(p => {
+            io.to(p.socketId).emit("game-start", {
+                gameId: game.gameId,
+                gameType: game.gameType,
+                playerNumber: p.number,
+                board: JSON.stringify(game.board),
+                turn: game.turn,
+                scores: game.scores,
+                bombsUsed: game.bombsUsed,
+                gameOver: game.gameOver,
+                lastClickedTile: game.lastClickedTile,
+                opponentName: p.number === 1 ? game.players.find(op => op.userId !== p.userId)?.name : game.players.find(op => op.userId !== p.userId)?.name,
+                gameChat: game.messages,
+                observers: game.observers,
+                player1Name: inviterPlayer.name, player2Name: respondingPlayer.name,
+                player3Name: null, player4Name: null,
+            });
+          });
+          emitLobbyPlayersList();
+          socket.emit("request-observable-games");
 
-      // Clear all related pending invites for all invited players once game starts
-      allPlayerUserIdsInInvite.forEach(uid => {
-          if (pendingInvites[uid] && pendingInvites[uid][inviteId]) {
-              delete pendingInvites[uid][inviteId];
-              // Also emit update to their clients if needed, though game-start should supersede
-              const clientSocketId = userSocketMap[uid];
-              if (clientSocketId) {
-                  io.to(clientSocketId).emit("update-invites", pendingInvites[uid] || {});
+      } else if (originalInvite.gameType === '2v2') {
+          console.log(`[2v2 Invite] User ${respondingPlayer.name} (${respondingUserId}) accepted invite ${inviteId}.`);
+
+          // Add the current user to the set of accepted users for this invite
+          if (pending2v2Acceptances[inviteId]) {
+              pending2v2Acceptances[inviteId].acceptedUsers.add(respondingUserId);
+              console.log(`Accepted users for invite ${inviteId}: ${Array.from(pending2v2Acceptances[inviteId].acceptedUsers).join(', ')}`);
+          } else {
+              console.error(`[2v2 Invite] No pending2v2Acceptances found for inviteId ${inviteId}. This should not happen.`);
+              return;
+          }
+
+          const current2v2Acceptance = pending2v2Acceptances[inviteId];
+          const allRequiredPlayers = Array.from(current2v2Acceptance.requiredPlayers); // Inviter + 3 invitees
+
+          // Check if all required players have accepted
+          const allAccepted = allRequiredPlayers.every(userId => current2v2Acceptance.acceptedUsers.has(userId));
+
+          // Check if all required players are currently online (have an active socket) and not in other games
+          const allPlayersOnlineAndAvailable = allRequiredPlayers.every(userId => {
+              const playerInLobby = players.find(p => p.userId === userId);
+              return playerInLobby && userSocketMap[userId] && !userGameMap[userId];
+          });
+
+
+          if (allAccepted && allPlayersOnlineAndAvailable) {
+              console.log(`[2v2 Game Start] All 4 players accepted and are available for invite ${inviteId}. Starting game.`);
+
+              const gameId = uuidv4();
+              const newBoard = generateBoard();
+              const scores = { 1: 0, 2: 0 }; // Scores for Team 1 and Team 2
+              const bombsUsed = { 1: false, 2: false }; // Bombs for Team 1 and Team 2
+              const turn = 1; // Always start with player 1 (Team 1)
+              const gameOver = false;
+              const lastClickedTile = { 1: null, 2: null, 3: null, 4: null };
+
+              const gamePlayers = [];
+              let player1Name, player2Name, player3Name, player4Name;
+              let player1_userId, player2_userId, player3_userId, player4_userId;
+
+              // Identify the players based on the original invite and assign roles
+              const inviter = players.find(p => p.userId === current2v2Acceptance.inviterId);
+              // Need to find the partner and two rivals from originalInvite.invitedPlayersInfo
+              const invitedUsers = originalInvite.invitedPlayersInfo.map(info => info.userId);
+              const partnerId = invitedUsers.find(uid => allRequiredPlayers.includes(uid) && uid !== inviter.userId); // This assumes the first invited user is the partner
+              const rivals = invitedUsers.filter(uid => uid !== inviter.userId && uid !== partnerId);
+
+              // It's crucial to map players consistently to numbers 1-4 and teams 1-2
+              // For example, Inviter (P1, T1), Partner (P2, T1), Rival1 (P3, T2), Rival2 (P4, T2)
+              const playerObjsInOrder = [];
+              playerObjsInOrder.push(inviter); // P1
+              playerObjsInOrder.push(players.find(p => p.userId === partnerId)); // P2
+              playerObjsInOrder.push(players.find(p => p.userId === rivals[0])); // P3
+              playerObjsInOrder.push(players.find(p => p.userId === rivals[1])); // P4
+
+              gamePlayers.push(
+                { userId: playerObjsInOrder[0].userId, name: playerObjsInOrder[0].name, number: 1, socketId: userSocketMap[playerObjsInOrder[0].userId], team: 1 },
+                { userId: playerObjsInOrder[1].userId, name: playerObjsInOrder[1].name, number: 2, socketId: userSocketMap[playerObjsInOrder[1].userId], team: 1 },
+                { userId: playerObjsInOrder[2].userId, name: playerObjsInOrder[2].name, number: 3, socketId: userSocketMap[playerObjsInOrder[2].userId], team: 2 },
+                { userId: playerObjsInOrder[3].userId, name: playerObjsInOrder[3].name, number: 4, socketId: userSocketMap[playerObjsInOrder[3].userId], team: 2 },
+              );
+
+              player1_userId = playerObjsInOrder[0].userId; player1Name = playerObjsInOrder[0].name;
+              player2_userId = playerObjsInOrder[1].userId; player2Name = playerObjsInOrder[1].name;
+              player3_userId = playerObjsInOrder[2].userId; player3Name = playerObjsInOrder[2].name;
+              player4_userId = playerObjsInOrder[3].userId; player4Name = playerObjsInOrder[3].name;
+
+              const game = {
+                gameId,
+                gameType: '2v2',
+                board: newBoard,
+                players: gamePlayers,
+                turn,
+                scores,
+                bombsUsed,
+                gameOver,
+                lastClickedTile,
+                messages: [],
+                observers: []
+              };
+              games[gameId] = game;
+
+              gamePlayers.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
+              console.log(`Game ${gameId} (2v2) started. Players: ${gamePlayers.map(p => p.name).join(', ')}`);
+
+              gamePlayers.forEach(p => {
+                  if (p.socketId) {
+                     io.sockets.sockets.get(p.socketId)?.join(gameId);
+                  }
+              });
+
+              // Save game state to Firestore
+              try {
+                  const serializedBoard = JSON.stringify(game.board);
+                  await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                      gameId: game.gameId,
+                      gameType: game.gameType,
+                      board: serializedBoard,
+                      player1_userId: player1_userId, player1_name: player1Name,
+                      player2_userId: player2_userId, player2_name: player2Name,
+                      player3_userId: player3_userId, player3_name: player3Name,
+                      player4_userId: player4_userId, player4_name: player4Name,
+                      turn: game.turn,
+                      scores: game.scores,
+                      bombsUsed: game.bombsUsed,
+                      gameOver: game.gameOver,
+                      lastClickedTile: game.lastClickedTile,
+                      status: 'active',
+                      lastUpdated: Timestamp.now(),
+                      winnerId: null, loserId: null,
+                      messages: game.messages,
+                      observers: game.observers
+                  }, { merge: true });
+                  console.log(`Game ${gameId} saved to Firestore.`);
+              } catch (error) {
+                  console.error("Error saving new 2v2 game to Firestore:", error);
+                  delete games[gameId];
+                  gamePlayers.forEach(p => delete userGameMap[p.userId]);
+                  emitLobbyPlayersList();
+                  return;
               }
+
+              // Clean up all pending invites for this inviteId for all players involved
+              allRequiredPlayers.forEach(uid => {
+                  if (pendingInvites[uid] && pendingInvites[uid][inviteId]) {
+                      delete pendingInvites[uid][inviteId];
+                      const clientSocketId = userSocketMap[uid];
+                      if (clientSocketId) {
+                          io.to(clientSocketId).emit("update-invites", pendingInvites[uid] || {});
+                      }
+                  }
+              });
+              delete pending2v2Acceptances[inviteId]; // Clean up the 2v2 acceptance tracker
+              console.log(`Cleaned up pendingInvites and pending2v2Acceptances for inviteId ${inviteId}.`);
+
+              emitLobbyPlayersList();
+              socket.emit("request-observable-games");
+
+              // Emit game-start to all players
+              gamePlayers.forEach(p => {
+                io.to(p.socketId).emit("game-start", {
+                    gameId: game.gameId,
+                    gameType: game.gameType,
+                    playerNumber: p.number,
+                    board: JSON.stringify(game.board),
+                    turn: game.turn,
+                    scores: game.scores,
+                    bombsUsed: game.bombsUsed,
+                    gameOver: game.gameOver,
+                    lastClickedTile: game.lastClickedTile,
+                    opponentName: "N/A", // Not relevant for 2v2
+                    gameChat: game.messages,
+                    observers: game.observers,
+                    player1Name: player1Name, player2Name: player2Name,
+                    player3Name: player3Name, player4Name: player4Name,
+                });
+              });
+
+          } else {
+              // Not all players have accepted yet, or some are unavailable
+              const waitingForNames = allRequiredPlayers
+                  .filter(uid => !current2v2Acceptance.acceptedUsers.has(uid))
+                  .map(uid => players.find(p => p.userId === uid)?.name || uid);
+              const unavailableNames = allRequiredPlayers
+                  .filter(uid => userGameMap[uid]) // Users who are now in another game
+                  .map(uid => players.find(p => p.userId === uid)?.name || uid);
+
+              let message = `Waiting for ${waitingForNames.join(', ')} to accept.`;
+              if (unavailableNames.length > 0) {
+                  message += ` Note: ${unavailableNames.join(', ')} are now unavailable.`;
+                  io.to(inviterPlayer.id).emit("invite-rejected", { fromName: "Server", reason: `2v2 game cannot start. Some players became unavailable: ${unavailableNames.join(', ')}.` });
+                  // Also reject for all invited if someone became unavailable
+                  allRequiredPlayers.forEach(uid => {
+                      if (userSocketMap[uid] && uid !== inviterPlayer.userId && uid !== respondingUserId) {
+                           io.to(userSocketMap[uid]).emit("invite-rejected", { fromName: "Server", reason: `2v2 game cancelled. Some players became unavailable: ${unavailableNames.join(', ')}.` });
+                      }
+                  });
+                  // Clean up all pending invites for this inviteId for all players involved
+                  allRequiredPlayers.forEach(uid => {
+                      if (pendingInvites[uid] && pendingInvites[uid][inviteId]) {
+                          delete pendingInvites[uid][inviteId];
+                          const clientSocketId = userSocketMap[uid];
+                          if (clientSocketId) {
+                              io.to(clientSocketId).emit("update-invites", pendingInvites[uid] || {});
+                          }
+                      }
+                  });
+                  delete pending2v2Acceptances[inviteId]; // Clean up the 2v2 acceptance tracker
+                  console.log(`[2v2 Game Cancelled] due to unavailability after acceptance: inviteId ${inviteId}.`);
+                  return;
+              }
+              io.to(respondingPlayer.id).emit("server-message", { text: message, isError: false });
+              io.to(inviterPlayer.id).emit("server-message", { text: message, isError: false });
+              console.log(`[2v2 Invite] Waiting for more acceptances for invite ${inviteId}.`);
           }
-      });
 
-      // Remove players from the general lobby list as they are now in a game
-      emitLobbyPlayersList();
-      socket.emit("request-observable-games"); // Refresh observable games after a new game starts
-
-      // Emit game-start to all players
-      gamePlayers.forEach(p => {
-        io.to(p.socketId).emit("game-start", {
-            gameId: game.gameId,
-            gameType: game.gameType,
-            playerNumber: p.number,
-            board: JSON.stringify(game.board),
-            turn: game.turn,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A", // Opponent name for 1v1
-            gameChat: game.messages,
-            observers: game.observers,
-            player1Name: player1Name, player2Name: player2Name,
-            player3Name: player3Name, player4Name: player4Name, // For 2v2
-        });
-      });
-
+      }
     } else { // Reject
       // Notify inviter that invite was rejected by responder
       io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name });
@@ -1708,19 +1837,20 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
       // If 2v2, notify other invited players that the invite was rejected
       if (originalInvite.gameType === '2v2' && Array.isArray(originalInvite.invitedPlayersInfo)) {
-          originalInvite.invitedPlayersInfo.filter(p => ![inviterPlayer.userId, respondingUserId].includes(p.userId)).forEach(p => {
-              const otherInvitedSocket = userSocketMap[p.userId];
-              if (otherInvitedSocket) {
-                  io.to(otherInvitedSocket).emit("invite-rejected", { fromName: inviterPlayer.name, reason: `${respondingPlayer.name} declined the 2v2 game.` });
+          // Send rejection to all involved players (inviter + 3 invitees)
+          allPlayerUserIdsInInvite.forEach(uid => {
+              if (userSocketMap[uid] && uid !== inviterPlayer.userId && uid !== respondingUserId) {
+                  io.to(userSocketMap[uid]).emit("invite-rejected", { fromName: inviterPlayer.name, reason: `${respondingPlayer.name} declined the 2v2 game.` });
               }
           });
       }
-      // Remove the invite for the responder
-      delete pendingInvites[respondingUserId][inviteId];
-      socket.emit("update-invites", pendingInvites[respondingUserId] || {});
-
-      emitLobbyPlayersList(); // Re-emit if invite rejected, to ensure lobby list is accurate
-      socket.emit("request-observable-games"); // Refresh observable games
+      // Clean up pending2v2Acceptances if it exists for this inviteId (it should)
+      if (pending2v2Acceptances[inviteId]) {
+          delete pending2v2Acceptances[inviteId];
+          console.log(`Cleaned up pending2v2Acceptances for inviteId ${inviteId} due to rejection.`);
+      }
+      emitLobbyPlayersList();
+      socket.emit("request-observable-games");
     }
   });
 
