@@ -696,7 +696,7 @@ io.on("connection", (socket) => {
                             lastClickedTile: game.lastClickedTile,
                             opponentName: "N/A", // No opponent for observer
                             gameChat: game.messages,
-                            observers: game.observers, // Send current observer list
+                            observers: game.observers,
                             player1Name: playerNames[1],
                             player2Name: playerNames[2],
                             player3Name: playerNames[3],
@@ -1098,7 +1098,7 @@ socket.on("resume-game", async ({ gameId }) => {
       gameType: gameData.gameType || '1v1',
       board: deserializedBoard,
       scores: gameData.scores,
-      bombsUsed: gameData.bombsUsed,
+      bombsUsed: game.bombsUsed,
       turn: gameData.turn,
       gameOver: gameData.gameOver,
       lastClickedTile: gameData.lastClickedTile || {}, // Load lastClickedTile from Firestore
@@ -1456,6 +1456,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
+    // FIX: Define inviterUserId here
+    const inviterUserId = inviterPlayer.userId;
+
     // Double check if either player is already in a game (as player or observer)
     if (userGameMap[respondingPlayer.userId] || userGameMap[inviterPlayer.userId]) {
         console.warn("Respond invite failed: One or both players already in a game.");
@@ -1532,7 +1535,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
           // Re-fetch player objects by their user IDs
           const invitedUserIds = invitedPlayers.map(p => p.id);
-          const allGameUserIds = [inviterUserId, respondingUserId, ...invitedUserIds];
+          const allGameUserIds = [inviterUserId, respondingUserId, ...invitedUserIds]; // Corrected: inviterUserId is now defined
           const actualGamePlayers = [];
 
           // Assign player numbers 1-4 and teams 1-2 based on arbitrary but consistent logic
@@ -1563,36 +1566,31 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
           // For current implementation, let's assume the `invitedPlayers` from the client are the other two (besides inviter and responder).
           // This implies a total of 4 players (inviter, responder, invitedPlayers[0], invitedPlayers[1]).
 
-          const p1 = inviterPlayer; // Inviter is player 1, Team 1
-          const p2 = respondingPlayer; // Responder is player 2 (partner for 1v1, but here a team member or rival)
+          const p1 = inviterPlayer;
+          const p2 = players.find(p => p.id === targetSocketIds[0]); // Partner
+          const p3 = players.find(p => p.id === targetSocketIds[1]); // Rival 1
+          const p4 = players.find(p => p.id === targetSocketIds[2]); // Rival 2
 
-          // We need to know who is the partner of the inviter, and who are the two rivals.
-          // The `invitedPlayers` array in the `respond-invite` payload is from the invitee's perspective.
-          // The `fromId` is the inviter. `invitedPlayers` are the other people in the game.
-          // This needs to be correctly passed from the frontend for 2v2 invites.
-
-          // Let's assume frontend passes all 4 user IDs in `invitedPlayers` array, including inviter and responder.
-          // Or, better, the original invitation on the server side correctly established roles.
-          // For now, I will use a simple fixed assignment for 2v2:
-          // P1 (inviter), P2 (first invited, partner), P3 (second invited, rival 1), P4 (third invited, rival 2)
-          // This means `targetSocketIds` from frontend for 2v2 should be `[partner, rival1, rival2]`
-
-          const p1Data = inviterPlayer;
-          const p2Data = players.find(p => p.id === targetSocketIds[0]); // Partner
-          const p3Data = players.find(p => p.id === targetSocketIds[1]); // Rival 1
-          const p4Data = players.find(p => p.id === targetSocketIds[2]); // Rival 2
+          // Validate that all players were found
+          if (!p1 || !p2 || !p3 || !p4) {
+              console.error("Error: One or more players not found during 2v2 game setup.");
+              io.to(respondingPlayer.id).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "One or more invited players not found." });
+              io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name, reason: "One or more invited players not found." });
+              // Also notify other invited players if necessary
+              return;
+          }
 
           gamePlayers.push(
-            { userId: p1Data.userId, name: p1Data.name, number: 1, socketId: p1Data.id, team: 1 },
-            { userId: p2Data.userId, name: p2Data.name, number: 2, socketId: p2Data.id, team: 1 },
-            { userId: p3Data.userId, name: p3Data.name, number: 3, socketId: p3Data.id, team: 2 },
-            { userId: p4Data.userId, name: p4Data.name, number: 4, socketId: p4Data.id, team: 2 },
+            { userId: p1.userId, name: p1.name, number: 1, socketId: p1.id, team: 1 },
+            { userId: p2.userId, name: p2.name, number: 2, socketId: p2.id, team: 1 },
+            { userId: p3.userId, name: p3.name, number: 3, socketId: p3.id, team: 2 },
+            { userId: p4.userId, name: p4.name, number: 4, socketId: p4.id, team: 2 },
           );
 
-          player1_userId = p1Data.userId; player1Name = p1Data.name;
-          player2_userId = p2Data.userId; player2Name = p2Data.name;
-          player3_userId = p3Data.userId; player3Name = p3Data.name;
-          player4_userId = p4Data.userId; player4Name = p4Data.name;
+          player1_userId = p1.userId; player1Name = p1.name;
+          player2_userId = p2.userId; player2Name = p2.name;
+          player3_userId = p3.userId; player3Name = p3.name;
+          player4_userId = p4.userId; player4Name = p4.name;
       }
 
 
@@ -1623,7 +1621,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
       // Save game state to Firestore (with serialized board)
       try {
           const serializedBoard = JSON.stringify(game.board); // Serialize board for Firestore
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+          await db.collection(GAGES_COLLECTION_PATH).doc(gameId).set({
               gameId: game.gameId,
               gameType: game.gameType,
               board: serializedBoard, // Save serialized board
@@ -1965,7 +1963,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
     
-    // Only allow bomb usage if player's team is behind in score
+    // Only allow bomb usage if player's team is strictly behind in score
     const opponentTeam = playerTeam === 1 ? 2 : 1;
     if (game.scores[playerTeam] >= game.scores[opponentTeam]) {
         io.to(socket.id).emit("bomb-error", "You can only use the bomb when your team is behind in score!");
