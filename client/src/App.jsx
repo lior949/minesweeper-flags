@@ -21,7 +21,7 @@ const generate5DigitGuestId = async (message) => {
         const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer); // Hash the message
         const fullHashHex = bufferToHex(hashBuffer); // Convert full hash to hex string
 
-        // Take a portion of the hash (e.g., first 8 characters) to convert to a number
+        // Take a portion of the hash (e.g., first 8 characters)...
         // Using a slice helps ensure enough entropy for the conversion
         const hashPortion = fullHashHex.substring(0, 8); // e.g., "a1b2c3d4"
         
@@ -308,12 +308,26 @@ function App() {
 
             socketRef.current.on("game-invite", (inviteData) => {
               setInvite(inviteData);
-              // Store all player names for 2v2 invite display
-              if (inviteData.gameType === '2v2' && inviteData.invitedPlayers) {
-                const invitedNames = inviteData.invitedPlayers.map(p => p.name).join(', ');
-                showMessage(`2v2 Invitation from ${inviteData.fromName}! Your team: ${inviteData.teamName}. Opponent Team: ${invitedNames}`);
+              // MODIFIED: Improved 2v2 invite message using invitedPlayersInfo from backend
+              if (inviteData.gameType === '2v2' && inviteData.invitedPlayersInfo) {
+                // Assuming invitedPlayersInfo includes all 4 players (inviter + partner + 2 rivals)
+                const inviterName = inviteData.senderName;
+                const otherPlayers = inviteData.invitedPlayersInfo
+                    .filter(p => p.userId !== inviteData.senderId && p.userId !== (socketRef.current.request.session?.passport?.user?.id || null))
+                    .map(p => p.name);
+
+                let inviteMessage = `2v2 Invitation from ${inviterName}.`;
+                if (otherPlayers.length === 3) { // Inviter + 3 invited (partner + 2 rivals)
+                    const partnerName = otherPlayers[0]; // Assuming partner is first in the list
+                    const rival1Name = otherPlayers[1];
+                    const rival2Name = otherPlayers[2];
+                    inviteMessage += ` You, ${partnerName}, ${rival1Name}, and ${rival2Name} are invited.`;
+                } else {
+                    inviteMessage += ` Invited players: ${otherPlayers.join(', ')}`;
+                }
+                showMessage(inviteMessage);
               } else {
-                showMessage(`Invitation from ${inviteData.fromName}!`); // Global notification for invites
+                showMessage(`Invitation from ${inviteData.senderName}!`); // Using senderName for 1v1
               }
             });
 
@@ -745,7 +759,9 @@ function App() {
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("respond-invite", { fromId: invite.fromId, accept, gameType: invite.gameType, invitedPlayers: invite.invitedPlayers });
+      // MODIFIED: Pass inviteId from the current invite state to the backend
+      // gameIdFromClient can be null if it's a new game being created
+      socketRef.current.emit("respond-invite", { inviteId: invite.inviteId, gameIdFromClient: null, accept });
       setInvite(null);
       setMessage("");
       // Clear 2v2 selection if an invite is accepted/rejected
@@ -1141,14 +1157,15 @@ function App() {
             {invite && (
               <div className="invite-popup">
                 {invite.gameType === '2v2' ? (
+                  // MODIFIED: Update invite display message to use invitedPlayersInfo
                   <p>
-                    2v2 Invitation from <b>{invite.fromName}</b>.<br/>
-                    Your Team: <b>{invite.teamName}</b>.
-                    Rivals: <b>{invite.invitedPlayers.map(p => p.name).join(', ')}</b>
+                    2v2 Invitation from <b>{invite.senderName}</b>.<br/>
+                    {/* Assuming invitedPlayersInfo includes all 4 players (inviter + partner + 2 rivals) */}
+                    Invited: {invite.invitedPlayersInfo.map(p => p.name).join(', ')}
                   </p>
                 ) : (
                   <p>
-                    Invitation from <b>{invite.fromName}</b>
+                    Invitation from <b>{invite.senderName}</b>
                   </p>
                 )}
                 <button onClick={() => respondInvite(true)}>Accept</button>
