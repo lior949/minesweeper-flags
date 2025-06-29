@@ -1430,11 +1430,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     if (gameType === '2v2') {
         pending2v2Acceptances[inviteId] = {
             inviterId: inviterUserId,
-            acceptedUsers: new Set(), // Will store userIds of those who accepted
+            acceptedUsers: new Set([inviterUserId]), // Initialize with inviter's acceptance
             // Required players are inviter + 3 invitees
             requiredPlayers: new Set(allInvolvedUserIds)
         };
         console.log(`Initialized pending2v2Acceptances for inviteId ${inviteId}. Required players: ${Array.from(pending2v2Acceptances[inviteId].requiredPlayers).join(', ')}`);
+        console.log(`[2v2 Invite] Inviter ${inviterPlayer.name} (${inviterUserId}) implicitly accepted for invite ${inviteId}.`);
     }
 
 
@@ -1611,6 +1612,18 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
               return;
           }
 
+          // Clear all related pending invites for all involved players once game starts
+          allPlayerUserIdsInInvite.forEach(uid => { // For 1v1, this is inviter and responder
+              if (pendingInvites[uid] && pendingInvites[uid][inviteId]) {
+                  delete pendingInvites[uid][inviteId];
+                  const clientSocketId = userSocketMap[uid];
+                  if (clientSocketId) {
+                      io.to(clientSocketId).emit("update-invites", pendingInvites[uid] || {});
+                  }
+              }
+          });
+
+
           // Emit game-start to all players
           gamePlayers.forEach(p => {
             io.to(p.socketId).emit("game-start", {
@@ -1646,7 +1659,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
           }
 
           const current2v2Acceptance = pending2v2Acceptances[inviteId];
-          const allRequiredPlayers = Array.from(current2v2Acceptance.requiredPlayers); // Inviter + 3 invitees
+          const allRequiredPlayers = Array.from(current2v2Acceptance.requiredPlayers); // Inviter + 3 invitees (total 4)
 
           // Check if all required players have accepted
           const allAccepted = allRequiredPlayers.every(userId => current2v2Acceptance.acceptedUsers.has(userId));
@@ -1654,6 +1667,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
           // Check if all required players are currently online (have an active socket) and not in other games
           const allPlayersOnlineAndAvailable = allRequiredPlayers.every(userId => {
               const playerInLobby = players.find(p => p.userId === userId);
+              // Ensure they have an active socket and are not already in another game
               return playerInLobby && userSocketMap[userId] && !userGameMap[userId];
           });
 
@@ -1675,30 +1689,29 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
               // Identify the players based on the original invite and assign roles
               const inviter = players.find(p => p.userId === current2v2Acceptance.inviterId);
-              // Need to find the partner and two rivals from originalInvite.invitedPlayersInfo
-              const invitedUsers = originalInvite.invitedPlayersInfo.map(info => info.userId);
-              const partnerId = invitedUsers.find(uid => allRequiredPlayers.includes(uid) && uid !== inviter.userId); // This assumes the first invited user is the partner
-              const rivals = invitedUsers.filter(uid => uid !== inviter.userId && uid !== partnerId);
+              // Filter originalInvite.invitedPlayersInfo to get the 3 actual invitees
+              const actualInvitees = originalInvite.invitedPlayersInfo.filter(info => allRequiredPlayers.includes(info.userId));
 
-              // It's crucial to map players consistently to numbers 1-4 and teams 1-2
-              // For example, Inviter (P1, T1), Partner (P2, T1), Rival1 (P3, T2), Rival2 (P4, T2)
-              const playerObjsInOrder = [];
-              playerObjsInOrder.push(inviter); // P1
-              playerObjsInOrder.push(players.find(p => p.userId === partnerId)); // P2
-              playerObjsInOrder.push(players.find(p => p.userId === rivals[0])); // P3
-              playerObjsInOrder.push(players.find(p => p.userId === rivals[1])); // P4
+              // Ensure we have all four players: inviter + 3 actual invitees
+              const allFourPlayerObjects = [inviter, ...actualInvitees.map(info => players.find(p => p.userId === info.userId))].filter(Boolean);
 
+              // Sort for consistent assignment (e.g., by userId to ensure same player always gets same number)
+              allFourPlayerObjects.sort((a, b) => a.userId.localeCompare(b.userId));
+
+              // Assign players to positions P1, P2, P3, P4 and teams
+              // Team 1: Player 1, Player 2
+              // Team 2: Player 3, Player 4
               gamePlayers.push(
-                { userId: playerObjsInOrder[0].userId, name: playerObjsInOrder[0].name, number: 1, socketId: userSocketMap[playerObjsInOrder[0].userId], team: 1 },
-                { userId: playerObjsInOrder[1].userId, name: playerObjsInOrder[1].name, number: 2, socketId: userSocketMap[playerObjsInOrder[1].userId], team: 1 },
-                { userId: playerObjsInOrder[2].userId, name: playerObjsInOrder[2].name, number: 3, socketId: userSocketMap[playerObjsInOrder[2].userId], team: 2 },
-                { userId: playerObjsInOrder[3].userId, name: playerObjsInOrder[3].name, number: 4, socketId: userSocketMap[playerObjsInOrder[3].userId], team: 2 },
+                { userId: allFourPlayerObjects[0].userId, name: allFourPlayerObjects[0].name, number: 1, socketId: userSocketMap[allFourPlayerObjects[0].userId], team: 1 },
+                { userId: allFourPlayerObjects[1].userId, name: allFourPlayerObjects[1].name, number: 2, socketId: userSocketMap[allFourPlayerObjects[1].userId], team: 1 },
+                { userId: allFourPlayerObjects[2].userId, name: allFourPlayerObjects[2].name, number: 3, socketId: userSocketMap[allFourPlayerObjects[2].userId], team: 2 },
+                { userId: allFourPlayerObjects[3].userId, name: allFourPlayerObjects[3].name, number: 4, socketId: userSocketMap[allFourPlayerObjects[3].userId], team: 2 },
               );
 
-              player1_userId = playerObjsInOrder[0].userId; player1Name = playerObjsInOrder[0].name;
-              player2_userId = playerObjsInOrder[1].userId; player2Name = playerObjsInOrder[1].name;
-              player3_userId = playerObjsInOrder[2].userId; player3Name = playerObjsInOrder[2].name;
-              player4_userId = playerObjsInOrder[3].userId; player4Name = playerObjsInOrder[3].name;
+              player1_userId = allFourPlayerObjects[0].userId; player1Name = allFourPlayerObjects[0].name;
+              player2_userId = allFourPlayerObjects[1].userId; player2Name = allFourPlayerObjects[1].name;
+              player3_userId = allFourPlayerObjects[2].userId; player3Name = allFourPlayerObjects[2].name;
+              player4_userId = allFourPlayerObjects[3].userId; player4Name = allFourPlayerObjects[3].name;
 
               const game = {
                 gameId,
