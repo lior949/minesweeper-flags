@@ -988,7 +988,7 @@ function App() {
     if (!tile.revealed) return "";
     if (tile.isMine) {
       // Adjusted for 2v2, use team flags
-      if (tile.ownerTeam === 1) return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
+      if (tile.ownerTeam === 1) return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
           <path d="M0 0h24v24H0z" fill="none"/>
           <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
         </svg>
