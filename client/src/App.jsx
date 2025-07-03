@@ -989,7 +989,12 @@ function App() {
     if (tile.isMine) {
       // Adjusted for 2v2, use team flags
       if (tile.ownerTeam === 1) return <span style={{ color: "red" }}>🚩</span>;
-      if (tile.ownerTeam === 2) return <span style={{ color: "blue" }}>🏴‍☠️</span>; // Changed to black flag for player 2
+      if (tile.ownerTeam === 2) return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
+          <path d="M0 0h24v24H0z" fill="none"/>
+          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+        </svg>
+      );
       return "";
     }
     // Corrected: Wrap the number in a span with the appropriate class for coloring
@@ -1184,12 +1189,20 @@ function App() {
                                 {game.gameType === '2v2' ? (
                                     <>
                                         Team 1 ({game.player1Name}, {game.player2Name}) vs Team 2 ({game.player3Name}, {game.player4Name})
-                                        - Score: 🚩 {game.scores?.[1] || 0} | {game.scores?.[2] || 0} 🏴‍☠️
+                                        - Score: 🚩 {game.scores?.[1] || 0} | {game.scores?.[2] || 0} 
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                          <path d="M0 0h24v24H0z" fill="none"/>
+                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                        </svg>
                                     </>
                                 ) : (
                                     <>
                                         {game.playerNumber === 1 ? `${name} vs ${game.opponentName}` : `${game.opponentName} vs ${name}`}
-                                        - Score: 🚩 {game.scores?.[1] || 0} | {game.scores?.[2] || 0} 🏴‍☠️
+                                        - Score: 🚩 {game.scores?.[1] || 0} | {game.scores?.[2] || 0} 
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                          <path d="M0 0h24v24H0z" fill="none"/>
+                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                        </svg>
                                     </>
                                 )}
                                 - Last updated: {game.lastUpdated}
@@ -1297,7 +1310,11 @@ function App() {
                                         Team 1 ({gamePlayerNames[1]}, {gamePlayerNames[2]}): {scores[1]} 🚩
                                     </p>
                                     <p style={{ color: (turn === 3 || turn === 4) ? 'green' : 'inherit' }}>
-                                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]}): {scores[2]} 🏴‍☠️
+                                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]}): {scores[2]} 
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                          <path d="M0 0h24v24H0z" fill="none"/>
+                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                        </svg>
                                     </p>
                                 </div>
                             ) : (
@@ -1306,7 +1323,11 @@ function App() {
                                     {gamePlayerNames[1]}: {scores[1]} 🚩
                                     </p>
                                     <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
-                                    {gamePlayerNames[2]}: {scores[2]} 🏴‍☠️
+                                    {gamePlayerNames[2]}: {scores[2]} 
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                      <path d="M0 0h24v24H0z" fill="none"/>
+                                      <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                    </svg>
                                     </p>
                                 </div>
                             )}
