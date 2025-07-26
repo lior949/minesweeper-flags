@@ -985,13 +985,25 @@ function App() {
 
 
   const renderTile = (tile) => {
-    if (!tile.revealed) return "";
-    if (tile.isMine) {
-      // Adjusted for 2v2, use team flags
-      if (tile.ownerTeam === 1) return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
-          <path d="M0 0h24v24H0z" fill="none"/>
-          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-        </svg>
+    // If the tile is a mine and has an owner (i.e., it's a captured flag)
+    if (tile.isMine && tile.ownerTeam) {
+      // Return a div with the "hidden" class to get the unrevealed tile background
+      // and then render the flag SVG inside it.
+      return (
+        <div className="tile hidden"> {/* Apply 'hidden' class for background color */}
+          {tile.ownerTeam === 1 && (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
+              <path d="M0 0h24v24H0z" fill="none"/>
+              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+            </svg>
+          )}
+          {tile.ownerTeam === 2 && (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
+              <path d="M0 0h24v24H0z" fill="none"/>
+              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+            </svg>
+          )}
+        </div>
       );
       if (tile.ownerTeam === 2) return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
