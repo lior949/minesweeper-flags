@@ -985,6 +985,7 @@ function App() {
 
 
   const renderTile = (tile) => {
+    if (!tile.revealed) return "";
     // If the tile is a mine and has an owner (i.e., it's a captured flag)
     if (tile.isMine && tile.ownerTeam) {
       // Return a div with the "hidden" class to get the unrevealed tile background
