@@ -1173,6 +1173,19 @@ function App() {
                       {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing: ${p.opponentName})`}
                     </span>
                   )}
+		{/* Add Invite Button */}
+                  {socketRef.current && p.id !== socketRef.current.id && !p.gameId && ( // Only show if not self and not in a game
+                    <button 
+                      className="invite-button" 
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent double-click from firing if button is clicked
+                        handlePlayerClick(p);
+                      }}
+                      disabled={is2v2Mode && (invitationStage === 1 && selectedPartner) || (invitationStage === 2 && selectedRivals.length === 2)}
+                    >
+                      {is2v2Mode ? "Select" : "Invite"}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
