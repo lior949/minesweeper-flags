@@ -149,58 +149,83 @@ html, body {
 }
 
 
+/* --- The Main Grid Board Container --- */
 .grid {
   display: grid;
-  gap: 2px;
-  border: 2px solid #AAA; /* Lighter border for grid */
-  width: fit-content;
-  margin: 20px auto;
-  border-radius: 8px;
-  overflow: hidden; /* Ensures rounded corners apply cleanly */
+  gap: 3px;               /* Clean grid separator lines */
+  background-color: #D1D5DB; /* Light gray outline background */
+  padding: 6px;
+  border-radius: 8px;     /* Smooth corner frame */
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06), 
+              0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  margin: 15px auto;
+  width: max-content;
 }
 
+/* --- Base Tile Configurations --- */
 .tile {
   width: 40px;
   height: 40px;
   display: flex;
-  justify-content: center;
   align-items: center;
-  font-size: 1.2em;
-  font-weight: bold;
+  justify-content: center;
+  font-size: 19px;        /* Slightly larger bold values */
+  font-weight: 800;       /* Modern heavy weighting */
+  border-radius: 4px;     /* Smooth edges on grid squares */
+  user-select: none;
   cursor: pointer;
-  border-radius: 4px; /* Slightly rounded corners for tiles */
-  box-sizing: border-box; /* Include padding and border in the element's total width and height */
 }
 
+/* --- Hidden Tiles (Unrevealed State) --- */
 .tile.hidden {
-  background-color: #5AA0C8; /* Moderate blue */
-  border: 2px solid #4A8EB4; /* Slightly darker blue for border */
-  color: transparent; /* Hide text until revealed */
-  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  background: linear-gradient(135deg, #F9FAFB, #F3F4F6) !important;
+  box-shadow: 0 2px 0 #D1D5DB, 
+              inset 0 1px 0 #FFFFFF !important; /* Premium bevel gradient pop */
+  color: transparent;
 }
 
+/* Hover over unrevealed squares */
 .tile.hidden:hover {
-  background-color: #6CBAD2; /* Slightly lighter moderate blue on hover */
-  border-color: #5AA0C8; /* Lighter border on hover */
+  background: linear-gradient(135deg, #FFFFFF, #E5E7EB) !important;
+  transform: translateY(-1px); /* Delicate lift interaction */
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.08), 
+              inset 0 1px 0 #FFFFFF !important;
 }
 
-/* More specific rule for revealed tiles */
-.app-game-container .tile.revealed { /* Added .app-game-container for increased specificity */
-  background-color: #FFFF00; /* Changed to yellow */
-  border: 1px solid #CCC; /* Lighter border on yellow */
-  color: #333; /* Darker text color for better contrast on yellow */
-  transition: none; /* No transition on reveal for instant change */
+/* --- Revealed Tiles (Empty / Open State) --- */
+.tile.revealed {
+  background-color: #F3F4F6 !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05) !important; /* Inner indent look */
+  border: 1px solid rgba(0, 0, 0, 0.02);
 }
 
-/* Colors for adjacent mine numbers */
-.number-1 { color: #0000FF; } /* Blue */
-.number-2 { color: #008000; } /* Green */
-.number-3 { color: #FF0000; } /* Red */
-.number-4 { color: #800080; } /* Purple */
-.number-5 { color: #CD853F; } /* Peru (light brown) */
-.number-6 { color: #008B8B; } /* Dark Cyan (cyan) */
-.number-7 { color: #000000; } /* Black */
-.number-8 { color: #8B4513; } /* SaddleBrown (dark brown) */
+/* --- Clean Typography & Text Colors For Adjacency Numbers --- */
+.tile span {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1;
+}
+
+.number-1 { color: #2563EB; } /* Royal Blue */
+.number-2 { color: #16A34A; } /* Emerald Green */
+.number-3 { color: #DC2626; } /* Crimson Red */
+.number-4 { color: #4338CA; } /* Indigo Indigo */
+.number-5 { color: #9D174D; } /* Deep Maroon */
+.number-6 { color: #0891B2; } /* Vibrant Cyan */
+.number-7 { color: #1F2937; } /* Slate Dark */
+.number-8 { color: #6B7280; } /* Flat Gray */
+
+/* --- Captured Flag Tiles Style --- */
+.tile.hidden:has(svg),
+.tile.hidden:has(.tile hidden) {
+  /* Maintains unrevealed depth beneath flag renders */
+}
+
+.tile svg {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.15)); /* Pops the flag off the canvas layer */
+  transition: transform 0.1s ease;
+}
 
 
 /* Base styles for Google Login component (if any specific styling is needed) */
