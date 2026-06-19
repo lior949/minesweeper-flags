@@ -293,19 +293,32 @@ html, body {
     box-shadow: 0 0 10px rgba(255, 69, 0, 0.7); /* Changed to OrangeRed glow */
 }
 
-/* Styles for last clicked tile highlighting */
-.tile.last-clicked-p1 {
-    background-color: #FFA07A; /* Light Salmon, softer red */
-    border: 2px solid #FF6347; /* Tomato, a vibrant red */
-    box-shadow: 0 0 8px rgba(255, 99, 71, 0.6); /* Red glow */
-    animation: pulse-red 1s infinite alternate; /* Subtle pulse animation */
+/* --- Last Clicked Tile Styles (Solid Background, No Animation) --- */
+
+/* Player 1 / Team 1 Last Move */
+.tile.last-clicked-p1,
+.tile.last-clicked-p3 {
+    background-color: #8B0000 !important; /* Dark Red */
+    color: #FFFFFF !important;            /* White text for contrast if revealed */
+    animation: none !important;            /* Explicitly disables any lingering animations */
+    transition: none !important;           /* Instant change with no fade smooth effects */
 }
 
-.tile.last-clicked-p2 {
-    background-color: #87CEFA; /* Light Sky Blue, softer blue */
-    border: 2px solid #4682B4; /* Steel Blue, a vibrant blue */
-    box-shadow: 0 0 8px rgba(70, 130, 180, 0.6); /* Blue glow */
-    animation: pulse-blue 1s infinite alternate; /* Subtle pulse animation */
+/* Player 2 / Team 2 Last Move */
+.tile.last-clicked-p2,
+.tile.last-clicked-p4 {
+    background-color: #00008B !important; /* Dark Blue */
+    color: #FFFFFF !important;            /* White text for contrast if revealed */
+    animation: none !important;            /* Explicitly disables any lingering animations */
+    transition: none !important;           /* Instant change with no fade smooth effects */
+}
+
+/* Optional: Ensure flag SVGs inside backgrounded tiles stand out */
+.tile.last-clicked-p1 svg,
+.tile.last-clicked-p3 svg,
+.tile.last-clicked-p2 svg,
+.tile.last-clicked-p4 svg {
+    fill: #FFFFFF !important; /* Forces the flag icon to white if it lands on a background highlight */
 }
 
 /* Keyframes for a subtle pulsing glow on last clicked tiles */
