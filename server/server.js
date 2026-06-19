@@ -563,6 +563,19 @@ const emitLobbyPlayersList = () => {
 
 // === Socket.IO Connection and Game Events ===
 io.on("connection", (socket) => {
+  // 1. Try reading user from the cookie-based passport session
+  let user = socket.request.session?.passport?.user || null;
+  let userId = user ? user.id : null;
+  let userName = user ? (user.displayName || user.name) : null;
+
+  // 2. iOS Safari Fallback: Read user from websocket handshake auth block
+  if (!userId && socket.handshake.auth && socket.handshake.auth.user) {
+    const authUser = socket.handshake.auth.user;
+    userId = authUser.id || authUser.guestId || `guest_${Date.now()}`;
+    userName = authUser.displayName || authUser.name || "Guest";
+    
+    console.log(`[iOS Sync] Handshake Auth Fallback applied for User: ${userName} (${userId})`);
+  }
   console.log(`Socket Connected: ${socket.id}`);
 
   // Passport.js attaches session to socket.request
