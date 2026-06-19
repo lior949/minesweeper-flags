@@ -1023,56 +1023,32 @@ function App() {
 
   const renderTile = (tile) => {
     if (!tile.revealed) return "";
-    
+    // If the tile is a mine and has an owner (i.e., it's a captured flag)
     if (tile.isMine && tile.ownerTeam) {
+      // Return a div with the "hidden" class to get the unrevealed tile background
+      // and then render the flag SVG inside it.
       return (
-        <div className="tile hidden" style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}> 
+        <div className="tile hidden"> {/* Apply 'hidden' class for background color */}
           {tile.ownerTeam === 1 && (
-            /* MSN Red Team Flag */
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="msnRed" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FF4D4D" />
-                  <stop offset="50%" stopColor="#CC0000" />
-                  <stop offset="100%" stopColor="#800000" />
-                </linearGradient>
-                <linearGradient id="flagStaff" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#FFFFFF" />
-                  <stop offset="100%" stopColor="#B0B0B0" />
-                </linearGradient>
-              </defs>
-              {/* Flag Staff */}
-              <rect x="5" y="4" width="2" height="17" rx="0.5" fill="url(#flagStaff)" />
-              {/* Gold Top Finial Ball */}
-              <circle cx="6" cy="3" r="1.5" fill="qold" gradientUnits="userSpaceOnUse" fillSource="linear-gradient(to bottom, #FFE57F, #FFC107)" />
-              {/* MSN Style Wave Flag Shape */}
-              <path d="M7 4 C 11 2, 11 6, 15 4 C 18 2.5, 19 3.5, 21 4 L 21 12 C 19 11.5, 18 10.5, 15 12 C 11 14, 11 10, 7 12 Z" fill="url(#msnRed)" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
+              <path d="M0 0h24v24H0z" fill="none"/>
+              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
             </svg>
           )}
-          
           {tile.ownerTeam === 2 && (
-            /* MSN Blue Team Flag */
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="msnBlue" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#3399FF" />
-                  <stop offset="50%" stopColor="#0055D4" />
-                  <stop offset="100%" stopColor="#002A80" />
-                </linearGradient>
-              </defs>
-              {/* Flag Staff */}
-              <rect x="5" y="4" width="2" height="17" rx="0.5" fill="url(#flagStaff)" />
-              {/* Gold Top Finial Ball */}
-              <circle cx="6" cy="3" r="1.5" fill="qold" gradientUnits="userSpaceOnUse" fillSource="linear-gradient(to bottom, #FFE57F, #FFC107)" />
-              {/* MSN Style Wave Flag Shape */}
-              <path d="M7 4 C 11 2, 11 6, 15 4 C 18 2.5, 19 3.5, 21 4 L 21 12 C 19 11.5, 18 10.5, 15 12 C 11 14, 11 10, 7 12 Z" fill="url(#msnBlue)" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
+              <path d="M0 0h24v24H0z" fill="none"/>
+              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
             </svg>
           )}
         </div>
       );
     }
-    
-    return tile.adjacentMines > 0 ? <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span> : "";
+    // Corrected: Wrap the number in a span with the appropriate class for coloring
+    if (tile.adjacentMines > 0) {
+      return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
+    }
+    return "";
   };
 
   const resumeGame = (gameIdToResume) => {
