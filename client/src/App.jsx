@@ -232,8 +232,21 @@ function App() {
           // and manage connection status
           if (!socketRef.current) {
             console.log("Frontend: Initializing Socket.IO connection...");
+            // Create an authentication payload from localStorage if credentials aren't in state yet
+            const savedUserStr = localStorage.getItem('auth_success_user');
+            let fallbackUser = null;
+            try {
+              if (savedUserStr) {
+                fallbackUser = JSON.parse(savedUserStr).user;
+              }
+            } catch(e) {
+              console.error(e);
+            }
             socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
               withCredentials: true,
+              auth: {
+                user: name ? { displayName: name, isGuest: isGuest } : fallbackUser
+              }
               // Optional: To help debug socket connection issues by forcing specific transports
               // transports: ['websocket', 'polling'], 
             });
