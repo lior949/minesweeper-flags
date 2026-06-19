@@ -578,11 +578,6 @@ io.on("connection", (socket) => {
   }
   console.log(`Socket Connected: ${socket.id}`);
 
-  // Passport.js attaches session to socket.request
-  const user = socket.request.session?.passport?.user || null;
-  const userId = user ? user.id : null;
-  const userName = user ? user.displayName : null;
-
   if (userId) {
     console.log(`[Connect] User ${userName} (${userId}) connected. Socket: ${socket.id}. Currently in game map? ${userGameMap[userId] ? 'Yes' : 'No'}.`);
 
