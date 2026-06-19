@@ -297,18 +297,22 @@ html, body {
 
 /* Player 1 / Team 1 Last Move */
 .tile.last-clicked-p1,
-.tile.last-clicked-p3 {
+.tile.last-clicked-p3,
+.tile.last-clicked-p1 .tile.hidden,
+.tile.last-clicked-p3 .tile.hidden {
     box-shadow: inset 0 0 0 4px #8B0000 !important; /* 4px thick dark red inside borders */
-    animation: none !important;            /* Explicitly disables any lingering animations */
-    transition: none !important;           /* Instant change with no fade smooth effects */
+    animation: none !important;                     /* Disables all animations instantly */
+    transition: none !important;                    /* Prevents fade or smooth transitions */
 }
 
-/* Player 2 / Team 2 Last Move */
+/* Player 2 / Team 2 Last Move - Edges */
 .tile.last-clicked-p2,
-.tile.last-clicked-p4 {
+.tile.last-clicked-p4,
+.tile.last-clicked-p2 .tile.hidden,
+.tile.last-clicked-p4 .tile.hidden {
     box-shadow: inset 0 0 0 4px #00008B !important; /* 4px thick dark blue inside borders */
-    animation: none !important;            /* Explicitly disables any lingering animations */
-    transition: none !important;           /* Instant change with no fade smooth effects */
+    animation: none !important;                     /* Disables all animations instantly */
+    transition: none !important;                    /* Prevents fade or smooth transitions */
 }
 
 /* Keyframes for a subtle pulsing glow on last clicked tiles */
