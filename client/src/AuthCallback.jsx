@@ -16,21 +16,20 @@ function AuthCallback() {
 
     if (userData) {
       if (window.opener) {
-        // דרך המלך המקורית - עובד מצוין במחשב
+        
         window.opener.postMessage({ type: 'AUTH_SUCCESS', user: userData }, '*');
         console.log("AuthCallback: Sent AUTH_SUCCESS message to opener.");
         window.close();
       } else {
-        // פתרון לאייפון/ספארי - window.opener הוא null
         console.warn("AuthCallback: No window.opener found. Using localStorage fallback.");
         
-        // שומרים את מידע המשתמש יחד עם טיימסטאמפ כדי להניע אירוע שינוי (Storage Event)
+        
         localStorage.setItem('auth_success_user', JSON.stringify({
           user: userData,
           timestamp: Date.now()
         }));
 
-        // באייפון לפעמים window.close() ייחסם כאן, אז נעביר אותו בחזרה לדף הבית של האפליקציה
+        
         setTimeout(() => {
           window.location.href = '/'; 
         }, 500);
