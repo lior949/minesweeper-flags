@@ -570,7 +570,25 @@ function App() {
       }
     };
 
+    // NEW FALLBACK FOR IPHONE/SAFARI: Listen to localStorage changes when window.opener is broken
+    const handleStorageChange = (event) => {
+      if (event.key === 'auth_success_user' && event.newValue) {
+        try {
+          const { user } = JSON.parse(event.newValue);
+          console.log("App.jsx: Received user data via localStorage fallback:", user);
+          setName(user.displayName || `User_${user.id.substring(0, 8)}`);
+          setLoggedIn(true);
+          setIsGuest(user.id.startsWith('guest_'));
+          showMessage("Login successful!");
+          localStorage.removeItem('auth_success_user'); // Clean up token from storage immediately
+        } catch (e) {
+          console.error("Error parsing auth data from storage fallback", e);
+        }
+      }
+    };
+
     window.addEventListener('message', handleAuthMessage);
+    window.addEventListener('storage', handleStorageChange); // Fallback listener for iOS
 
 
     // Cleanup function for useEffect: disconnect socket and remove listeners
@@ -608,6 +626,7 @@ function App() {
         socketRef.current = null; // Clear the ref
       }
       window.removeEventListener('message', handleAuthMessage); // Clean up message listener
+      window.removeEventListener('storage', handleStorageChange); // Clean up storage listener
     };
   }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
 
@@ -1006,13 +1025,6 @@ function App() {
           )}
         </div>
       );
-      if (tile.ownerTeam === 2) return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
-          <path d="M0 0h24v24H0z" fill="none"/>
-          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-        </svg>
-      );
-      return "";
     }
     // Corrected: Wrap the number in a span with the appropriate class for coloring
     if (tile.adjacentMines > 0) {
@@ -1092,7 +1104,7 @@ function App() {
             console.log("Google Login completed via pop-up callback. State will update.");
           }}
         />
-		    <FacebookLogin
+        <FacebookLogin
           onLogin={(facebookName) => {
             // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
             // No direct socket.emit("join-lobby") here anymore.
@@ -1107,25 +1119,25 @@ function App() {
     );
   }
 
-    // --- Variables for Bomb Logic and Conditional Rendering ---
-    // These need to be calculated here so they are in scope for the JSX
-    let currentPlayerScore = 0;
-    let opponentPlayerOrTeamScore = 0;
-    let currentBombUsedStatus = false;
+  // --- Variables for Bomb Logic and Conditional Rendering ---
+  // These need to be calculated here so they are in scope for the JSX
+  let currentPlayerScore = 0;
+  let opponentPlayerOrTeamScore = 0;
+  let currentBombUsedStatus = false;
 
-    if (gameId && playerNumber !== null && scores) {
-        if (gameType === '1v1') {
-            currentPlayerScore = scores[playerNumber];
-            opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
-            currentBombUsedStatus = bombsUsed[playerNumber];
-        } else if (gameType === '2v2') {
-            const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
-            const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
-            currentPlayerScore = scores[myTeamNumber];
-            opponentPlayerOrTeamScore = scores[opponentTeamNumber];
-            currentBombUsedStatus = bombsUsed[myTeamNumber];
-        }
-    }
+  if (gameId && playerNumber !== null && scores) {
+      if (gameType === '1v1') {
+          currentPlayerScore = scores[playerNumber];
+          opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
+          currentBombUsedStatus = bombsUsed[playerNumber];
+      } else if (gameType === '2v2') {
+          const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+          const opponentTeamNumber = myTeamNumber === 1 ? 2 : 1;
+          currentPlayerScore = scores[myTeamNumber];
+          opponentPlayerOrTeamScore = scores[opponentTeamNumber];
+          currentBombUsedStatus = bombsUsed[myTeamNumber];
+      }
+  }
 
 
   return (
@@ -1133,7 +1145,7 @@ function App() {
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
-	    {!gameId && ( // Only show lobby elements if not in a game
+        {!gameId && ( // Only show lobby elements if not in a game
             <>
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
@@ -1173,7 +1185,7 @@ function App() {
                       {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing: ${p.opponentName})`}
                     </span>
                   )}
-		{/* Add Invite Button */}
+                  {/* Add Invite Button */}
                   {socketRef.current && p.id !== socketRef.current.id && !p.gameId && ( // Only show if not self and not in a game
                     <button 
                       className="invite-button" 
@@ -1299,8 +1311,8 @@ function App() {
               </form>
             </div>
 
-		      </>
-)}
+            </>
+        )}
 
         {gameId && (
             <div className="app-game-container">
