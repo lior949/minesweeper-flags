@@ -149,58 +149,72 @@ html, body {
 }
 
 
+/* --- MSN Signature Grid Frame --- */
 .grid {
   display: grid;
   gap: 2px;
-  border: 2px solid #AAA; /* Lighter border for grid */
-  width: fit-content;
+  background-color: #B2D7F7; /* MSN Light Aqua Border */
+  padding: 8px;
+  border-radius: 12px;       /* Classically rounded MSN frame */
+  box-shadow: 0 4px 10px rgba(0, 50, 100, 0.15),
+              inset 0 1px 2px rgba(255, 255, 255, 0.6);
   margin: 20px auto;
-  border-radius: 8px;
-  overflow: hidden; /* Ensures rounded corners apply cleanly */
+  width: max-content;
 }
 
+/* --- Base Tile Shape --- */
 .tile {
   width: 40px;
   height: 40px;
   display: flex;
-  justify-content: center;
   align-items: center;
-  font-size: 1.2em;
-  font-weight: bold;
+  justify-content: center;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  border-radius: 6px;       /* Smoothly rounded capsules */
+  user-select: none;
   cursor: pointer;
-  border-radius: 4px; /* Slightly rounded corners for tiles */
-  box-sizing: border-box; /* Include padding and border in the element's total width and height */
+  box-sizing: border-box;
 }
 
+/* --- MSN Unrevealed "Gel-Cap" Tiles (Hidden) --- */
 .tile.hidden {
-  background-color: #5AA0C8; /* Moderate blue */
-  border: 2px solid #4A8EB4; /* Slightly darker blue for border */
-  color: transparent; /* Hide text until revealed */
-  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  background: linear-gradient(to bottom, #FFFFFF 0%, #E3EFFB 40%, #C2DCF4 50%, #D8EAFA 100%) !important;
+  border: 1px solid #A3C9E9 !important;
+  box-shadow: inset 0 1px 1px #FFFFFF, 
+              0 1px 2px rgba(0, 0, 0, 0.05) !important;
 }
 
+/* MSN Gel-Cap Hover Effect */
 .tile.hidden:hover {
-  background-color: #6CBAD2; /* Slightly lighter moderate blue on hover */
-  border-color: #5AA0C8; /* Lighter border on hover */
+  background: linear-gradient(to bottom, #FFFFFF 0%, #EDF4FC 30%, #D4E7F7 50%, #EAF3FC 100%) !important;
+  border: 1px solid #7EB4E0 !important;
 }
 
-/* More specific rule for revealed tiles */
-.app-game-container .tile.revealed { /* Added .app-game-container for increased specificity */
-  background-color: #FFFF00; /* Changed to yellow */
-  border: 1px solid #CCC; /* Lighter border on yellow */
-  color: #333; /* Darker text color for better contrast on yellow */
-  transition: none; /* No transition on reveal for instant change */
+/* --- MSN Revealed Flat Squares --- */
+.tile.revealed {
+  background: #EDF3F9 !important;
+  border: 1px solid #D5E3F0 !important;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* Colors for adjacent mine numbers */
-.number-1 { color: #0000FF; } /* Blue */
-.number-2 { color: #008000; } /* Green */
-.number-3 { color: #FF0000; } /* Red */
-.number-4 { color: #800080; } /* Purple */
-.number-5 { color: #CD853F; } /* Peru (light brown) */
-.number-6 { color: #008B8B; } /* Dark Cyan (cyan) */
-.number-7 { color: #000000; } /* Black */
+/* --- Classic MSN Font Colors --- */
+.number-1 { color: #1E50A2; } /* MSN Dark Slate Blue */
+.number-2 { color: #2E7D32; } /* Soft Green */
+.number-3 { color: #C62828; } /* Bright Red */
+.number-4 { color: #AD1457; } /* Magenta Dark */
+.number-5 { color: #FF8F00; } /* Orange */
+.number-6 { color: #00838F; } /* Cyan Teal */
+.number-7 { color: #37474F; } /* Dark Charcoal */
 .number-8 { color: #8B4513; } /* SaddleBrown (dark brown) */
+
+/* --- MSN Flag Icon Custom Presentation --- */
+.tile svg {
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.15));
+}
 
 
 /* Base styles for Google Login component (if any specific styling is needed) */
