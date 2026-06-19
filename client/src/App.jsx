@@ -235,20 +235,23 @@ function App() {
             // Create an authentication payload from localStorage if credentials aren't in state yet
             const savedUserStr = localStorage.getItem('auth_success_user');
             let fallbackUser = null;
+            // Extract the local user session to bridge the connection if cross-site cookies are blocked
+            const savedUserStr = localStorage.getItem('auth_success_user');
+            let fallbackHandshakeUser = null;
             try {
               if (savedUserStr) {
-                fallbackUser = JSON.parse(savedUserStr).user;
+                fallbackHandshakeUser = JSON.parse(savedUserStr).user;
               }
-            } catch(e) {
+            } catch (e) {
               console.error(e);
             }
+
             socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
               withCredentials: true,
+              // Send the user profile down via alternative auth parameters for Safari compatibility
               auth: {
-                user: name ? { displayName: name, isGuest: isGuest } : fallbackUser
+                user: fallbackHandshakeUser
               }
-              // Optional: To help debug socket connection issues by forcing specific transports
-              // transports: ['websocket', 'polling'], 
             });
 
             // --- Attach Socket.IO Event Listeners after connection ---
@@ -529,11 +532,16 @@ function App() {
           }
 
         } else {
+          // SAFARI iOS GUARD: If a local session payload exists, 
+          // DO NOT let a cookie-less failing background API call log the user out.
+          if (localStorage.getItem('auth_success_user')) {
+            console.warn("App.jsx: Cross-site cookies blocked by browser, maintaining local storage session.");
+            return;
+          }
+  
           setLoggedIn(false);
           setName("");
-          setIsGuest(false); // Ensure guest status is reset on failed auth check
-          console.log("Frontend: Auth check failed (response not ok).");
-          // If auth fails, ensure no socket is connected from a previous attempt
+          setIsGuest(false); 
           if (socketRef.current) {
             socketRef.current.disconnect();
             socketRef.current = null;
