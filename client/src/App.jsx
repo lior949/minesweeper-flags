@@ -235,9 +235,6 @@ function App() {
             // Create an authentication payload from localStorage if credentials aren't in state yet
             const savedUserStr = localStorage.getItem('auth_success_user');
             let fallbackUser = null;
-            // Extract the local user session to bridge the connection if cross-site cookies are blocked
-            const savedUserStr = localStorage.getItem('auth_success_user');
-            let fallbackHandshakeUser = null;
             try {
               if (savedUserStr) {
                 fallbackHandshakeUser = JSON.parse(savedUserStr).user;
