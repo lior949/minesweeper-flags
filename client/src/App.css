@@ -311,14 +311,6 @@ html, body {
     transition: none !important;           /* Instant change with no fade smooth effects */
 }
 
-/* Optional: Ensure flag SVGs inside backgrounded tiles stand out */
-.tile.last-clicked-p1 svg,
-.tile.last-clicked-p3 svg,
-.tile.last-clicked-p2 svg,
-.tile.last-clicked-p4 svg {
-    fill: #FFFFFF !important; /* Forces the flag icon to white if it lands on a background highlight */
-}
-
 /* Keyframes for a subtle pulsing glow on last clicked tiles */
 @keyframes pulse-red {
     0% { box-shadow: 0 0 8px rgba(255, 0, 0, 0.6); }
