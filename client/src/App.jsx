@@ -210,9 +210,7 @@ function App() {
     }
   }, []);
 
-  // --- Initial Authentication Check and Socket.IO Connection ---
-  // This useEffect will run once on mount for the main App component.
-  // It handles initial auth check and setting up the Socket.IO client.
+// --- Initial Authentication Check and Socket.IO Connection ---
   useEffect(() => {
     console.log("App useEffect: Running initial setup.");
 
@@ -223,76 +221,84 @@ function App() {
           credentials: "include",
         });
 
+        let data = null;
         if (response.ok) {
-          const data = await response.json();
-          setName(data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`);
-          setLoggedIn(true);
-          // Check if the user ID indicates a guest (e.g., starts with 'guest_')
-          setIsGuest(data.user.id.startsWith('guest_')); 
-          console.log("App.jsx: Initial auth check successful for:", data.user.displayName || data.user.name, "Is Guest:", data.user.id.startsWith('guest_'));
+          data = await response.json();
+        }
 
-          // NEW: Initialize Socket.IO connection ONLY once per component mount
-          // and manage connection status
+        // --- SAFARI ITP FALLBACK GUARD CONTAINER ---
+        // If the backend request failed or returned unauthorized, check if we have a valid saved local storage session
+        if (!data && localStorage.getItem('auth_success_user')) {
+          try {
+            const savedSession = JSON.parse(localStorage.getItem('auth_success_user'));
+            if (savedSession && savedSession.user) {
+              console.warn("Safari Cookie blocked: Recovering state from localStorage fallback.");
+              data = savedSession; // Inject local storage user profile to simulate successful response
+            }
+          } catch (e) {
+            console.error("Failed to parse fallback session data", e);
+          }
+        }
+
+        if (data && data.user) {
+          const currentUserName = data.user.displayName || data.user.name || `User_${data.user.id.substring(0, 8)}`;
+          setName(currentUserName);
+          setLoggedIn(true);
+          setIsGuest(data.user.id.startsWith('guest_')); 
+          console.log("App.jsx: Auth verification successful for:", currentUserName);
+
+          // Initialize Socket.IO connection
           if (!socketRef.current) {
             console.log("Frontend: Initializing Socket.IO connection...");
             socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
               withCredentials: true,
-              // Optional: To help debug socket connection issues by forcing specific transports
-              // transports: ['websocket', 'polling'], 
+              // Send user metadata directly inside the handshake payload so Socket.IO can 
+              // register you even if the server session tracking cookie was destroyed by Safari
+              query: {
+                fallbackUserId: data.user.id,
+                fallbackName: currentUserName
+              }
             });
 
-            // --- Attach Socket.IO Event Listeners after connection ---
+            // --- Attach Socket.IO Event Listeners ---
             socketRef.current.on('connect', () => {
                 console.log("Socket.IO client: Connected!");
                 setIsSocketConnected(true);
-                // After successful connection and potentially authentication
-                // we can trigger the join-lobby
-                // Only emit join-lobby if loggedIn is true (from initial auth check or pop-up)
-                if (loggedIn) { // Check loggedIn state
-                  socketRef.current.emit("join-lobby", name); // Use current state `name`
-                } else {
-                  console.log("Socket connected but not logged in yet. Waiting for login.");
-                }
+                socketRef.current.emit("join-lobby", currentUserName);
             });
 
             socketRef.current.on('disconnect', (reason) => {
                 console.log(`Socket.IO client: Disconnected! Reason: ${reason}`);
                 setIsSocketConnected(false);
-                showMessage("Disconnected from server. Please refresh or try again."); // Global message for disconnect
-                addGameMessage("Server", "Disconnected from server.", true); // Also add to game chat if in game
-                setIsBombHighlightActive(false); // Clear bomb highlight on disconnect
+                showMessage("Disconnected from server. Please refresh or try again.");
+                addGameMessage("Server", "Disconnected from server.", true);
+                setIsBombHighlightActive(false);
                 setHighlightedBombArea([]);
             });
 
             socketRef.current.on('connect_error', (error) => {
                 console.error("Socket.IO client: Connection error!", error);
-                showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true); // Global message
-                addGameMessage("Server", `Connection error: ${error.message}`, true); // Also add to game chat
+                showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
+                addGameMessage("Server", `Connection error: ${error.message}`, true);
                 setIsSocketConnected(false);
-                setIsBombHighlightActive(false); // Clear bomb highlight on error
+                setIsBombHighlightActive(false);
                 setHighlightedBombArea([]);
             });
 
-            // The 'authenticated-socket-ready' event from the server means Passport session is loaded
             socketRef.current.on('authenticated-socket-ready', () => {
                 console.log("Frontend: Server confirmed authenticated socket ready!");
-                // Now it's truly safe to emit things that rely on server-side session.
-                // Re-emit join-lobby just in case to ensure backend registers current socket with session.
-                if (loggedIn && name) { // Ensure loggedIn state and name exist
-                  socketRef.current.emit("join-lobby", name);
-                }
+                socketRef.current.emit("join-lobby", currentUserName);
             });
 
             socketRef.current.on("join-error", (msg) => {
-              showMessage(msg, true); // Still use global message for lobby join errors
-              if (gameId) addGameMessage("Server", msg, true); // Add to game chat if in game
-              // Only reload if it's an unrecoverable auth issue or specific error
-              if (msg.includes("Authentication required")) {
+              showMessage(msg, true);
+              if (gameId) addGameMessage("Server", msg, true);
+              if (msg.includes("Authentication required") && !localStorage.getItem('auth_success_user')) {
                 setLoggedIn(false);
                 setName("");
-                setIsGuest(false); // Reset guest status on auth error
+                setIsGuest(false);
               }
-              setIsBombHighlightActive(false); // Clear bomb highlight on error
+              setIsBombHighlightActive(false);
               setHighlightedBombArea([]);
             });
 
@@ -300,9 +306,8 @@ function App() {
               setLoggedIn(true);
               setName(userName);
               showMessage(`Lobby joined successfully as ${userName}!`);
-              // After joining lobby, request unfinished games and observable games
               socketRef.current.emit("request-unfinished-games");
-              socketRef.current.emit("request-observable-games"); // NEW: Request observable games
+              socketRef.current.emit("request-observable-games");
             });
 
             socketRef.current.on("players-list", (players) => {
@@ -311,17 +316,15 @@ function App() {
 
             socketRef.current.on("game-invite", (inviteData) => {
               setInvite(inviteData);
-              // MODIFIED: Improved 2v2 invite message using invitedPlayersInfo from backend
               if (inviteData.gameType === '2v2' && inviteData.invitedPlayersInfo) {
-                // Assuming invitedPlayersInfo includes all 4 players (inviter + partner + 2 rivals)
                 const inviterName = inviteData.senderName;
                 const otherPlayers = inviteData.invitedPlayersInfo
-                    .filter(p => p.userId !== inviteData.senderId && p.userId !== (socketRef.current.request.session?.passport?.user?.id || null))
+                    .filter(p => p.userId !== inviteData.senderId && p.userId !== (data.user.id))
                     .map(p => p.name);
 
                 let inviteMessage = `2v2 Invitation from ${inviterName}.`;
-                if (otherPlayers.length === 3) { // Inviter + 3 invited (partner + 2 rivals)
-                    const partnerName = otherPlayers[0]; // Assuming partner is first in the list
+                if (otherPlayers.length === 3) {
+                    const partnerName = otherPlayers[0];
                     const rival1Name = otherPlayers[1];
                     const rival2Name = otherPlayers[2];
                     inviteMessage += ` You, ${partnerName}, ${rival1Name}, and ${rival2Name} are invited.`;
@@ -330,132 +333,119 @@ function App() {
                 }
                 showMessage(inviteMessage);
               } else {
-                showMessage(`Invitation from ${inviteData.senderName}!`); // Using senderName for 1v1
+                showMessage(`Invitation from ${inviteData.senderName}!`);
               }
             });
 
             socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
-              showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true); // Global notification
+              showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
             });
 
             socketRef.current.on("game-start", (data) => {
               setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber); // Will be 0 for observers, 1-4 for players in 2v2
-              setBoard(JSON.parse(data.board)); // Parse the board string back to an object
+              setPlayerNumber(data.playerNumber);
+              setBoard(JSON.parse(data.board));
               setTurn(data.turn);
-              setScores(data.scores); // Team scores
-              setBombsUsed(data.bombsUsed); // Team bombs
+              setScores(data.scores);
+              setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
-              setOpponentName(data.opponentName || ""); // Only relevant for 1v1
-              setBombMode(false); // Reset backend's bombMode state
-              setIsBombHighlightActive(false); // Ensure bomb highlighting is off
-              setHighlightedBombArea([]); // Clear highlights
-              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null, 3: null, 4: null }); // Extend for 2v2
-              setGameMessages(data.gameChat || []); // Load initial game messages
-              setObserversInGame(data.observers || []); // NEW: Load initial observers
-              setServerMessages([]); // NEW: Clear server messages on game start
-              setGameType(data.gameType); // Store game type
+              setOpponentName(data.opponentName || "");
+              setBombMode(false);
+              setIsBombHighlightActive(false);
+              setHighlightedBombArea([]);
+              setLastClickedTile(data.lastClickedTile || { 1: null, 2: null, 3: null, 4: null });
+              setGameMessages(data.gameChat || []);
+              setObserversInGame(data.observers || []);
+              setServerMessages([]);
+              setGameType(data.gameType);
 
-              // Set player names for score display based on their player numbers
               setGamePlayerNames({
                 1: data.player1Name || "Player 1",
                 2: data.player2Name || "Player 2",
-                3: data.player3Name || "Player 3", // For 2v2
-                4: data.player4Name || "Player 4", // For 2v2
+                3: data.player3Name || "Player 3",
+                4: data.player4Name || "Player 4",
               });
 
-              setMessage(""); // Clear global message
-              addGameMessage("Server", `Game (${data.gameType}) started!`, false); // Add to server chat
-              console.log(`Frontend: Game (${data.gameType}) started! My player number:`, data.playerNumber);
-              setUnfinishedGames([]); // Clear unfinished games list once a game starts
-              setObservableGames([]); // Clear observable games list once a game starts
+              setMessage("");
+              addGameMessage("Server", `Game (${data.gameType}) started!`, false);
+              setUnfinishedGames([]);
+              setObservableGames([]);
             });
 
             socketRef.current.on("board-update", (game) => {
               setBoard(JSON.parse(game.board));
               setTurn(game.turn);
-              setScores(game.scores); // Team scores
-              setBombsUsed(game.bombsUsed); // Team bombs
+              setScores(game.scores);
+              setBombsUsed(game.bombsUsed);
               setGameOver(game.gameOver);
-              setBombMode(false); // Reset backend's bombMode state
-              setIsBombHighlightActive(false); // Exit bomb highlighting mode
-              setHighlightedBombArea([]); // Clear highlights
-              setLastClickedTile(game.lastClickedTile || { 1: null, 2: null, 3: null, 4: null }); // Extend for 2v2
-              setObserversInGame(game.observers || []); // NEW: Update observers list on board update
-              setMessage(""); // Clear global message
+              setBombMode(false);
+              setIsBombHighlightActive(false);
+              setHighlightedBombArea([]);
+              setLastClickedTile(game.lastClickedTile || { 1: null, 2: null, 3: null, 4: null });
+              setObserversInGame(game.observers || []);
+              setMessage("");
             });
 
             socketRef.current.on("wait-bomb-center", () => {
-              setBombMode(true); // Backend signals to wait for center
-              addGameMessage("Server", "Select 5x5 bomb center.", false); // Add to server chat
-              setIsBombHighlightActive(true); // Activate bomb highlighting for mouse movement
+              setBombMode(true);
+              addGameMessage("Server", "Select 5x5 bomb center.", false);
+              setIsBombHighlightActive(true);
             });
 
             socketRef.current.on("opponent-left", () => {
-              addGameMessage("Server", "Opponent left the game.", true); // Add to server chat
-              console.log("Opponent left. Player remains in game state.");
-              setBombMode(false); // Reset backend's bombMode state
-              setIsBombHighlightActive(false); // Clear bomb highlight on opponent left
+              addGameMessage("Server", "Opponent left the game.", true);
+              setBombMode(false);
+              setIsBombHighlightActive(false);
               setHighlightedBombArea([]);
             });
 
             socketRef.current.on("bomb-error", (msg) => {
-              addGameMessage("Server", msg, true); // Add to server chat
-              setBombMode(false); // Reset backend's bombMode state
-              setIsBombHighlightActive(false); // Clear bomb highlight on error
+              addGameMessage("Server", msg, true);
+              setBombMode(false);
+              setIsBombHighlightActive(false);
               setHighlightedBombArea([]);
             });
 
             socketRef.current.on("receive-unfinished-games", (games) => {
               const deserializedGames = games.map(game => ({
                   ...game,
-                  board: JSON.parse(game.board) // Deserialize board for client-side use/preview
+                  board: JSON.parse(game.board)
               }));
               setUnfinishedGames(deserializedGames);
-              console.log("Received unfinished games:", deserializedGames);
             });
 
-            // NEW: Listener for observable games list
             socketRef.current.on("receive-observable-games", (games) => {
                 setObservableGames(games);
-                console.log("Received observable games:", games);
             });
 
             socketRef.current.on("opponent-reconnected", ({ name }) => {
-                addGameMessage("Server", `${name} has reconnected!`, false); // Add to server chat
+                addGameMessage("Server", `${name} has reconnected!`, false);
             });
 
-            // NEW: Player reconnected notification (for observers)
             socketRef.current.on("player-reconnected", ({ name, userId, role }) => {
-              addGameMessage("Server", `${name} (${role}) reconnected to this game!`, false); // Add to server chat
-              // If a player reconnects, ensure they are NOT in the observersInGame list
+              addGameMessage("Server", `${name} (${role}) reconnected to this game!`, false);
               setObserversInGame(prev => prev.filter(o => o.userId !== userId));
             });
 
-            // NEW: Player left notification (for observers)
             socketRef.current.on("player-left", ({ name, userId, role }) => {
-              addGameMessage("Server", `${name} (${role}) left the game!`, true); // Add to server chat
-              // Remove player from observersInGame list (if they were somehow there, or if this is relevant for displaying current players)
+              addGameMessage("Server", `${name} (${role}) left the game!`, true);
               setObserversInGame(prev => prev.filter(o => o.userId !== userId)); 
             });
 
-            // NEW: Observer joined notification
             socketRef.current.on("observer-joined", ({ name, userId }) => {
-                addGameMessage("Server", `${name} is now observing!`, false); // Add to server chat
+                addGameMessage("Server", `${name} is now observing!`, false);
                 setObserversInGame(prev => {
                     const updated = prev.map(o => o.userId === userId ? { ...o, socketId: socketRef.current.id } : o);
                     return updated.some(o => o.userId === userId) ? updated : [...updated, { userId, name, socketId: socketRef.current.id }];
                 });
             });
 
-            // NEW: Observer left notification
             socketRef.current.on("observer-left", ({ name, userId }) => {
-                addGameMessage("Server", `${name} stopped observing.`, true); // Add to server chat
+                addGameMessage("Server", `${name} stopped observing.`, true);
                 setObserversInGame(prev => prev.filter(obs => obs.userId !== userId));
             });
 
-
-            socketRef.current.on("game-over", ({ winnerPlayerNumber, winByScore, winningTeamName, team1Score, team2Score }) => {
+            socketRef.current.on("game-over", ({ winnerPlayerNumber, winByScore, winningTeamName }) => {
                 setGameOver(true);
                 if (winningTeamName) {
                     addGameMessage("Server", `Game Over! Team ${winningTeamName} wins with score ${winByScore}!`, false);
@@ -469,32 +459,30 @@ function App() {
             socketRef.current.on("game-restarted", (data) => {
               addGameMessage("Server", "Game restarted due to first click on blank tile!", false);
               setGameId(data.gameId);
-              setPlayerNumber(data.playerNumber); // Will be 0 for observers
+              setPlayerNumber(data.playerNumber);
               setBoard(JSON.parse(data.board));
               setTurn(data.turn);
               setScores(data.scores);
               setBombsUsed(data.bombsUsed);
               setGameOver(data.gameOver);
-              setOpponentName(data.opponentName || ""); // N/A for observers
-              setBombMode(false); // Reset backend's bombMode state
-              setIsBombHighlightActive(false); // Clear bomb highlight on restart
-              setHighlightedBombArea([]); // Clear highlights
+              setOpponentName(data.opponentName || "");
+              setBombMode(false);
+              setIsBombHighlightActive(false);
+              setHighlightedBombArea([]);
               setLastClickedTile(data.lastClickedTile || { 1: null, 2: null, 3: null, 4: null });
-              setGameMessages(data.gameChat || []); // Load cleared game chat messages
-              setObserversInGame(data.observers || []); // NEW: Update observers list on restart
-              setServerMessages([]); // NEW: Clear server messages on restart
+              setGameMessages(data.gameChat || []);
+              setObserversInGame(data.observers || []);
+              setServerMessages([]);
               setGameType(data.gameType);
 
-              // Set player names for score display based on their player numbers
               setGamePlayerNames({
                 1: data.player1Name || "Player 1",
                 2: data.player2Name || "Player 2",
-                3: data.player3Name || "Player 3", // For 2v2
-                4: data.player4Name || "Player 4", // For 2v2
+                3: data.player3Name || "Player 3",
+                4: data.player4Name || "Player 4",
               });
             });
 
-            // Chat specific listeners
             socketRef.current.on("initial-lobby-messages", (messages) => {
               setLobbyMessages(messages);
             });
@@ -504,26 +492,21 @@ function App() {
             });
 
             socketRef.current.on("receive-game-message", (message) => {
-              // This is for game chat between players, not server messages
               setGameMessages((prevMessages) => [...prevMessages, message]);
             });
 
           } else {
-            console.log("Frontend: Socket.IO already initialized. Re-emitting join-lobby.");
-            // If already initialized, just re-emit join-lobby to ensure backend registers current socket
-            if (loggedIn && name) { // Only re-emit if already logged in and name is set
+            if (loggedIn && name) { 
                 socketRef.current.emit("join-lobby", name);
-                socketRef.current.emit("request-unfinished-games"); // Re-request on re-lobby join
-                socketRef.current.emit("request-observable-games"); // Re-request on re-lobby join
+                socketRef.current.emit("request-unfinished-games"); 
+                socketRef.current.emit("request-observable-games"); 
             }
           }
 
         } else {
           setLoggedIn(false);
           setName("");
-          setIsGuest(false); // Ensure guest status is reset on failed auth check
-          console.log("Frontend: Auth check failed (response not ok).");
-          // If auth fails, ensure no socket is connected from a previous attempt
+          setIsGuest(false); 
           if (socketRef.current) {
             socketRef.current.disconnect();
             socketRef.current = null;
@@ -534,9 +517,7 @@ function App() {
         console.error("Frontend: Error during auth check or socket setup:", err);
         setLoggedIn(false);
         setName("");
-        setIsGuest(false); // Reset guest status on error
-        showMessage(`An error occurred: ${err.message}. Please refresh.`, true); // Global message for fatal error
-        addGameMessage("Server", `Fatal error: ${err.message}. Please refresh.`, true); // Also add to server chat
+        setIsGuest(false);
         if (socketRef.current) {
           socketRef.current.disconnect();
           socketRef.current = null;
@@ -547,91 +528,54 @@ function App() {
 
     checkAuthStatusAndConnectSocket();
 
-    // NEW: Listener for messages from the OAuth pop-up window
     const handleAuthMessage = (event) => {
-      // Ensure the message is from a trusted origin (your backend's domain)
-      if (event.origin !== "https://minesweeper-flags-backend.onrender.com") { // Adjust this to your backend's URL
-        console.warn("Received message from untrusted origin:", event.origin);
-        return;
-      }
+      if (event.origin !== "https://minesweeper-flags-backend.onrender.com") return;
 
       if (event.data && event.data.type === 'AUTH_SUCCESS') {
         const { user } = event.data;
-        console.log("App.jsx: Received AUTH_SUCCESS from pop-up:", user);
+        localStorage.setItem('auth_success_user', JSON.stringify({ user })); // Save for Safari
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
         setLoggedIn(true);
-        setIsGuest(user.id.startsWith('guest_')); // Set guest status based on received user ID
+        setIsGuest(user.id.startsWith('guest_'));
         showMessage("Login successful!");
-        window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
       } else if (event.data && event.data.type === 'AUTH_FAILURE') {
-        console.error("App.jsx: Received AUTH_FAILURE from pop-up:", event.data.message);
         showMessage(`Login failed: ${event.data.message}`, true);
         setLoggedIn(false);
         setName("");
-        setIsGuest(false); // Reset guest status on failure
-        window.history.replaceState({}, document.title, window.location.pathname); // Clean up URL
+        setIsGuest(false);
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
 
-    // NEW FALLBACK FOR IPHONE/SAFARI: Listen to localStorage changes when window.opener is broken
     const handleStorageChange = (event) => {
       if (event.key === 'auth_success_user' && event.newValue) {
         try {
           const { user } = JSON.parse(event.newValue);
-          console.log("App.jsx: Received user data via localStorage fallback:", user);
           setName(user.displayName || `User_${user.id.substring(0, 8)}`);
           setLoggedIn(true);
           setIsGuest(user.id.startsWith('guest_'));
           showMessage("Login successful!");
-          localStorage.removeItem('auth_success_user'); // Clean up token from storage immediately
         } catch (e) {
-          console.error("Error parsing auth data from storage fallback", e);
+          console.error("Error parsing fallback configuration", e);
         }
       }
     };
 
     window.addEventListener('message', handleAuthMessage);
-    window.addEventListener('storage', handleStorageChange); // Fallback listener for iOS
+    window.addEventListener('storage', handleStorageChange);
 
 
-    // Cleanup function for useEffect: disconnect socket and remove listeners
     return () => {
-      console.log("App useEffect: Cleanup running.");
       if (socketRef.current) {
-        console.log("App useEffect: Disconnecting socket and removing listeners.");
-        socketRef.current.off('connect');
-        socketRef.current.off('disconnect');
-        socketRef.current.off('connect_error');
-        socketRef.current.off('authenticated-socket-ready');
-        socketRef.current.off("join-error");
-        socketRef.current.off("lobby-joined");
-        socketRef.current.off("players-list");
-        socketRef.current.off("game-invite");
-        socketRef.current.off("invite-rejected");
-        socketRef.current.off("game-start");
-        socketRef.current.off("board-update");
-        socketRef.current.off("wait-bomb-center");
-        socketRef.current.off("opponent-left");
-        socketRef.current.off("bomb-error");
-        socketRef.current.off("receive-unfinished-games");
-        socketRef.current.off("receive-observable-games"); // NEW: Cleanup for observable games
-        socketRef.current.off("opponent-reconnected");
-        socketRef.current.off("player-reconnected"); // NEW: Cleanup for player reconnected
-        socketRef.current.off("player-left"); // NEW: Cleanup for player left
-        socketRef.current.off("observer-joined"); // NEW: Cleanup for observer joined
-        socketRef.current.off("observer-left"); // NEW: Cleanup for observer left
-        socketRef.current.off("game-restarted");
-        socketRef.current.off("initial-lobby-messages"); // New cleanup for chat
-        socketRef.current.off("receive-lobby-message");    // New cleanup for chat
-        socketRef.current.off("receive-game-message");     // New cleanup for chat
-
-        socketRef.current.disconnect(); // Disconnect the socket
-        socketRef.current = null; // Clear the ref
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
-      window.removeEventListener('message', handleAuthMessage); // Clean up message listener
-      window.removeEventListener('storage', handleStorageChange); // Clean up storage listener
+      window.removeEventListener('message', handleAuthMessage);
+      window.removeEventListener('storage', handleStorageChange);
     };
-  }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
+  }, [loggedIn, name, addGameMessage, gameId]);
 
 // NEW: Effect to synthesize matching sounds for flag captures vs normal tile clicks
   useEffect(() => {
@@ -744,40 +688,31 @@ function App() {
   }, [board]);
 
 // NEW & FIXED: Function to handle Guest Login with Safari ITP localStorage Fallback
-  const loginAsGuest = async () => {
+const loginAsGuest = async () => {
     let guestId;
     let displayName;
     try {
         const deviceUuid = getDeviceUuid();
         guestId = await generate5DigitGuestId(deviceUuid);
-        // Prepend 'guest_' to distinguish from other user IDs on the backend
         guestId = `guest_${guestId}`;
-        displayName = `Guest_${guestId.substring(6)}`; // Use the 5-digit part for display name
-        
+        displayName = `Guest_${guestId.substring(6)}`;
     } catch (error) {
-      console.error("Error generating guest ID based on device UUID:", error);
-      // Fallback: If ID generation fails, use a simple timestamp-based ID
-      guestId = `guest_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+      guestId = `guest_fallback_${Date.now()}`;
       displayName = `Guest_Fallback`;
-      showMessage(`Could not generate consistent guest ID. Using fallback ID: ${guestId}`, true);
     }
 
     try {
-      // Call your backend guest login endpoint
       const response = await fetch("https://minesweeper-flags-backend.onrender.com/auth/guest", {
-        method: "POST", // Use POST for login actions
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ guestId, name: displayName }), // Send generated name to backend
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guestId, name: displayName }),
         credentials: "include",
       });
 
       if (response.ok) {
         const data = await response.json();
         
-        // SAFARI iOS FIX: Force save user payload to localStorage so subsequent blockages
-        // do not cause an infinite logout loop when Safari blocks cross-site cookies.
+        // CRITICAL SAFARI FIX: Write the session information down into localStorage
         if (data.user) {
           localStorage.setItem('auth_success_user', JSON.stringify({ user: data.user }));
         }
@@ -786,17 +721,11 @@ function App() {
         setLoggedIn(true);
         setIsGuest(true);
         showMessage("Logged in as guest!");
-        
-        // The useEffect for socket connection will handle joining the lobby natively
       } else {
-        const errorData = await response.json();
-        showMessage(`Guest login failed: ${errorData.message || response.statusText}`, true);
         setLoggedIn(false);
         setIsGuest(false);
       }
     } catch (error) {
-      console.error("Guest login fetch error:", error);
-      showMessage(`Guest login failed: ${error.message}`, true);
       setLoggedIn(false);
       setIsGuest(false);
     }
@@ -1028,7 +957,7 @@ function App() {
     }
 };
 
-  const logout = async () => {
+const logout = async () => {
     try {
       await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
         method: "GET",
@@ -1038,44 +967,20 @@ function App() {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
-        setIsSocketConnected(false); // Set socket connected status to false
+        setIsSocketConnected(false);
       }
+
+      // CRITICAL LOGOUT FIX: Wipe local credentials
+      localStorage.removeItem('auth_success_user');
 
       setLoggedIn(false);
       setName("");
-      setIsGuest(false); // Reset guest status on logout
-      localStorage.removeItem('guestDeviceId'); // Clear persistent guest ID (was 'guestId')
+      setIsGuest(false);
       setGameId(null);
-      setPlayerNumber(null); // Reset player number
       setBoard([]);
-      setTurn(null);
-      setScores({ 1: 0, 2: 0 });
-      setBombsUsed({ 1: false, 2: false });
-      setBombMode(false); // Reset backend's bombMode state
-      setIsBombHighlightActive(false); // Clear bomb highlight on logout
-      setHighlightedBombArea([]); // Clear highlights
       setGameOver(false);
-      setOpponentName("");
-      setInvite(null);
-      setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); // Reset for 2v2
-      setLobbyMessages([]); // Clear chat history on logout
-      setGameMessages([]);
-      setServerMessages([]); // NEW: Clear server messages on logout
-      setUnfinishedGames([]);
-      setObservableGames([]); // Clear observable games
-      setObserversInGame([]); // Clear observers list in game
-      setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); // Clear player names for score display
-      setGameType('1v1'); // Reset game type
-
-      // Clear 2v2 invitation related states
-      setSelectedPartner(null);
-      setSelectedRivals([]);
-      setIs2v2Mode(false);
-      setInvitationStage(0);
-
     } catch (err) {
       console.error("Logout failed", err);
-      showMessage("Logout failed. Please try again.", true); // Global message
     }
   };
 
