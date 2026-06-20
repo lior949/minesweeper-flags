@@ -1496,14 +1496,18 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
   });
 
 
-  // Respond to Invite Event
+// Respond to Invite Event
   socket.on("respond-invite", async ({ inviteId, gameIdFromClient, accept }) => { // Added inviteId and gameIdFromClient for clarity
-    const respondingUser = socket.request.session?.passport?.user || null;
-    const respondingUserId = respondingUser ? respondingUser.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const respondingUser = socket.request.session?.passport?.user || socket.request.user || null;
+    
+    // FIXED: Extract the identity keys reliably across all session frameworks
+    const respondingUserId = respondingUser ? (respondingUser.id || socket.request.user?.id) : null;
     const respondingPlayer = players.find((p) => p.userId === respondingUserId);
 
     if (!respondingPlayer) {
-        console.warn("Respond invite failed: Responding player not found.");
+        console.warn(`Respond invite failed: Responding player not found. socketId: ${socket.id}`);
+        socket.emit("join-error", "Response failed: Your player profile could not be found.");
         return;
     }
 
@@ -1533,7 +1537,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     if (!inviterPlayer) {
         socket.emit("game-error", "Inviter not found. They might have disconnected.");
         console.warn(`Respond invite failed: Inviter not found for inviteId ${inviteId}.`);
-        // No need to delete from pendingInvites here, already done above.
         return;
     }
 
