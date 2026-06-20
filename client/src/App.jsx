@@ -78,6 +78,9 @@ function App() {
   const socketRef = useRef(null); // Use useRef to hold the mutable socket object
   const [isSocketConnected, setIsSocketConnected] = useState(false); // New state to track actual socket.io connection status
 
+  // NEW: Add a ref to track the previous scores for audio triggers
+  const prevScoresRef = useRef({ 1: 0, 2: 0 });
+
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
@@ -629,6 +632,39 @@ function App() {
       window.removeEventListener('storage', handleStorageChange); // Clean up storage listener
     };
   }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
+
+  // NEW: Effect to speak a voice line when you hit a flag
+  useEffect(() => {
+    // Ensure game is active, scores exist, and your player position is set
+    if (!gameId || !scores || playerNumber === null || playerNumber === 0) {
+      return;
+    }
+
+    // Determine your team/player score identifier
+    let myScoreKey = playerNumber;
+    if (gameType === '2v2') {
+      myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+    }
+
+    const currentScore = scores[myScoreKey] || 0;
+    const previousScore = prevScoresRef.current[myScoreKey] || 0;
+
+    // If your score increased, a flag was successfully captured!
+    if (currentScore > previousScore) {
+      // Create a text-to-speech phrase
+      const utterance = new SpeechSynthesisUtterance("Flag captured!");
+      
+      // Optional customization options:
+      utterance.rate = 1.1; // Slightly faster pacing
+      utterance.pitch = 1.0; // Standard vocal pitch
+      
+      // Speak the line
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Always update the ref with the latest scores for the next comparison
+    prevScoresRef.current = { ...scores };
+  }, [scores, gameId, playerNumber, gameType]);
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
