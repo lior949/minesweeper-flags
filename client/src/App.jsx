@@ -80,7 +80,7 @@ function App() {
 
   // NEW: Add a ref to track the previous scores for audio triggers
   const prevScoresRef = useRef({ 1: 0, 2: 0 });
-
+  const prevRevealedCountRef = useRef(0);
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
@@ -633,14 +633,21 @@ function App() {
     };
   }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
 
-  // NEW: Effect to synthesize a game sound when you capture a flag
+// NEW: Effect to synthesize matching sounds for flag captures vs normal tile clicks
   useEffect(() => {
-    // Ensure game is active, scores exist, and your player position is set
-    if (!gameId || !scores || playerNumber === null || playerNumber === 0) {
+    if (!gameId || !board || board.length === 0 || !scores || playerNumber === null || playerNumber === 0) {
       return;
     }
 
-    // Determine your team/player score identifier
+    // 1. Calculate the total number of revealed tiles on the current board
+    let currentRevealedCount = 0;
+    board.forEach(row => {
+      row.forEach(tile => {
+        if (tile.revealed) currentRevealedCount++;
+      });
+    });
+
+    // 2. Determine your team/player score tracking key
     let myScoreKey = playerNumber;
     if (gameType === '2v2') {
       myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
@@ -648,45 +655,67 @@ function App() {
 
     const currentScore = scores[myScoreKey] || 0;
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
+    const previousRevealedCount = prevRevealedCountRef.current;
 
-    // If your score increased, a flag was captured! Synthesize a sound:
+    // 3. Audio logic conditions
     if (currentScore > previousScore) {
+      // SCENARIO A: Your score went up -> Play the Flag Capture Chime
       try {
-        // 1. Create the audio context
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
           const ctx = new AudioContext();
-          
-          // 2. Setup an Oscillator (the sound generator) and a Gain Node (volume controller)
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           
-          osc.type = "triangle"; // Soft, retro game-like tone
-          
-          // 3. Define a nice rising melody chime (Note 1 -> Note 2)
+          osc.type = "triangle"; // Soft, retro game tone
           const startTime = ctx.currentTime;
           osc.frequency.setValueAtTime(523.25, startTime); // C5 note
-          osc.frequency.setValueAtTime(783.99, startTime + 0.08); // Jumps to G5 note
+          osc.frequency.setValueAtTime(783.99, startTime + 0.08); // Jumps up to G5
           
-          // 4. Smoothly fade out the volume so there is no harsh click at the end
-          gain.gain.setValueAtTime(0.15, startTime); // Initial volume
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3); // Fade out over 0.3s
+          gain.gain.setValueAtTime(0.15, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
           
-          // 5. Connect and play
           osc.connect(gain);
           gain.connect(ctx.destination);
-          
           osc.start(startTime);
-          osc.stop(startTime + 0.3); // Automatically stop and clean up memory
+          osc.stop(startTime + 0.3);
         }
-      } catch (audioError) {
-        console.error("Web Audio playback failed:", audioError);
+      } catch (e) {
+        console.error("Audio playback failed:", e);
+      }
+    } else if (currentRevealedCount > previousRevealedCount) {
+      // SCENARIO B: Tiles were revealed but your score didn't change -> Normal Tile Click
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          const ctx = new AudioContext();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = "sine"; // Pure, organic water-drop click tone
+          const startTime = ctx.currentTime;
+          
+          // Fast pitch slide downward creates a perfect synthetic percussion tick/pop
+          osc.frequency.setValueAtTime(600, startTime);
+          osc.frequency.exponentialRampToValueAtTime(150, startTime + 0.04);
+          
+          gain.gain.setValueAtTime(0.1, startTime); // Quiet volume profile
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); // Rapid snap decay
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + 0.05);
+        }
+      } catch (e) {
+        console.error("Audio playback failed:", e);
       }
     }
 
-    // Update the ref with the latest scores for the next comparison
+    // 4. Update memory layers for next layout delta match
     prevScoresRef.current = { ...scores };
-  }, [scores, gameId, playerNumber, gameType]);
+    prevRevealedCountRef.current = currentRevealedCount;
+  }, [board, scores, gameId, playerNumber, gameType]);
 
   // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
