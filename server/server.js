@@ -861,10 +861,14 @@ io.on("connection", (socket) => {
   });
 
 
+// Lobby Unfinished Games Request Event
   socket.on("request-unfinished-games", async () => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    const userName = user ? user.displayName : 'Unknown Player';
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    
+    // FIXED: Extract userId and userName dynamically from the available session layout
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    const userName = user ? (user.displayName || user.name || 'Unknown Player') : 'Unknown Player';
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to fetch games.");
@@ -886,7 +890,6 @@ io.on("connection", (socket) => {
             const isPlayer2 = gameData.player2_userId === userId;
             const isPlayer3 = gameData.gameType === '2v2' && gameData.player3_userId === userId;
             const isPlayer4 = gameData.gameType === '2v2' && gameData.player4_userId === userId;
-
 
             if (isPlayer1 || isPlayer2 || isPlayer3 || isPlayer4) {
                 // Determine playerNumber for client-side logic
@@ -930,8 +933,11 @@ io.on("connection", (socket) => {
 
   // NEW: Request for observable games in the lobby
   socket.on("request-observable-games", async () => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    
+    // FIXED: Extract userId dynamically from available authentication layers
+    const userId = user ? (user.id || socket.request.user?.id) : null;
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to fetch observable games.");
@@ -965,9 +971,6 @@ io.on("connection", (socket) => {
                     const anyObserverActive = gameInMem.observers.some(o => o.socketId);
 
                     hasActiveParticipants = playersActive || anyObserverActive;
-                } else {
-                    // If game not in memory, consider it observable if its status suggests activity
-                    // For simplicity, only show if in-memory `games` object exists and has active participants.
                 }
 
                 if (hasActiveParticipants) {
