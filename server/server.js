@@ -810,11 +810,14 @@ io.on("connection", (socket) => {
       // No `authenticated-socket-ready` emitted for unauthenticated sockets
   }
 
-  // Lobby Join Event
+// Lobby Join Event
   socket.on("join-lobby", (name) => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    const userName = user ? user.displayName : name; // Use displayName from Passport if available, else provided name
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    
+    // FIXED: Handle cases where passport user is either an object or just the user directly
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    const userName = user ? (user.displayName || user.name || name) : name; 
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to join lobby.");
