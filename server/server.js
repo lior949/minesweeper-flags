@@ -1920,7 +1920,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
   });
 
 
-  // Tile Click Event (main game action)
+// Tile Click Event (main game action)
   socket.on("tile-click", async ({ gameId, x, y }) => {
     const game = games[gameId];
     if (!game || game.gameOver) {
@@ -1928,10 +1928,13 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    
     if (!userId) {
         console.warn(`Tile click: Unauthenticated user ${socket.id}.`);
+        socket.emit("game-error", "Authentication required to make moves.");
         return;
     }
 
@@ -2080,7 +2083,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board);
-        // NEW: Conditionally set status to 'completed' if gameOver is true, otherwise 'active'
         const newStatus = game.gameOver ? 'completed' : 'active';
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
@@ -2160,22 +2162,29 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     }
   });
 
-  // Use Bomb Event
+// Use Bomb Event
   socket.on("use-bomb", ({ gameId }) => {
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    
     const player = game.players.find((p) => p.userId === userId);
+    if (!player) {
+        socket.emit("game-error", "Authentication required to use a bomb.");
+        return;
+    }
+
     // Determine player's team
     const playerTeam = player.team;
 
     // Turn check applies differently for 1v1 vs 2v2
     const isPlayersTurn = (game.gameType === '1v1' && player.number === game.turn) || (game.gameType === '2v2' && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === playerTeam));
 
-    if (!player || !isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
-        if (player && !isPlayersTurn) {
+    if (!isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
+        if (!isPlayersTurn) {
             console.warn(`Player ${player.name} tried to use bomb out of turn. Current turn: ${game.turn}`);
             io.to(socket.id).emit("bomb-error", "It's not your turn or your team's turn to use the bomb.");
         } else if (game.bombsUsed[playerTeam]) {
@@ -2191,7 +2200,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
-
     player.socketId = socket.id; // Update socket ID on action
 
     io.to(player.socketId).emit("wait-bomb-center");
@@ -2203,17 +2211,24 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    
     const player = game.players.find((p) => p.userId === userId);
+    if (!player) {
+        socket.emit("game-error", "Authentication required to place the bomb.");
+        return;
+    }
+
     // Determine player's team
     const playerTeam = player.team;
 
     // Turn check applies differently for 1v1 vs 2v2
     const isPlayersTurn = (game.gameType === '1v1' && player.number === game.turn) || (game.gameType === '2v2' && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === playerTeam));
 
-    if (!player || !isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
-        if (player && !isPlayersTurn) {
+    if (!isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
+        if (!isPlayersTurn) {
             console.warn(`Player ${player.name} tried to place bomb out of turn. Current turn: ${game.turn}`);
             io.to(socket.id).emit("bomb-error", "It's not your turn or your team's turn to place the bomb.");
         } else if (game.bombsUsed[playerTeam]) {
@@ -2261,7 +2276,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // Update last clicked tile for the current player using bomb center
     game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
 
-
     game.bombsUsed[playerTeam] = true; // Mark bomb as used for the TEAM
     revealArea(game.board, x, y, player.number, playerTeam, game.scores); // Pass playerTeam to revealArea
 
@@ -2306,7 +2320,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        // NEW: Conditionally set status to 'completed' if gameOver is true, otherwise 'active'
         const newStatus = game.gameOver ? 'completed' : 'active';
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
             board: serializedBoard,
@@ -2323,9 +2336,8 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         }, { merge: true });
         console.log(`Game ${gameId} updated in Firestore (bomb-center). Status: ${newStatus}`);
     } catch (error) {
-        console.error("Error updating game in Firestore (bomb-center):", error); // Log the full error object
+        console.error("Error updating game in Firestore (bomb-center):", error);
     }
-
 
     // Emit board-update to all players AND observers in the game room
     io.to(gameId).emit("board-update", {
