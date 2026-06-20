@@ -178,29 +178,40 @@ try {
     },
   });
 
-  // === IMPORTANT: Integrate session and passport middleware with Socket.IO ===
-  // Moved inside try block to ensure sessionMiddleware is defined
-  io.use((socket, next) => {
-      // Mock a 'res' object for session and passport middleware compatibility
-      const dummyRes = {
-          writeHead: () => {}, // Add no-op writeHead
-          end: () => {} // Add no-op end
-      };
-      socket.request.res = dummyRes;
+// --- Locate and update this authentication middleware in server.js ---
+io.use((socket, next) => {
+  // 1. Check if the session cookie worked (Standard Chrome/Firefox browsers)
+  const session = socket.request.session;
+  if (session && session.passport && session.passport.user) {
+    return next();
+  }
 
-      // Apply session middleware
-      sessionMiddleware(socket.request, socket.request.res, () => {
-          // Apply passport.initialize
-          passport.initialize()(socket.request, socket.request.res, () => {
-              // Apply passport.session
-              passport.session()(socket.request, socket.request.res, () => {
-                  next();
-              });
-          });
-      });
-  });
-  // === END Socket.IO Session Integration ===
+  // 2. SAFARI ITP FALLBACK: Read the fallback data sent via the frontend query handshake
+  const { fallbackUserId, fallbackName } = socket.handshake.query;
+  
+  if (fallbackUserId && fallbackName) {
+    console.log(`[Socket Auth Fallback] Authenticating Safari client via query parameters: ${fallbackName} (${fallbackUserId})`);
+    
+    // Inject the user object manually into the request structure
+    // so the rest of your existing socket handlers continue working seamlessly
+    socket.request.user = {
+      id: fallbackUserId,
+      displayName: fallbackName,
+      name: fallbackName
+    };
+    
+    // Reconstruct the expected passport session footprint in-memory for this connection
+    if (!socket.request.session) socket.request.session = {};
+    if (!socket.request.session.passport) socket.request.session.passport = {};
+    socket.request.session.passport.user = fallbackUserId; // Store string directly or object depending on your setup
+    
+    return next();
+  }
 
+  // 3. Reject connection if no session cookie or fallback metadata is provided
+  console.log("[Socket Auth Error] Denying connection: No session cookie or fallback query parameters found.");
+  return next(new Error("Authentication required"));
+});
 
 } catch (error) {
   console.error("Failed to initialize Firebase Admin SDK or FirestoreStore.", error);
