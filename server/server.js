@@ -1378,12 +1378,16 @@ socket.on("resume-game", async ({ gameId }) => {
 
 
 socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
-    const inviterUser = socket.request.session?.passport?.user || null;
-    const inviterUserId = inviterUser ? inviterUser.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const inviterUser = socket.request.session?.passport?.user || socket.request.user || null;
+    
+    // FIXED: Extract the active userId reliably across all session structures
+    const inviterUserId = inviterUser ? (inviterUser.id || socket.request.user?.id) : null;
     const inviterPlayer = players.find((p) => p.userId === inviterUserId);
 
     if (!inviterPlayer) {
         console.warn(`Invite failed: Inviter not found. userId: ${inviterUserId}`);
+        socket.emit("join-error", "Invite failed: Inviter profile could not be found.");
         return;
     }
 
@@ -1474,7 +1478,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         console.log(`[2v2 Invite] Inviter ${inviterPlayer.name} (${inviterUserId}) implicitly accepted for invite ${inviteId}.`);
     }
 
-
     // Now emit the invite to each recipient's current socket
     for (const invitedP of invitedPlayersData) {
         if (invitedP.id === inviterPlayer.id) continue; // Skip self
@@ -1486,12 +1489,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             console.log(`Invite sent from ${inviterPlayer.name} to ${invitedP.name} for ${gameType} game (Invite ID: ${inviteId}).`);
         } else {
             console.warn(`Attempted to send invite to offline socket for user ${invitedP.name} (${invitedP.userId}). Invite will remain pending.`);
-            // No need to delete from pendingInvites yet, as user might reconnect and see it
         }
     }
     // Also notify the inviter that invites have been sent (or are pending)
     io.to(inviterPlayer.id).emit("server-message", { text: `Invites sent for a ${gameType} game. Waiting for responses.`, isError: false });
-});
+  });
 
 
   // Respond to Invite Event
