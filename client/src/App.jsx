@@ -633,7 +633,7 @@ function App() {
     };
   }, [loggedIn, name, addGameMessage, gameId]); // Dependencies for socket listeners. Re-run if loggedIn or name changes. Add addGameMessage
 
-  // NEW: Effect to speak a voice line when you hit a flag
+  // NEW: Effect to synthesize a game sound when you capture a flag
   useEffect(() => {
     // Ensure game is active, scores exist, and your player position is set
     if (!gameId || !scores || playerNumber === null || playerNumber === 0) {
@@ -649,20 +649,42 @@ function App() {
     const currentScore = scores[myScoreKey] || 0;
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
 
-    // If your score increased, a flag was successfully captured!
+    // If your score increased, a flag was captured! Synthesize a sound:
     if (currentScore > previousScore) {
-      // Create a text-to-speech phrase
-      const utterance = new SpeechSynthesisUtterance("Flag captured!");
-      
-      // Optional customization options:
-      utterance.rate = 1.1; // Slightly faster pacing
-      utterance.pitch = 1.0; // Standard vocal pitch
-      
-      // Speak the line
-      window.speechSynthesis.speak(utterance);
+      try {
+        // 1. Create the audio context
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          const ctx = new AudioContext();
+          
+          // 2. Setup an Oscillator (the sound generator) and a Gain Node (volume controller)
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = "triangle"; // Soft, retro game-like tone
+          
+          // 3. Define a nice rising melody chime (Note 1 -> Note 2)
+          const startTime = ctx.currentTime;
+          osc.frequency.setValueAtTime(523.25, startTime); // C5 note
+          osc.frequency.setValueAtTime(783.99, startTime + 0.08); // Jumps to G5 note
+          
+          // 4. Smoothly fade out the volume so there is no harsh click at the end
+          gain.gain.setValueAtTime(0.15, startTime); // Initial volume
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3); // Fade out over 0.3s
+          
+          // 5. Connect and play
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          
+          osc.start(startTime);
+          osc.stop(startTime + 0.3); // Automatically stop and clean up memory
+        }
+      } catch (audioError) {
+        console.error("Web Audio playback failed:", audioError);
+      }
     }
 
-    // Always update the ref with the latest scores for the next comparison
+    // Update the ref with the latest scores for the next comparison
     prevScoresRef.current = { ...scores };
   }, [scores, gameId, playerNumber, gameType]);
 
