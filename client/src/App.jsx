@@ -235,6 +235,7 @@ function App() {
             // Create an authentication payload from localStorage if credentials aren't in state yet
             const savedUserStr = localStorage.getItem('auth_success_user');
             let fallbackUser = null;
+
             try {
               if (savedUserStr) {
                 fallbackHandshakeUser = JSON.parse(savedUserStr).user;
