@@ -159,17 +159,30 @@ html, body {
   overflow: hidden; /* Ensures rounded corners apply cleanly */
 }
 
+/* --- 1. Maximize Number Size & Visibility --- */
 .tile {
   width: 40px;
   height: 40px;
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 1.2em;
-  font-weight: bold;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  
+  /* CRITICAL CHANGES: Bumped size from 1.3em to 1.6em and forced ultra-bolder weight */
+  font-weight: 900 !important; 
+  font-size: 1.6em !important; 
+  
+  border-radius: 6px;
+  box-sizing: border-box;
   cursor: pointer;
-  border-radius: 4px; /* Slightly rounded corners for tiles */
-  box-sizing: border-box; /* Include padding and border in the element's total width and height */
+}
+
+/* --- 2. Maximize Flag Size --- */
+/* Bumped width/height from 24px to 32px so the flags fill up almost the entire 40px tile */
+.tile svg {
+  width: 32px !important;
+  height: 32px !important;
+  filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.25)); /* Sharper shadow definition */
 }
 
 .tile.hidden {
@@ -192,14 +205,15 @@ html, body {
   transition: none; /* No transition on reveal for instant change */
 }
 
-/* Colors for adjacent mine numbers */
-.number-1 { color: #0000FF; } /* Blue */
-.number-2 { color: #008000; } /* Green */
-.number-3 { color: #FF0000; } /* Red */
-.number-4 { color: #800080; } /* Purple */
-.number-5 { color: #CD853F; } /* Peru (light brown) */
-.number-6 { color: #008B8B; } /* Dark Cyan (cyan) */
-.number-7 { color: #000000; } /* Black */
+/* --- 3. Enhanced High-Contrast Color Palette for Numbers --- */
+/* Swapped out the old muted shades for deeper, highly-saturated neon/primary tones */
+.number-1 { color: #0042FF !important; } /* Electric Blue */
+.number-2 { color: #00A300 !important; } /* Vivid Kelly Green */
+.number-3 { color: #FF0000 !important; } /* Pure Crimson Red */
+.number-4 { color: #9C00FF !important; } /* Deep Neon Purple */
+.number-5 { color: #FF6600 !important; } /* Safety Orange */
+.number-6 { color: #00B3B3 !important; } /* Bright Turquoise Cyan */
+.number-7 { color: #111111 !important; } /* Pure Midnight Onyx */
 .number-8 { color: #8B4513; } /* SaddleBrown (dark brown) */
 
 
