@@ -157,7 +157,6 @@ try {
       secure: true,
       maxAge: 1000 * 60 * 60 * 24, // 24 hours (example)
       proxy: true, // IMPORTANT: Inform express-session that it's behind a proxy
-      // REMOVED `domain` property as it can cause issues with different subdomains on Render
     },
   });
 
@@ -192,7 +191,6 @@ io.use((socket, next) => {
   }
 
   // 2. GUEST COOKIE PASSING: Check if a standard custom guest session wrapper exists
-  // If your backend auth router assigns req.session.user directly for guests:
   if (session && session.user) {
     socket.request.user = session.user;
     return next();
@@ -383,7 +381,6 @@ app.get("/logout", (req, res, next) => {
           secure: true,
           sameSite: 'none',
           proxy: true, // Clear cookie with proxy setting
-          // REMOVED `domain` property
       }); // Clear the session cookie from the client
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
@@ -585,12 +582,12 @@ const emitLobbyPlayersList = () => {
 
 // === Socket.IO Connection and Game Events ===
 io.on("connection", (socket) => {
-  // 1. Try reading user from the cookie-based passport session
-  let user = socket.request.session?.passport?.user || null;
-  let userId = user ? user.id : null;
+  // 1. Try reading user from the cookie-based passport session or custom fallback injection
+  let user = socket.request.session?.passport?.user || socket.request.user || null;
+  let userId = user ? (user.id || socket.request.user?.id) : null;
   let userName = user ? (user.displayName || user.name) : null;
 
-  // 2. iOS Safari Fallback: Read user from websocket handshake auth block
+  // 2. iOS Safari Handshake Auth Block Check:
   if (!userId && socket.handshake.auth && socket.handshake.auth.user) {
     const authUser = socket.handshake.auth.user;
     userId = authUser.id || authUser.guestId || `guest_${Date.now()}`;
@@ -807,7 +804,6 @@ io.on("connection", (socket) => {
     }
   } else {
       console.log(`Unauthenticated socket ${socket.id} connected.`);
-      // No `authenticated-socket-ready` emitted for unauthenticated sockets
   }
 
 // Lobby Join Event
@@ -848,15 +844,16 @@ io.on("connection", (socket) => {
 
   // Handle Lobby Chat Messages
   socket.on("send-lobby-message", (message) => {
-    const user = socket.request.session?.passport?.user || null;
-    const userName = user ? user.displayName : 'Anonymous'; // Fallback for sender name
+    // FIXED: Safari Fallback context resolution
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userName = user ? (user.displayName || user.name) : 'Anonymous'; // Fallback for sender name
     const timestamp = new Date().toLocaleTimeString();
     const fullMessage = { sender: userName, text: message, timestamp: timestamp };
     lobbyMessages.push(fullMessage);
     if (lobbyMessages.length > MAX_LOBBY_MESSAGES) {
       lobbyMessages.shift(); // Remove oldest message if over limit
     }
-    io.to("lobby").emit("receive-lobby-message", fullMessage); // Emit to the "lobby" room
+    io.emit("receive-lobby-message", fullMessage); // Emit to all clients in the lobby
     console.log(`Lobby message from ${userName}: ${message}`);
   });
 
@@ -1006,9 +1003,10 @@ io.on("connection", (socket) => {
 
 
 socket.on("resume-game", async ({ gameId }) => {
-  const user = socket.request.session?.passport?.user || null;
-  const userId = user ? user.id : null;
-  const userName = user ? user.displayName : 'Unknown Player';
+  // FIXED: Fallback context mapping for Safari compatibility profiles
+  const user = socket.request.session?.passport?.user || socket.request.user || null;
+  const userId = user ? (user.id || socket.request.user?.id) : null;
+  const userName = user ? (user.displayName || user.name || 'Unknown Player') : 'Unknown Player';
 
   if (!userId) {
     socket.emit("join-error", "Authentication required to resume game.");
@@ -1136,11 +1134,11 @@ socket.on("resume-game", async ({ gameId }) => {
       gameType: gameData.gameType || '1v1',
       board: deserializedBoard,
       scores: gameData.scores,
-      bombsUsed: game.bombsUsed,
+      bombsUsed: gameData.bombsUsed || { 1: false, 2: false },
       turn: gameData.turn,
       gameOver: gameData.gameOver,
       lastClickedTile: gameData.lastClickedTile || {}, // Load lastClickedTile from Firestore
-	  players: [], // Will populate based on who is resuming and who the opponent is
+      players: [], // Will populate based on who is resuming and who the opponent is
       messages: gameData.messages || [] // Load game chat messages
     };
 
@@ -1234,9 +1232,10 @@ socket.on("resume-game", async ({ gameId }) => {
 
   // NEW: Observe Game Event
   socket.on("observe-game", async ({ gameId }) => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    const userName = user ? user.displayName : 'Anonymous Observer';
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    const userName = user ? (user.displayName || user.name || 'Anonymous Observer') : 'Anonymous Observer';
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to observe game.");
@@ -1291,7 +1290,7 @@ socket.on("resume-game", async ({ gameId }) => {
                 gameType: gameData.gameType || '1v1',
                 board: deserializedBoard,
                 scores: gameData.scores,
-                bombsUsed: gameData.bombsUsed,
+                bombsUsed: gameData.bombsUsed || { 1: false, 2: false },
                 turn: gameData.turn,
                 gameOver: gameData.gameOver,
                 lastClickedTile: gameData.lastClickedTile || {},
@@ -1911,8 +1910,10 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
   // Request pending invites for a user (e.g., on login or refresh)
   socket.on("request-pending-invites", () => {
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    
     if (userId) {
         socket.emit("update-invites", pendingInvites[userId] || {});
         console.log(`Sent pending invites to user ${userId}.`);
@@ -1998,7 +1999,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
           emitLobbyPlayersList(); // Update lobby list
       }
       // Turn does NOT switch if a mine is revealed.
-      // The turn will only switch after a non-mine tile is revealed.
 
     } else { // This block handles non-mine tiles
       const isBlankTile = tile.adjacentMines === 0;
@@ -2122,9 +2122,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
       console.warn(`Attempted to send message to non-existent game ${gameId}`);
       return;
     }
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
-    const userName = user ? user.displayName : 'Anonymous';
+    
+    // FIXED: Fallback profile synchronization layers
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+    const userName = user ? (user.displayName || user.name || 'Anonymous') : 'Anonymous';
 
     if (!userId) {
         console.warn(`Unauthenticated user tried to send game message to ${gameId}`);
@@ -2144,10 +2146,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const timestamp = new Date().toLocaleTimeString();
     const fullMessage = { sender: userName, text: message, timestamp: timestamp };
     game.messages.push(fullMessage);
-    // Optionally limit game chat history (e.g., to 100 messages)
-    // if (game.messages.length > MAX_GAME_MESSAGES) {
-    //   game.messages.shift();
-    // }
+
     io.to(gameId).emit("receive-game-message", fullMessage); // Emit to everyone in the game room
     console.log(`Game ${gameId} message from ${userName}: ${message}`);
 
@@ -2305,7 +2304,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         }
         // Clear userGameMap for all players when game is over
         game.players.forEach(p => delete userGameMap[p.userId]);
-        // Do NOT clear observers from userGameMap here. They should remain observers until they leave.
         emitLobbyPlayersList(); // Update lobby list
     }
     // Turn always switches after bomb usage, regardless of game type.
@@ -2357,8 +2355,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const game = games[gameId];
     if (!game) return;
 
-    const user = socket.request.session?.passport?.user || null;
-    const userId = user ? user.id : null;
+    // FIXED: Fallback identity parsing
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
     const requestingPlayer = game.players.find(p => p.userId === userId);
     if (!requestingPlayer) return;
 
@@ -2372,7 +2371,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     game.lastClickedTile = {}; // Reset lastClickedTile for all players
     game.messages = []; // Clear game chat messages on restart
 
-    // Ensure userGameMap entries are still there for all players since the game is restarting, not ending
     game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
     game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' }); // Observers remain observers
     emitLobbyPlayersList(); // Update lobby list
@@ -2396,7 +2394,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         }, { merge: true });
         console.log(`Game ${gameId} restarted and updated in Firestore.`);
     } catch (error) {
-        console.error("Error restarting game in Firestore:", error); // Log the full error object
+        console.error("Error restarting game in Firestore:", error);
     }
 
     // Emit to all players AND observers in the game room
@@ -2425,10 +2423,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
  // Leave Game Event (Player or Observer voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
   const game = games[gameId];
-  const user = socket.request.session?.passport?.user || null;
-  const userId = user ? user.id : null;
-  const userName = user ? user.displayName : 'Unknown User';
-
+  
+  // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
+  const user = socket.request.session?.passport?.user || socket.request.user || null;
+  const userId = user ? (user.id || socket.request.user?.id) : null;
+  const userName = user ? (user.displayName || user.name || 'Unknown User') : 'Unknown User';
 
   if (game && userId) {
     const gameMapping = userGameMap[userId];
@@ -2468,7 +2467,7 @@ socket.on("leave-game", async ({ gameId }) => {
       }
     } else if (gameMapping.role === 'observer') {
       // Remove observer from the in-memory game object
-      game.observers = game.observers.filter(o => o.userId === userId);
+      game.observers = game.observers.filter(o => o.userId !== userId);
       console.log(`User ${userId} (${userName}) left game ${gameId} as an observer.`);
 
       // Update Firestore to remove the observer
@@ -2494,9 +2493,7 @@ socket.on("leave-game", async ({ gameId }) => {
           existingPlayerInLobby.id = socket.id; // Update their socket if needed
           console.log(`User ${userName} updated in lobby players list with new socket.`);
       } else {
-          // If the user was removed from players[] on disconnect (e.g. if they weren't in a game)
-          // and now they leave a game, ensure they're back in `players` for lobby visibility
-          const userNameForLobby = user ? user.displayName : `User_${userId.substring(0, 8)}`;
+          const userNameForLobby = user ? (user.displayName || user.name) : `User_${userId.substring(0, 8)}`;
           players.push({ id: socket.id, userId: userId, name: userNameForLobby });
           console.log(`User ${userName} added to lobby players list after leaving game.`);
       }
@@ -2509,9 +2506,11 @@ socket.on("leave-game", async ({ gameId }) => {
 // Socket Disconnect Event (e.g., browser tab closed, network drop)
 socket.on("disconnect", async () => {
   console.log(`[Disconnect] Socket disconnected: ${socket.id}`);
-  const user = socket.request.session?.passport?.user || null;
-  const disconnectedUserId = user ? user.id : null;
-  const disconnectedUserName = user ? user.displayName : 'Unknown User';
+  
+  // FIXED: Fallback user detection context matching for Safari ITP layouts on exit
+  const user = socket.request.session?.passport?.user || socket.request.user || null;
+  const disconnectedUserId = user ? (user.id || socket.request.user?.id) : null;
+  const disconnectedUserName = user ? (user.displayName || user.name || 'Unknown User') : 'Unknown User';
 
   if (disconnectedUserId) {
     // Correctly remove from userSocketMap as this specific socket is no longer active for this user
@@ -2520,7 +2519,6 @@ socket.on("disconnect", async () => {
   }
 
   // Filter players list: This list represents users who are currently online.
-  // We only remove a user from this global list if there's no other active socket for their userId.
   players = players.filter(p => userSocketMap[p.userId] !== undefined);
   console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
   emitLobbyPlayersList(); // Use the helper to update lobby list
@@ -2550,9 +2548,6 @@ socket.on("disconnect", async () => {
           console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
         }
 
-        // The userGameMap entry for players should *not* be deleted here.
-        // It must persist so the player can resume the game.
-        // The game status in Firestore should reflect it's waiting for resume.
         try {
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             status: 'waiting_for_resume', // Set game status to waiting_for_resume
@@ -2571,24 +2566,17 @@ socket.on("disconnect", async () => {
         io.to(gameId).emit("player-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'player' });
 
       } else if (role === 'observer') {
-        // Remove observer's socketId from the in-memory game object
         const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
         if (disconnectedObserverInGame) {
             disconnectedObserverInGame.socketId = null;
             console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
         }
-        // Do NOT remove observer from Firestore or game.observers list on disconnect,
-        // just mark their socket as null. They will be removed on explicit 'leave-game' or if game ends.
-        // Or, you could remove them from the in-memory `observers` array if you want to consider them fully gone
-        // until they explicitly observe again, and remove from Firestore too.
-        // For now, let's keep them in the array but with null socketId until they leave or rejoin.
 
         // Notify others in the game that an observer left (disconnected)
         io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
       }
       socket.emit("request-observable-games"); // Refresh observable games
     } else {
-      // If game wasn't in memory but userGameMap pointed to it, it might be a stale entry. Clear it.
       delete userGameMap[disconnectedUserId];
       console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
     }
