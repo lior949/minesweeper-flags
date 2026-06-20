@@ -180,36 +180,47 @@ try {
 
 // --- Locate and update this authentication middleware in server.js ---
 io.use((socket, next) => {
-  // 1. Check if the session cookie worked (Standard Chrome/Firefox browsers)
   const session = socket.request.session;
+
+  // 1. STANDARD PASSING: Check if a passport user session exists (Google/Facebook Logins)
   if (session && session.passport && session.passport.user) {
+    // If it's a passport object tracking setup, extract the user profile context safely
+    if (typeof session.passport.user === 'object') {
+      socket.request.user = session.passport.user;
+    }
     return next();
   }
 
-  // 2. SAFARI ITP FALLBACK: Read the fallback data sent via the frontend query handshake
+  // 2. GUEST COOKIE PASSING: Check if a standard custom guest session wrapper exists
+  // If your backend auth router assigns req.session.user directly for guests:
+  if (session && session.user) {
+    socket.request.user = session.user;
+    return next();
+  }
+
+  // 3. SAFARI ITP FALLBACK: Read from query variables if browser cookies are completely blocked
   const { fallbackUserId, fallbackName } = socket.handshake.query;
   
   if (fallbackUserId && fallbackName) {
-    console.log(`[Socket Auth Fallback] Authenticating Safari client via query parameters: ${fallbackName} (${fallbackUserId})`);
+    console.log(`[Socket Fallback Auth] Authenticating Safari client: ${fallbackName} (${fallbackUserId})`);
     
-    // Inject the user object manually into the request structure
-    // so the rest of your existing socket handlers continue working seamlessly
+    // Inject custom credentials context manually into the handshake socket scope
     socket.request.user = {
       id: fallbackUserId,
       displayName: fallbackName,
       name: fallbackName
     };
     
-    // Reconstruct the expected passport session footprint in-memory for this connection
+    // Reconstruct the structural session footprint so downstream event handlers don't crash
     if (!socket.request.session) socket.request.session = {};
     if (!socket.request.session.passport) socket.request.session.passport = {};
-    socket.request.session.passport.user = fallbackUserId; // Store string directly or object depending on your setup
+    socket.request.session.passport.user = fallbackUserId;
     
     return next();
   }
 
-  // 3. Reject connection if no session cookie or fallback metadata is provided
-  console.log("[Socket Auth Error] Denying connection: No session cookie or fallback query parameters found.");
+  // 4. Deny access if no credentials match
+  console.log("[Socket Auth Error] Connection rejected: No session verification vectors found.");
   return next(new Error("Authentication required"));
 });
 
