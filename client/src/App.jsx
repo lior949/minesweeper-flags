@@ -743,7 +743,7 @@ function App() {
     }
   }, [board]);
 
-  // NEW: Function to handle Guest Login
+// NEW & FIXED: Function to handle Guest Login with Safari ITP localStorage Fallback
   const loginAsGuest = async () => {
     let guestId;
     let displayName;
@@ -775,11 +775,19 @@ function App() {
 
       if (response.ok) {
         const data = await response.json();
-        setName(data.user.displayName); // Backend will provide a guest name (should be the displayName we sent)
+        
+        // SAFARI iOS FIX: Force save user payload to localStorage so subsequent blockages
+        // do not cause an infinite logout loop when Safari blocks cross-site cookies.
+        if (data.user) {
+          localStorage.setItem('auth_success_user', JSON.stringify({ user: data.user }));
+        }
+
+        setName(data.user.displayName || displayName); 
         setLoggedIn(true);
         setIsGuest(true);
         showMessage("Logged in as guest!");
-        // The useEffect for socket connection will handle joining the lobby
+        
+        // The useEffect for socket connection will handle joining the lobby natively
       } else {
         const errorData = await response.json();
         showMessage(`Guest login failed: ${errorData.message || response.statusText}`, true);
