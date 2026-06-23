@@ -16,9 +16,6 @@ html, body {
 .lobby {
   padding: 20px;
   text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
 }
 
 .lobby h2, .lobby p, .lobby h3 { /* Ensure lobby text is dark */
@@ -28,7 +25,6 @@ html, body {
 .player-list {
   list-style: none;
   padding: 0;
-  width: 100%;
   max-width: 300px;
   margin: 10px auto;
   border: 1px solid #AAA; /* Lighter border */
@@ -182,6 +178,7 @@ html, body {
 }
 
 /* --- 2. Maximize Flag Size --- */
+/* Bumped width/height from 24px to 32px so the flags fill up almost the entire 40px tile */
 .tile svg {
   width: 32px !important;
   height: 32px !important;
@@ -201,7 +198,7 @@ html, body {
 }
 
 /* More specific rule for revealed tiles */
-.app-game-container .tile.revealed { 
+.app-game-container .tile.revealed { /* Added .app-game-container for increased specificity */
   background-color: #FFFF00; /* Changed to yellow */
   border: 1px solid #CCC; /* Lighter border on yellow */
   color: #333; /* Darker text color for better contrast on yellow */
@@ -209,6 +206,7 @@ html, body {
 }
 
 /* --- 3. Enhanced High-Contrast Color Palette for Numbers --- */
+/* Swapped out the old muted shades for deeper, highly-saturated neon/primary tones */
 .number-1 { color: #0042FF !important; } /* Electric Blue */
 .number-2 { color: #00A300 !important; } /* Vivid Kelly Green */
 .number-3 { color: #FF0000 !important; } /* Pure Crimson Red */
@@ -219,81 +217,73 @@ html, body {
 .number-8 { color: #8B4513; } /* SaddleBrown (dark brown) */
 
 
-/* --- MODERN LOGIN BUTTON SYSTEM OVERHAUL --- */
-.google-login-button,
-.facebook-login-button,
-.guest-login-button {
+/* Base styles for Google Login component (if any specific styling is needed) */
+.google-login-button {
+  background-color: #4285f4;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  width: 260px; /* Force uniform width across all selections */
-  height: 46px; /* Uniform height target */
-  padding: 0 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 12px auto;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
-  transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
-  box-sizing: border-box;
-}
-
-.google-login-button:hover,
-.facebook-login-button:hover,
-.guest-login-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.22);
-}
-
-.google-login-button:active,
-.facebook-login-button:active,
-.guest-login-button:active {
-  transform: translateY(0);
-}
-
-/* Correct Brand Identity Rules */
-.google-login-button {
-  background-color: #ffffff;
-  color: #1f1f1f;
-  border: 1px solid #747775;
+  margin: 20px auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease;
 }
 
 .google-login-button:hover {
-  background-color: #f7f9fa;
+  background-color: #357ae8;
 }
 
+.google-icon {
+  margin-right: 10px;
+}
+
+/* Base styles for Facebook Login component */
 .facebook-login-button {
-  background-color: #1877f2; /* Accurate layout blue */
+  background-color: #1877f2; /* Facebook blue */
   color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease;
 }
 
 .facebook-login-button:hover {
-  background-color: #166fe5; 
+  background-color: #166fe5; /* Darker Facebook blue */
 }
 
+.facebook-icon {
+  margin-right: 10px;
+}
+
+
 .guest-login-button {
-  background-color: #4a5568; /* Slate gray styling */
+  background-color: #607d8b;
   color: white;
-  margin-top: 12px; 
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  margin-top: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease;
 }
 
 .guest-login-button:hover {
-  background-color: #3b4453;
+  background-color: #455a64;
 }
-
-/* Prevent icon distortion and stretching */
-.google-icon,
-.facebook-icon {
-  width: 20px;
-  height: 20px;
-  margin-right: 0; /* Handled perfectly by parent gap setup */
-  object-fit: contain; 
-  flex-shrink: 0;
-}
-
 
 /* New CSS for bomb target area */
 .bomb-target-area {
@@ -424,7 +414,7 @@ html, body {
     display: block; /* Ensure timestamp is on its own line */
 }
 
-/* Style for server messages in chat */
+/* NEW: Style for server messages in chat */
 .message.error-message {
     background-color: #ffcccc; /* Light red for server errors */
     border: 1px solid #ff9999;
@@ -469,7 +459,7 @@ html, body {
     background-color: #218838;
 }
 
-/* Styles for observable games section */
+/* NEW: Styles for observable games section */
 .observable-games-section, .unfinished-games-section {
     margin-top: 30px;
     padding: 15px;
@@ -523,7 +513,7 @@ html, body {
     background-color: #0056b3;
 }
 
-/* Observers List in game view */
+/* NEW: Observers List in game view */
 .observers-list {
   background-color: #e6e6ea; /* Light gray, similar to other-message chat bubble */
   border: 1px solid #ccc;
@@ -600,16 +590,19 @@ html, body {
     flex-grow: 1; /* Allows the board area to take central space */
     flex-shrink: 0; /* Prevent board from shrinking */
     min-width: 670px; /* Adjusted to accommodate 16 tiles * 40px + 15 * 2px (gaps) */
+    /* REMOVED: position: relative; */
 }
 
 /* Ensure the grid itself remains centered within its parent using flexbox */
 .game-board-area .grid {
+    /* REMOVED: position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); */
     margin: 0 auto; /* Keep horizontal centering */
 }
 
 .right-sidebar {
     grid-column: 3 / 4;
     grid-row: 1 / 2;
+    /* This sidebar is now effectively empty of content, styling as a flex container */
     display: flex; /* Keep it as a flex container even if empty */
     flex-direction: column;
     align-items: center;
@@ -666,6 +659,7 @@ html, body {
 @media (max-width: 1024px) {
     .game-layout-grid {
         grid-template-columns: 1fr; /* Single column */
+        /* Stack all panels vertically: Left, Board, Right (hidden), Observers, Game Chat, Server Chat */
         grid-template-rows: auto auto auto auto auto auto;
         justify-items: center; /* Center items in the single column */
     }
@@ -691,25 +685,26 @@ html, body {
 
     .observer-list-panel {
         grid-column: 1 / 2;
-        grid-row: 4 / 5; 
+        grid-row: 4 / 5; /* Stack below right sidebar (or board if right sidebar hidden) */
         width: 90%; /* Adjust width for mobile */
         max-width: 400px;
     }
 
     .game-chat-panel {
         grid-column: 1 / 2;
-        grid-row: 5 / 6; 
+        grid-row: 5 / 6; /* Stack below observer list */
         width: 90%; /* Adjust width for mobile */
         max-width: 400px;
     }
 
     .server-chat-panel {
         grid-column: 1 / 2;
-        grid-row: 6 / 7; 
+        grid-row: 6 / 7; /* Stack below game chat */
         width: 90%; /* Adjust width for mobile */
         max-width: 400px;
     }
     
+    /* Ensure chat containers maintain responsiveness within their stacked panels */
     .game-chat-container, .server-chat-container, .observers-list {
         max-height: 250px; /* Give a consistent max-height when stacked on mobile */
     }
