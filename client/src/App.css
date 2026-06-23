@@ -1,7 +1,7 @@
-/* --- GLOBAL THEME: MUNDIAL STADIUM ARENA --- */
+/* --- GLOBAL THEME: HIGH CONTRAST ARCADE DEPTH --- */
 html, body {
-  /* Rich field green gradient mimicking a stadium pitch illuminated under bright spotlights */
-  background: radial-gradient(circle at center, #15803d 0%, #14532d 100%) !important;
+  /* Replaced generic white canvas with a deep, atmospheric dark-slate gradient */
+  background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%) !important;
   color: #f8fafc !important; 
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   margin: 0;
@@ -13,22 +13,22 @@ html, body {
   justify-content: center;
 }
 
-/* Keep structural wrapper transparent to showcase the stadium pitch backdrop */
+/* Ensure the layout structure keeps its background transparent to look integrated */
 .app-container {
     background-color: transparent;
     color: #f8fafc;
 }
 
-/* --- THE TOURNAMENT CONSOLE CARD (STADIUM GLASS) --- */
+/* --- THE LOGIN CONSOLE PANEL (GLASSMORPHISM) --- */
 .lobby {
-  /* Translucent stadium box glass effect with white field lines accenting the edge */
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  /* Translucent frosted glass panel container that makes branded buttons pop */
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 3rem 2rem;
-  border-radius: 20px;
-  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   width: 100%;
   max-width: 380px;
   text-align: center;
@@ -38,24 +38,23 @@ html, body {
   box-sizing: border-box;
 }
 
-/* Mundial Title Header */
+/* Dynamic Bold Title Styling */
 .lobby h2 {
-  font-size: 1.7rem;
-  font-weight: 900;
-  letter-spacing: 1.5px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 1px;
   text-transform: uppercase;
   color: #ffffff;
   margin-top: 0;
   margin-bottom: 2rem;
-  /* Glowing field-light text reflection */
-  text-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+  text-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
 }
 
 .lobby p, .lobby h3 {
-  color: #bbf7d0; /* Soft field-green text alternative for perfect contrast */
+  color: #94a3b8; /* Balanced subtle text readability */
 }
 
-/* --- TOURNAMENT CLASS INTERACTIVE CONTROLS --- */
+/* --- MECHANICAL TACTILE LOGIN BUTTONS --- */
 .google-login-button,
 .facebook-login-button,
 .guest-login-button {
@@ -64,20 +63,21 @@ html, body {
   justify-content: center;
   gap: 14px;
   width: 100%;
-  height: 52px; 
+  height: 50px; 
   padding: 0 20px;
   border: none;
-  border-radius: 30px; /* Rounded pill style to match classic tournament graphics */
+  border-radius: 8px;
   cursor: pointer;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 0 0 14px 0;
   box-sizing: border-box;
   position: relative;
-  transition: transform 0.1s ease, box-shadow 0.15s ease;
+  /* 3D button edge effect */
+  transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.1s ease;
 }
 
-/* Google Sign-In */
+/* Google Button Style Customization */
 .google-login-button {
   background-color: #ffffff;
   color: #1e293b;
@@ -87,7 +87,7 @@ html, body {
   background-color: #f8fafc;
 }
 
-/* Facebook Sign-In -> INVISIBLE */
+/* Facebook Button Style Customization -> MADE INVISIBLE */
 .facebook-login-button {
   display: none !important;
 }
@@ -95,40 +95,43 @@ html, body {
   display: none !important;
 }
 
-/* Guest Match Launch (The Golden Mundial Cup Edition) */
+/* Guest Button Style Customization (Primary CTA Glow) */
 .guest-login-button {
-  /* Glimmering gold trophy linear profile */
-  background: linear-gradient(135deg, #eab308 0%, #ca8a04 50%, #a16207 100%);
+  background-color: #10b981; /* High-vibrancy Emerald Green */
   color: #ffffff;
-  border-bottom: 3px solid #713f12;
+  border-bottom: 3px solid #047857;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 8px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.5px;
+  margin-top: 6px;
 }
 .guest-login-button:hover {
-  background: linear-gradient(135deg, #facc15 0%, #eab308 50%, #ca8a04 100%);
-  box-shadow: 0 0 25px rgba(234, 179, 8, 0.6); /* Golden victory glow */
+  background-color: #059669;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
 }
 
-/* Physical Mechanical Click Feedback */
+/* Universal 3D Physical Click Response */
+.google-login-button:strong,
+.facebook-login-button:strong,
+.guest-login-button:strong,
 .google-login-button:active,
+.facebook-login-button:active,
 .guest-login-button:active {
   transform: translateY(2px);
   border-bottom-width: 1px;
 }
 
-/* Icon Protection */
+/* Absolute Vector Shield (ITP Correction for Stretched Logos) */
 .google-icon,
 .facebook-icon {
   width: 20px !important;
   height: 20px !important;
-  margin-right: 0 !important;
+  margin-right: 0 !important; /* Managed by layout gap alignment */
   object-fit: contain !important;
   flex-shrink: 0;
 }
 
 /* --- IN-GAME VIEW RE-INTEGRATION (LIGHT VARIANT PROTECTION) --- */
+/* Kept intact for your gameplay panels context to look crisp on matching components */
 .app-game-container h1,
 .app-game-container h2,
 .app-game-container p,
