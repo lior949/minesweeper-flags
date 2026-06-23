@@ -56,7 +56,7 @@ html, body {
 
 /* --- MECHANICAL TACTILE LOGIN BUTTONS --- */
 .google-login-button,
-/* .facebook-login-button, */ /* COMMENTED OUT FOR LOBBY CLEANUP */
+.facebook-login-button,
 .guest-login-button {
   display: flex;
   align-items: center;
@@ -87,16 +87,13 @@ html, body {
   background-color: #f8fafc;
 }
 
-/* Facebook Button Style Customization */
-/* .facebook-login-button {
-  background-color: #1877f2;
-  color: #ffffff;
-  border-bottom: 3px solid #1054b8;
+/* Facebook Button Style Customization -> MADE INVISIBLE */
+.facebook-login-button {
+  display: none !important;
 }
 .facebook-login-button:hover {
-  background-color: #166fe5;
+  display: none !important;
 }
-*/
 
 /* Guest Button Style Customization (Primary CTA Glow) */
 .guest-login-button {
@@ -114,18 +111,18 @@ html, body {
 
 /* Universal 3D Physical Click Response */
 .google-login-button:strong,
-/* .facebook-login-button:strong, */ /* COMMENTED OUT FOR LOBBY CLEANUP */
+.facebook-login-button:strong,
 .guest-login-button:strong,
 .google-login-button:active,
-/* .facebook-login-button:active, */ /* COMMENTED OUT FOR LOBBY CLEANUP */
+.facebook-login-button:active,
 .guest-login-button:active {
   transform: translateY(2px);
   border-bottom-width: 1px;
 }
 
 /* Absolute Vector Shield (ITP Correction for Stretched Logos) */
-.google-icon {
-/* .facebook-icon */ /* COMMENTED OUT FOR LOBBY CLEANUP */
+.google-icon,
+.facebook-icon {
   width: 20px !important;
   height: 20px !important;
   margin-right: 0 !important; /* Managed by layout gap alignment */
