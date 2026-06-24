@@ -313,41 +313,6 @@ html, body {
 .number-7 { color: #111111 !important; }
 .number-8 { color: #8B4513; }
 
-/* --- DEDICATED MUNDIAL / GAME OVER UNREVEALED MINES GRAPHICS --- */
-.tile.unrevealed-mine-cell {
-  background-color: #334155 !important; /* Obsidian slate */
-  border: 1px solid #475569 !important;
-  position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-/* Central Mine Core Sphere */
-.tile.unrevealed-mine-cell::before {
-  content: "";
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  background-color: #ef4444; /* High contrast danger crimson */
-  border-radius: 50%;
-  box-shadow: inset -2px -2px 4px rgba(0, 0, 0, 0.5), 0 0 8px rgba(239, 68, 68, 0.7);
-  z-index: 2;
-}
-
-/* Cross Spike Vector Array Component */
-.tile.unrevealed-mine-cell::after {
-  content: "";
-  position: absolute;
-  width: 22px;
-  height: 4px;
-  background-color: #ef4444;
-  border-radius: 2px;
-  z-index: 1;
-  box-shadow: 0 0 0 transparent, inset 0 0 0 10px #ef4444;
-  transform: rotate(45deg);
-}
-
 .bomb-target-area {
   outline: 2px dashed #FF4500;
   outline-offset: -2px;
