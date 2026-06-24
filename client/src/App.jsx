@@ -1,4 +1,3 @@
-// App.jsx
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
 // Removed Tone.js import as per request
@@ -13,25 +12,16 @@ const bufferToHex = (buffer) => {
 };
 
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
-// This function takes a portion of the SHA-256 hash, converts it to a decimal number,
-// and then takes the modulo 100,000 to get a 5-digit number, padded with leading zeros.
 const generate5DigitGuestId = async (message) => {
     try {
         const msgBuffer = new TextEncoder().encode(message); // Encode message as UTF-8
         const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer); // Hash the message
         const fullHashHex = bufferToHex(hashBuffer); // Convert full hash to hex string
 
-        // Take a portion of the hash (e.g., first 8 characters)...
-        // Using a slice helps ensure enough entropy for the conversion
         const hashPortion = fullHashHex.substring(0, 8); // e.g., "a1b2c3d4"
-        
-        // Convert the hexadecimal portion to an integer
         const decimalValue = parseInt(hashPortion, 16); // e.g., 2712845268
 
-        // Take modulo 100,000 to get a 5-digit number (0-99999)
         const fiveDigitNumber = decimalValue % 100000;
-
-        // Pad with leading zeros to ensure it's always 5 digits
         return String(fiveDigitNumber).padStart(5, '0');
 
     } catch (err) {
@@ -44,7 +34,6 @@ const generate5DigitGuestId = async (message) => {
 const getDeviceUuid = () => {
     let deviceUuid = localStorage.getItem('guestDeviceId');
     if (!deviceUuid) {
-        // Generate a new UUID if one doesn't exist
         deviceUuid = crypto.randomUUID(); 
         localStorage.setItem('guestDeviceId', deviceUuid); // Store it for future use
         console.log("Generated new guestDeviceId:", deviceUuid);
@@ -58,13 +47,10 @@ function App() {
   // NEW: Determine if this is the OAuth callback window
   const isAuthCallback = window.location.pathname === '/auth/callback';
 
-  // If this is the AuthCallback window, render only the AuthCallback component
-  // and prevent the main App logic from running
   if (isAuthCallback) {
     return <AuthCallback />;
   }
 
-  // If not the AuthCallback window, proceed with the main App logic
   console.log("App component rendered (main application).");
 
   // === Lobby & Authentication State ===
@@ -74,113 +60,93 @@ function App() {
   const [playersList, setPlayersList] = useState([]);
   const [message, setMessage] = useState(""); // General message/error display
 
-  // NEW: State and ref for Socket.IO instance
-  const socketRef = useRef(null); // Use useRef to hold the mutable socket object
-  const [isSocketConnected, setIsSocketConnected] = useState(false); // New state to track actual socket.io connection status
+  const socketRef = useRef(null); 
+  const [isSocketConnected, setIsSocketConnected] = useState(false); 
 
-  // NEW: Add a ref to track the previous scores for audio triggers
   const prevScoresRef = useRef({ 1: 0, 2: 0 });
   const prevRevealedCountRef = useRef(0);
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
-  const [playerNumber, setPlayerNumber] = useState(null); // 1, 2 for players; 0 for observer (now 1,2,3,4 for 2v2)
+  const [playerNumber, setPlayerNumber] = useState(null); 
   const [board, setBoard] = useState([]);
   const [turn, setTurn] = useState(null);
-  const [scores, setScores] = useState({ 1: 0, 2: 0 }); // Now team scores
-  const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false }); // Now team bombs
-  const [bombMode, setBombMode] = useState(false); // Backend's waitingForBombCenter
+  const [scores, setScores] = useState({ 1: 0, 2: 0 }); 
+  const [bombsUsed, setBombsUsed] = useState({ 1: false, 2: false }); 
+  const [bombMode, setBombMode] = useState(false); 
   const [gameOver, setGameOver] = useState(false);
-  const [opponentName, setOpponentName] = useState(""); // Only relevant for 1v1
+  const [opponentName, setOpponentName] = useState(""); 
   const [invite, setInvite] = useState(null);
-  const [unfinishedGames, setUnfinishedGames] = useState([]); // State for unfinished games (player's games)
-  const [observableGames, setObservableGames] = useState([]); // NEW: State for observable games
-  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null, 3: null, 4: null }); // Track last clicked tile for each player
-  const [unrevealedMines, setUnrevealedMines] = useState(0); // State to store unrevealed mines count
-  const [observersInGame, setObserversInGame] = useState([]); // NEW: List of observers in the current game
-  // NEW: State to store player names by their player number in the current game
-  const [gamePlayerNames, setGamePlayerNames] = useState({ 1: '', 2: '' }); // Will extend for 2v2
-  const [gameType, setGameType] = useState('1v1'); // '1v1' or '2v2'
-  const [is2v2Mode, setIs2v2Mode] = useState(false); // Checkbox state for 2v2
-  const [selectedPartner, setSelectedPartner] = useState(null); // For 2v2 invitation
-  const [selectedRivals, setSelectedRivals] = useState([]); // For 2v2 invitation (max 2)
-  const [invitationStage, setInvitationStage] = useState(0); // 0: no invite, 1: select partner, 2: select rivals
+  const [unfinishedGames, setUnfinishedGames] = useState([]); 
+  const [observableGames, setObservableGames] = useState([]); 
+  const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null, 3: null, 4: null }); 
+  const [unrevealedMines, setUnrevealedMines] = useState(0); 
+  const [observersInGame, setObserversInGame] = useState([]); 
+  const [gamePlayerNames, setGamePlayerNames] = useState({ 1: '', 2: '' }); 
+  const [gameType, setGameType] = useState('1v1'); 
+  const [is2v2Mode, setIs2v2Mode] = useState(false); 
+  const [selectedPartner, setSelectedPartner] = useState(null); 
+  const [selectedRivals, setSelectedRivals] = useState([]); 
+  const [invitationStage, setInvitationStage] = useState(0); 
 
-  // NEW: State for bomb highlighting
-  const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); // Controls if bomb area should be highlighted visually
-  const [highlightedBombArea, setHighlightedBombArea] = useState([]); // Stores [x,y] coordinates for highlighted tiles
+  const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); 
+  const [highlightedBombArea, setHighlightedBombArea] = useState([]); 
 
-  // Constants for board dimensions
   const WIDTH = 16;
   const HEIGHT = 16;
 
   // Chat states
   const [lobbyMessages, setLobbyMessages] = useState([]);
   const [gameMessages, setGameMessages] = useState([]);
-  const [serverMessages, setServerMessages] = useState([]); // NEW: State for server messages
+  const [serverMessages, setServerMessages] = useState([]); 
   const [lobbyMessageInput, setLobbyMessageInput] = useState("");
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
-  // Removed gameChatEndRef as per request for no auto-scroll
 
-
-  // Effect to scroll to the bottom of lobby chat (no change here)
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
       lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [lobbyMessages, loggedIn, gameId]);
 
-  // --- Utility Functions ---
-
-  // Helper to get coordinates from a mouse event (e.g., click or move on grid)
   const getTileCoordinates = (event) => {
     const grid = event.currentTarget;
     const { left, top, width, height } = grid.getBoundingClientRect();
 
-    // Calculate tile size dynamically
     const tileWidth = width / WIDTH;
     const tileHeight = height / HEIGHT;
 
-    // Calculate mouse position relative to the grid
     const mouseX = event.clientX - left;
     const mouseY = event.clientY - top;
 
-    // Calculate tile coordinates
     const x = Math.floor(mouseX / tileWidth);
     const y = Math.floor(mouseY / tileHeight);
 
     return { x, y };
   };
 
-  // Helper function to calculate the 5x5 area around a center (cx, cy)
-  // Ensures the area stays within board boundaries (0 to WIDTH/HEIGHT - 1)
   const calculateBombArea = useCallback((cx, cy) => {
     const area = [];
-    // Bomb center must be between 3rd and 14th row and column (0-indexed: 2 to 13)
     const MIN_COORD = 2;
-    const MAX_COORD_X = WIDTH - 3; // 16 - 3 = 13
-    const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
+    const MAX_COORD_X = WIDTH - 3; 
+    const MAX_COORD_Y = HEIGHT - 3; 
 
     if (cx < MIN_COORD || cx > MAX_COORD_X || cy < MIN_COORD || cy > MAX_COORD_Y) {
-      return []; // Return empty if center is out of valid range for a 5x5 blast
+      return []; 
     }
 
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
         const x = cx + dx;
         const y = cy + dy;
-        // Ensure calculated tile is within actual board boundaries
         if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
           area.push({ x, y });
         }
       }
     }
     return area;
-  }, [WIDTH, HEIGHT]); // Depend on WIDTH and HEIGHT if they can change dynamically
+  }, [WIDTH, HEIGHT]); 
 
-
-  // --- Helper to display messages (replaces alert) ---
   const showMessage = (msg, isError = false) => {
     setMessage(msg);
     if (isError) {
@@ -188,29 +154,20 @@ function App() {
     } else {
       console.log(msg);
     }
-    // Clear message after some time (e.g., 5 seconds)
     setTimeout(() => setMessage(""), 5000);
   };
 
-  // --- Helper to add game messages to chat (new) ---
   const addGameMessage = useCallback((sender, text, isError = false) => {
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMessage = { sender, text, timestamp, isError };
 
-    if (sender === "Server") { // NEW: Server messages go to serverMessages state
+    if (sender === "Server") { 
         setServerMessages(prevMessages => [...prevMessages, newMessage]);
-    } else { // Other messages go to gameMessages (player chat)
+    } else { 
         setGameMessages(prevMessages => [...prevMessages, newMessage]);
-    }
-
-    if (isError) {
-      console.error(`Message Error: ${text}`);
-    } else {
-      console.log(`Message: ${text}`);
     }
   }, []);
 
-// --- Initial Authentication Check and Socket.IO Connection ---
   useEffect(() => {
     console.log("App useEffect: Running initial setup.");
 
@@ -226,14 +183,12 @@ function App() {
           data = await response.json();
         }
 
-        // --- SAFARI ITP FALLBACK GUARD CONTAINER ---
-        // If the backend request failed or returned unauthorized, check if we have a valid saved local storage session
         if (!data && localStorage.getItem('auth_success_user')) {
           try {
             const savedSession = JSON.parse(localStorage.getItem('auth_success_user'));
             if (savedSession && savedSession.user) {
               console.warn("Safari Cookie blocked: Recovering state from localStorage fallback.");
-              data = savedSession; // Inject local storage user profile to simulate successful response
+              data = savedSession; 
             }
           } catch (e) {
             console.error("Failed to parse fallback session data", e);
@@ -247,20 +202,16 @@ function App() {
           setIsGuest(data.user.id.startsWith('guest_')); 
           console.log("App.jsx: Auth verification successful for:", currentUserName);
 
-          // Initialize Socket.IO connection
           if (!socketRef.current) {
             console.log("Frontend: Initializing Socket.IO connection...");
             socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
               withCredentials: true,
-              // Send user metadata directly inside the handshake payload so Socket.IO can 
-              // register you even if the server session tracking cookie was destroyed by Safari
               query: {
                 fallbackUserId: data.user.id,
                 fallbackName: currentUserName
               }
             });
 
-            // --- Attach Socket.IO Event Listeners ---
             socketRef.current.on('connect', () => {
                 console.log("Socket.IO client: Connected!");
                 setIsSocketConnected(true);
@@ -533,7 +484,7 @@ function App() {
 
       if (event.data && event.data.type === 'AUTH_SUCCESS') {
         const { user } = event.data;
-        localStorage.setItem('auth_success_user', JSON.stringify({ user })); // Save for Safari
+        localStorage.setItem('auth_success_user', JSON.stringify({ user })); 
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
         setLoggedIn(true);
         setIsGuest(user.id.startsWith('guest_'));
@@ -577,13 +528,11 @@ function App() {
     };
   }, [loggedIn, name, addGameMessage, gameId]);
 
-// NEW: Effect to synthesize matching sounds for flag captures vs normal tile clicks
   useEffect(() => {
     if (!gameId || !board || board.length === 0 || !scores || playerNumber === null || playerNumber === 0) {
       return;
     }
 
-    // 1. Calculate the total number of revealed tiles on the current board
     let currentRevealedCount = 0;
     board.forEach(row => {
       row.forEach(tile => {
@@ -591,7 +540,6 @@ function App() {
       });
     });
 
-    // 2. Determine your team/player score tracking key
     let myScoreKey = playerNumber;
     if (gameType === '2v2') {
       myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
@@ -601,9 +549,7 @@ function App() {
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
     const previousRevealedCount = prevRevealedCountRef.current;
 
-    // 3. Audio logic conditions
     if (currentScore > previousScore) {
-      // SCENARIO A: Your score went up -> Play the Flag Capture Chime
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
@@ -611,10 +557,10 @@ function App() {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           
-          osc.type = "triangle"; // Soft, retro game tone
+          osc.type = "triangle"; 
           const startTime = ctx.currentTime;
-          osc.frequency.setValueAtTime(523.25, startTime); // C5 note
-          osc.frequency.setValueAtTime(783.99, startTime + 0.08); // Jumps up to G5
+          osc.frequency.setValueAtTime(523.25, startTime); 
+          osc.frequency.setValueAtTime(783.99, startTime + 0.08); 
           
           gain.gain.setValueAtTime(0.15, startTime);
           gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
@@ -628,7 +574,6 @@ function App() {
         console.error("Audio playback failed:", e);
       }
     } else if (currentRevealedCount > previousRevealedCount) {
-      // SCENARIO B: Tiles were revealed but your score didn't change -> Normal Tile Click
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
@@ -636,15 +581,14 @@ function App() {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           
-          osc.type = "sine"; // Pure, organic water-drop click tone
+          osc.type = "sine"; 
           const startTime = ctx.currentTime;
           
-          // Fast pitch slide downward creates a perfect synthetic percussion tick/pop
           osc.frequency.setValueAtTime(600, startTime);
           osc.frequency.exponentialRampToValueAtTime(150, startTime + 0.04);
           
-          gain.gain.setValueAtTime(0.1, startTime); // Quiet volume profile
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); // Rapid snap decay
+          gain.gain.setValueAtTime(0.1, startTime); 
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); 
           
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -656,12 +600,10 @@ function App() {
       }
     }
 
-    // 4. Update memory layers for next layout delta match
     prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
 
-  // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
     if (board && board.length > 0) {
       let totalMines = 0;
@@ -670,25 +612,19 @@ function App() {
         row.forEach(tile => {
           if (tile.isMine) {
             totalMines++;
-            // A mine is "revealed" if it's visible on the board (e.g., clicked or part of an explosion)
-            // The `tile.revealed` property indicates if the tile state has been changed to revealed.
             if (tile.revealed) {
               revealedMines++;
             }
           }
         });
       });
-      // The number of unrevealed mines is the total minus those that have been revealed.
-      // This implies that flags are not explicitly tracked as "revealed" for this count,
-      // only actual mine exposure.
       setUnrevealedMines(totalMines - revealedMines);
     } else {
-      setUnrevealedMines(0); // Reset if board is empty or game not started
+      setUnrevealedMines(0); 
     }
   }, [board]);
 
-// NEW & FIXED: Function to handle Guest Login with Safari ITP localStorage Fallback
-const loginAsGuest = async () => {
+  const loginAsGuest = async () => {
     let guestId;
     let displayName;
     try {
@@ -712,7 +648,6 @@ const loginAsGuest = async () => {
       if (response.ok) {
         const data = await response.json();
         
-        // CRITICAL SAFARI FIX: Write the session information down into localStorage
         if (data.user) {
           localStorage.setItem('auth_success_user', JSON.stringify({ user: data.user }));
         }
@@ -731,9 +666,6 @@ const loginAsGuest = async () => {
     }
   };
 
-
-  // --- User Interaction Functions (using socketRef.current for emits) ---
-
   const handlePlayerClick = (player) => {
     if (player.id === socketRef.current.id) {
       showMessage("You cannot invite yourself.", true);
@@ -744,17 +676,16 @@ const loginAsGuest = async () => {
       return;
     }
 
-    if (!is2v2Mode) { // 1v1 mode
-      invitePlayer([player.id], '1v1'); // Send socket ID for 1v1
-    } else { // 2v2 mode
-      if (invitationStage === 0) { // Should not happen, checkbox triggers stage 1
+    if (!is2v2Mode) { 
+      invitePlayer([player.id], '1v1'); 
+    } else { 
+      if (invitationStage === 0) { 
         showMessage("Please select 2v2 mode first.", true);
-      } else if (invitationStage === 1) { // Select partner
+      } else if (invitationStage === 1) { 
         setSelectedPartner(player);
         setInvitationStage(2);
         showMessage(`Selected ${player.name} as your partner. Now double-click two rivals.`);
-      } else if (invitationStage === 2) { // Select rivals
-        // Check if player is already selected as partner or rival
+      } else if (invitationStage === 2) { 
         const isAlreadySelected = (selectedPartner && selectedPartner.id === player.id) ||
                                   selectedRivals.some(rival => rival.id === player.id);
         if (isAlreadySelected) {
@@ -766,7 +697,6 @@ const loginAsGuest = async () => {
         setSelectedRivals(newRivals);
         if (newRivals.length === 2) {
           showMessage(`Selected rivals: ${newRivals[0].name}, ${newRivals[1].name}. All players selected.`);
-          // Automatically send invitation when all four are selected
           sendTeamInvite(selectedPartner, newRivals);
         } else {
           showMessage(`Selected ${player.name} as a rival. Select one more rival.`);
@@ -781,8 +711,6 @@ const loginAsGuest = async () => {
       showMessage("Invitation sent.");
     } else if (!socketRef.current || !socketRef.current.connected) {
         showMessage("Not connected to server. Please wait or refresh.", true);
-    } else {
-        console.warn("Invite failed: Not logged in or inviting self.");
     }
   };
 
@@ -791,23 +719,19 @@ const loginAsGuest = async () => {
       showMessage("Please select one partner and two rivals.", true);
       return;
     }
-    const allPlayerIds = [partner.id, rivals[0].id, rivals[1].id]; // Exclude self from this list, server adds inviter
+    const allPlayerIds = [partner.id, rivals[0].id, rivals[1].id]; 
     invitePlayer(allPlayerIds, '2v2');
-    // Reset selection after sending invite
     setSelectedPartner(null);
     setSelectedRivals([]);
-    setIs2v2Mode(false); // Disable 2v2 mode after invite
+    setIs2v2Mode(false); 
     setInvitationStage(0);
   };
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current && socketRef.current.connected) {
-      // MODIFIED: Pass inviteId from the current invite state to the backend
-      // gameIdFromClient can be null if it's a new game being created
       socketRef.current.emit("respond-invite", { inviteId: invite.inviteId, gameIdFromClient: null, accept });
       setInvite(null);
       setMessage("");
-      // Clear 2v2 selection if an invite is accepted/rejected
       setSelectedPartner(null);
       setSelectedRivals([]);
       setIs2v2Mode(false);
@@ -818,33 +742,30 @@ const loginAsGuest = async () => {
   };
 
   const handleClick = (x, y) => {
-    // Only players (playerNumber 1, 2, 3, 4) can click tiles
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
 
-    // If waiting for bomb center, emit bomb-center event
-    if (bombMode) { // bombMode is true when backend sent 'wait-bomb-center'
-      const MIN_COORD = 2; // Hardcoded in original, keep for now
-      const MAX_COORD_X = WIDTH - 3; // Use WIDTH constant
-      const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
+    if (bombMode) { 
+      const MIN_COORD = 2; 
+      const MAX_COORD_X = WIDTH - 3; 
+      const MAX_COORD_Y = HEIGHT - 3; 
 
-      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) { // Fixed: was `cy > MAX_COORD_Y`
-        addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); // Send to server chat
+      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) { 
+        addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); 
         return;
       }
 
-      // Check if bomb area is already fully revealed (client-side check for user feedback)
       let allTilesRevealed = true;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
           const checkX = x + dx;
           const checkY = y + dy;
-          if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) { // Use WIDTH/HEIGHT constants
+          if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) { 
             if (!board[checkY][checkX].revealed) {
               allTilesRevealed = false;
               break;
             }
           } else {
-              allTilesRevealed = false; // Treat out-of-bounds as not fully revealed for bomb purpose
+              allTilesRevealed = false; 
               break;
           }
         }
@@ -852,112 +773,102 @@ const loginAsGuest = async () => {
       }
 
       if (allTilesRevealed) {
-        addGameMessage("Server", "All tiles in the bomb's blast area are already revealed.", true); // Send to server chat
+        addGameMessage("Server", "All tiles in the bomb's blast area are already revealed.", true); 
         return;
       }
 
-      addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); // Indicate action in server chat
+      addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); 
       socketRef.current.emit("bomb-center", { gameId, x, y });
-      setBombMode(false); // Exit bomb selection mode
-      setIsBombHighlightActive(false); // Turn off highlighting after selection
-      setHighlightedBombArea([]); // Clear highlights
+      setBombMode(false); 
+      setIsBombHighlightActive(false); 
+      setHighlightedBombArea([]); 
     } else if (playerNumber === turn && !gameOver) {
-      addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in server chat
+      addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
       socketRef.current.emit("tile-click", { gameId, x, y });
     } else if (playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn!", true); // Send to server chat
+        addGameMessage("Server", "It's not your turn!", true); 
     }
   };
 
-  const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
-    // Only players (not observers) can use bombs
+  const handleUseBombClick = () => { 
     if (playerNumber === 0) {
-        addGameMessage("Server", "Observers cannot use bombs.", true); // Send to server chat
+        addGameMessage("Server", "Observers cannot use bombs.", true); 
         return;
     }
-    
-    // Determine the relevant scores and bomb usage based on game type
-    // These variables are now calculated in the main render function scope below.
-    // So, we just need to use them here.
 
     if (!isSocketConnected || !gameId || gameOver || currentBombUsedStatus || !(gameType === '1v1' ? playerNumber === turn : true)) {
       if (currentBombUsedStatus) {
-        addGameMessage("Server", "Your team has already used its bomb!", true); // Send to server chat
+        addGameMessage("Server", "Your team has already used its bomb!", true); 
       } else if (gameOver) {
-        addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to server chat
+        addGameMessage("Server", "Game is over, cannot use bomb.", true); 
       } else if (!gameId) {
-        addGameMessage("Server", "Not in a game to use bomb.", true); // Send to server chat
+        addGameMessage("Server", "Not in a game to use bomb.", true); 
       } else if (gameType === '1v1' && playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn to use the bomb!", true); // Send to server chat
+        addGameMessage("Server", "It's not your turn to use the bomb!", true); 
       } else if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); // Send to server chat
+        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); 
       }
       return;
     }
 
-    // Only allow bomb usage if player's team is strictly behind in score
-    if (currentPlayerScore < opponentPlayerOrTeamScore) { // Condition remains strictly less than
+    if (currentPlayerScore < opponentPlayerOrTeamScore) { 
       socketRef.current.emit("use-bomb", { gameId });
-      // When 'use-bomb' is emitted, we immediately activate visual highlighting
       setIsBombHighlightActive(true); 
-      addGameMessage("Server", "Bomb initiated. Select target.", false); // Send to server chat
+      addGameMessage("Server", "Bomb initiated. Select target.", false); 
     } else {
-      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); // Updated message
+      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); 
     }
   };
 
-  const handleCancelBomb = () => { // New function for cancelling bomb mode
-    setBombMode(false); // Reset backend's waitingForBombCenter state
-    setIsBombHighlightActive(false); // Deactivate visual bomb highlighting
-    setHighlightedBombArea([]); // Clear highlights
-    addGameMessage("Server", "Bomb selection cancelled.", false); // Send to server chat
+  const handleCancelBomb = () => { 
+    setBombMode(false); 
+    setIsBombHighlightActive(false); 
+    setHighlightedBombArea([]); 
+    addGameMessage("Server", "Bomb selection cancelled.", false); 
   };
 
   const backToLobby = () => {
     if (gameId && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("leave-game", { gameId });
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Cannot leave game.", true); // Global message
+        showMessage("Not connected to server. Cannot leave game.", true); 
     }
 
     setGameId(null);
-    setPlayerNumber(null); // Reset player number
+    setPlayerNumber(null); 
     setBoard([]);
     setTurn(null);
     setScores({ 1: 0, 2: 0 });
     setBombsUsed({ 1: false, 2: false });
-    setBombMode(false); // Reset backend's bombMode state
-    setIsBombHighlightActive(false); // Clear bomb highlight on leaving game
-    setHighlightedBombArea([]); // Clear highlights
+    setBombMode(false); 
+    setIsBombHighlightActive(false); 
+    setHighlightedBombArea([]); 
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setMessage(""); // Clear global message
+    setMessage(""); 
     setUnfinishedGames([]);
-    setObservableGames([]); // Clear observable games
-    setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); // Reset for 2v2
-    setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
-    setGameMessages([]); // Clear game chat
-    setServerMessages([]); // NEW: Clear server messages on returning to lobby
-    setObserversInGame([]); // Clear observers list in game
-    setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); // Clear player names for score display
-    setGameType('1v1'); // Reset game type
+    setObservableGames([]); 
+    setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); 
+    setLobbyMessages([]); 
+    setGameMessages([]); 
+    setServerMessages([]); 
+    setObserversInGame([]); 
+    setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); 
+    setGameType('1v1'); 
 
-    // Clear 2v2 invitation related states
     setSelectedPartner(null);
     setSelectedRivals([]);
     setIs2v2Mode(false);
     setInvitationStage(0);
 
-    // Request unfinished games and observable games again to refresh the list in the lobby
-    // This check is already in place. The issue was in the JSX render, not here.
     if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit("request-unfinished-games");
-      socketRef.current.emit("request-observable-games"); // NEW: Re-request observable games
+      socketRef.current.emit("request-observable-games"); 
     }
-};
+  };
 
-const logout = async () => {
+  const logout = async () => {
     try {
       await fetch("https://minesweeper-flags-backend.onrender.com/logout", {
         method: "GET",
@@ -970,7 +881,6 @@ const logout = async () => {
         setIsSocketConnected(false);
       }
 
-      // CRITICAL LOGOUT FIX: Wipe local credentials
       localStorage.removeItem('auth_success_user');
 
       setLoggedIn(false);
@@ -984,33 +894,32 @@ const logout = async () => {
     }
   };
 
-  // NEW: Mouse movement handler for bomb highlighting
   const handleMouseMoveOnGrid = useCallback((event) => {
-    // Only highlight if bomb mode is active and board data is loaded
     if (!isBombHighlightActive || !board.length || !Array.isArray(board[0])) {
-      setHighlightedBombArea([]); // Ensure no highlights if mode is off or board is not ready
+      setHighlightedBombArea([]); 
       return;
     }
     const { x, y } = getTileCoordinates(event);
     setHighlightedBombArea(calculateBombArea(x, y));
-  }, [isBombHighlightActive, board.length, board, calculateBombArea]); // Add board to dependencies
+  }, [isBombHighlightActive, board.length, board, calculateBombArea]); 
 
-  // NEW: Mouse leave handler for grid
   const handleMouseLeaveGrid = useCallback(() => {
     if (isBombHighlightActive) {
-      setHighlightedBombArea([]); // Clear highlights when mouse leaves grid
+      setHighlightedBombArea([]); 
     }
   }, [isBombHighlightActive]);
 
-
   const renderTile = (tile) => {
+    // CRITICAL FIX: Intercept hidden mines on game completion BEFORE checking tile visibility overrides
+    if (gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam) {
+      return <div className="unrevealed-mine-cell" />;
+    }
+
     if (!tile.revealed) return "";
-    // If the tile is a mine and has an owner (i.e., it's a captured flag)
+    
     if (tile.isMine && tile.ownerTeam) {
-      // Return a div with the "hidden" class to get the unrevealed tile background
-      // and then render the flag SVG inside it.
       return (
-        <div className="tile hidden"> {/* Apply 'hidden' class for background color */}
+        <div className="tile hidden"> 
           {tile.ownerTeam === 1 && (
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
               <path d="M0 0h24v24H0z" fill="none"/>
@@ -1026,7 +935,7 @@ const logout = async () => {
         </div>
       );
     }
-    // Corrected: Wrap the number in a span with the appropriate class for coloring
+    
     if (tile.adjacentMines > 0) {
       return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
     }
@@ -1036,19 +945,18 @@ const logout = async () => {
   const resumeGame = (gameIdToResume) => {
     if (gameIdToResume && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("resume-game", { gameId: gameIdToResume });
-        showMessage("Attempting to resume game..."); // Global message
+        showMessage("Attempting to resume game..."); 
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Please wait or refresh.", true); // Global message
+        showMessage("Not connected to server. Please wait or refresh.", true); 
     }
   };
 
-  // NEW: Function to observe a game
   const observeGame = (gameIdToObserve) => {
     if (gameIdToObserve && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("observe-game", { gameId: gameIdToObserve });
-        showMessage("Attempting to observe game..."); // Global message
+        showMessage("Attempting to observe game..."); 
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Please wait or refresh.", true); // Global message
+        showMessage("Not connected to server. Please wait or refresh.", true); 
     }
   };
 
@@ -1058,7 +966,7 @@ const logout = async () => {
       socketRef.current.emit("send-lobby-message", lobbyMessageInput);
       setLobbyMessageInput("");
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Cannot send message.", true); // Global message
+        showMessage("Not connected to server. Cannot send message.", true); 
     }
   };
 
@@ -1068,9 +976,9 @@ const logout = async () => {
       socketRef.current.emit("send-game-message", { gameId, message: gameMessageInput });
       setGameMessageInput("");
     } else if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Cannot send message.", true); // Send to server chat
+        addGameMessage("Server", "Not connected to server. Cannot send message.", true); 
     } else if (!gameId) {
-        addGameMessage("Server", "Not in a game to send message.", true); // Send to server chat
+        addGameMessage("Server", "Not in a game to send message.", true); 
     }
   };
 
@@ -1078,18 +986,16 @@ const logout = async () => {
     const isChecked = e.target.checked;
     setIs2v2Mode(isChecked);
     if (isChecked) {
-      setInvitationStage(1); // Start invitation process: select partner
+      setInvitationStage(1); 
       showMessage("2v2 mode enabled. Double-click your partner, then two rivals.", false);
     } else {
-      setInvitationStage(0); // Reset invitation stage
+      setInvitationStage(0); 
       setSelectedPartner(null);
       setSelectedRivals([]);
       showMessage("2v2 mode disabled.", false);
     }
   };
 
-
-  // --- Conditional Rendering based on App State ---
 
   if (!loggedIn) {
     return (
@@ -1098,17 +1004,11 @@ const logout = async () => {
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
           onLogin={(googleName) => {
-            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
-            // No direct socket.emit("join-lobby") here anymore.
-            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
             console.log("Google Login completed via pop-up callback. State will update.");
           }}
         />
         <FacebookLogin
           onLogin={(facebookName) => {
-            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
-            // No direct socket.emit("join-lobby") here anymore.
-            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
             console.log("Facebook Login completed via pop-up callback. State will update.");
           }}
         />
@@ -1119,8 +1019,6 @@ const logout = async () => {
     );
   }
 
-  // --- Variables for Bomb Logic and Conditional Rendering ---
-  // These need to be calculated here so they are in scope for the JSX
   let currentPlayerScore = 0;
   let opponentPlayerOrTeamScore = 0;
   let currentBombUsedStatus = false;
@@ -1128,7 +1026,7 @@ const logout = async () => {
   if (gameId && playerNumber !== null && scores) {
       if (gameType === '1v1') {
           currentPlayerScore = scores[playerNumber];
-          opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
+          opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; 
           currentBombUsedStatus = bombsUsed[playerNumber];
       } else if (gameType === '2v2') {
           const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
@@ -1145,7 +1043,7 @@ const logout = async () => {
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
-        {!gameId && ( // Only show lobby elements if not in a game
+        {!gameId && ( 
             <>
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
@@ -1157,7 +1055,7 @@ const logout = async () => {
                   type="checkbox"
                   checked={is2v2Mode}
                   onChange={handle2v2CheckboxChange}
-                  disabled={!!selectedPartner || selectedRivals.length > 0} // Disable if selection has started
+                  disabled={!!selectedPartner || selectedRivals.length > 0} 
                 />
                 2v2 Game Mode
               </label>
@@ -1185,12 +1083,11 @@ const logout = async () => {
                       {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing: ${p.opponentName})`}
                     </span>
                   )}
-                  {/* Add Invite Button */}
-                  {socketRef.current && p.id !== socketRef.current.id && !p.gameId && ( // Only show if not self and not in a game
+                  {socketRef.current && p.id !== socketRef.current.id && !p.gameId && ( 
                     <button 
                       className="invite-button" 
                       onClick={(e) => {
-                        e.stopPropagation(); // Prevent double-click from firing if button is clicked
+                        e.stopPropagation(); 
                         handlePlayerClick(p);
                       }}
                       disabled={is2v2Mode && (invitationStage === 1 && selectedPartner) || (invitationStage === 2 && selectedRivals.length === 2)}
@@ -1204,10 +1101,8 @@ const logout = async () => {
             {invite && (
               <div className="invite-popup">
                 {invite.gameType === '2v2' ? (
-                  // MODIFIED: Update invite display message to use invitedPlayersInfo
                   <p>
                     2v2 Invitation from <b>{invite.senderName}</b>.<br/>
-                    {/* Assuming invitedPlayersInfo includes all 4 players (inviter + partner + 2 rivals) */}
                     Invited: {invite.invitedPlayersInfo.map(p => p.name).join(', ')}
                   </p>
                 ) : (
@@ -1261,7 +1156,6 @@ const logout = async () => {
                 )}
             </div>
 
-            {/* NEW: Observable Games Section */}
             <div className="observable-games-section">
                 <h3>Observable Games</h3>
                 {observableGames.length === 0 ? (
@@ -1287,7 +1181,6 @@ const logout = async () => {
                 )}
             </div>
 
-            {/* Lobby Chat Section */}
             <div className="lobby-chat-container chat-container">
               <h3>Lobby Chat</h3>
               <div className="messages-display">
@@ -1316,31 +1209,27 @@ const logout = async () => {
 
         {gameId && (
             <div className="app-game-container">
-                <div className="game-layout-grid"> {/* Main layout grid */}
-                    {/* Top Row - Left Sidebar (Controls & Info) */}
+                <div className="game-layout-grid"> 
                     <div className="game-sidebar left-sidebar">
                         <h1 className="game-title">Minesweeper Flags</h1>
                         <div className="game-controls">
-                            {/* Only show 'Use Bomb' button if player, not observer */}
-                            {playerNumber !== 0 && ( // Players 1,2,3,4 can use bomb
-                              !currentBombUsedStatus && // Check bomb used for current player/team
-                              currentPlayerScore < opponentPlayerOrTeamScore && // Check score against opponent
+                            {playerNumber !== 0 && ( 
+                              !currentBombUsedStatus && 
+                              currentPlayerScore < opponentPlayerOrTeamScore && 
                               !gameOver && (
                                 <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
                                     Use Bomb
                                 </button>
                               ))}
-                            {/* Display Cancel Bomb button if bombMode is active for selection (only for players) */}
                             {playerNumber !== 0 && bombMode && (
                               <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
                                   Cancel Bomb
                               </button>
                             )}
-                            {/* Back to Lobby & Restart buttons */}
                             <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
                                 Back to Lobby
                             </button>
-                            {gameOver && playerNumber !== 0 && ( // Only players can restart
+                            {gameOver && playerNumber !== 0 && ( 
                                 <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
                                     Restart Game
                                 </button>
@@ -1351,7 +1240,6 @@ const logout = async () => {
                                 {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
                                 {gameType === '1v1' ? ` (vs. ${opponentName})` : ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2 })`}
                             </h2>
-                            {/* Score display logic adjusted for 2v2 */}
                             {gameType === '2v2' ? (
                                 <div className="score-display">
                                     <p style={{ color: (turn === 1 || turn === 2) ? 'green' : 'inherit' }}>
@@ -1386,30 +1274,26 @@ const logout = async () => {
                                 </div>
                             )}
 
-                            {/* Display unrevealed mines count */}
                             <p className="mine-count-display">
                                 Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                             </p>
-                            {gameOver && playerNumber === 0 && ( // Observer sees game over message
+                            {gameOver && playerNumber === 0 && ( 
                                 <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
                             )}
                         </div>
-                    </div> {/* End of left-sidebar */}
+                    </div> 
 
-                    {/* Top Row - Central Game Board Area */}
                     <div className="game-board-area">
                         <div
                             className="grid"
                             style={{
                               gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
                             }}
-                            // Only attach mouse events for players in bomb mode
                             onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
                             onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
                         >
                             {board.flatMap((row, y) =>
                               row.map((tile, x) => {
-                                // Check if the current tile is part of the highlighted bomb area
                                 const isHighlighted = highlightedBombArea.some(
                                     (coord) => coord.x === x && coord.y === y
                                 );
@@ -1428,7 +1312,7 @@ const logout = async () => {
                                       gameType === '2v2' && lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p4" : ""
                                     } ${isHighlighted ? "highlighted-bomb-area" : ""
                                     }`}
-                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
+                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} 
                                   >
                                     {renderTile(tile)}
                                   </div>
@@ -1436,14 +1320,11 @@ const logout = async () => {
                               })
                             )}
                         </div>
-                    </div> {/* End of game-board-area */}
+                    </div> 
                     
-                    {/* Top Row - Right Sidebar (now empty, primarily for layout spacing) */}
                     <div className="game-sidebar right-sidebar">
-                        {/* No content here as observers and chat moved to bottom */}
                     </div>
 
-                    {/* Bottom Row - Observer List (left) */}
                     <div className="game-bottom-panel observer-list-panel">
                         {observersInGame.length > 0 && (
                             <div className="observers-list">
@@ -1457,7 +1338,6 @@ const logout = async () => {
                         )}
                     </div>
 
-                    {/* Bottom Row - Game Chat (middle) */}
                     <div className="game-bottom-panel game-chat-panel">
                         <div className="game-chat-container chat-container">
                             <h3>Game Chat</h3>
@@ -1467,7 +1347,6 @@ const logout = async () => {
                                         <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
                                     </div>
                                 ))}
-                                {/* Removed ref={gameChatEndRef} for no auto-scroll */}
                             </div>
                             <form onSubmit={sendGameMessage} className="message-input-form">
                                 <input
@@ -1483,9 +1362,8 @@ const logout = async () => {
                         </div>
                     </div>
 
-                    {/* Bottom Row - Server Messages Chat (right) */}
                     <div className="game-bottom-panel server-chat-panel">
-                        <div className="server-chat-container chat-container"> {/* Reusing chat-container styles */}
+                        <div className="server-chat-container chat-container"> 
                             <h3>Server Messages</h3>
                             <div className="messages-display">
                                 {serverMessages.map((msg, index) => (
@@ -1493,12 +1371,10 @@ const logout = async () => {
                                         <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
                                     </div>
                                 ))}
-                                {/* No ref for auto-scroll here as per request */}
                             </div>
-                            {/* No input form for server messages */}
                         </div>
                     </div>
-                </div> {/* End of game-layout-grid */}
+                </div> 
             </div>
         )}
     </div>
