@@ -121,6 +121,7 @@ function App() {
   const [lobbyMessageInput, setLobbyMessageInput] = useState("");
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
+  // Removed gameChatEndRef as per request for no auto-scroll
 
 
   // Effect to scroll to the bottom of lobby chat (no change here)
@@ -226,12 +227,13 @@ function App() {
         }
 
         // --- SAFARI ITP FALLBACK GUARD CONTAINER ---
+        // If the backend request failed or returned unauthorized, check if we have a valid saved local storage session
         if (!data && localStorage.getItem('auth_success_user')) {
           try {
             const savedSession = JSON.parse(localStorage.getItem('auth_success_user'));
             if (savedSession && savedSession.user) {
               console.warn("Safari Cookie blocked: Recovering state from localStorage fallback.");
-              data = savedSession; 
+              data = savedSession; // Inject local storage user profile to simulate successful response
             }
           } catch (e) {
             console.error("Failed to parse fallback session data", e);
@@ -250,6 +252,8 @@ function App() {
             console.log("Frontend: Initializing Socket.IO connection...");
             socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
               withCredentials: true,
+              // Send user metadata directly inside the handshake payload so Socket.IO can 
+              // register you even if the server session tracking cookie was destroyed by Safari
               query: {
                 fallbackUserId: data.user.id,
                 fallbackName: currentUserName
@@ -386,7 +390,6 @@ function App() {
               setBombMode(true);
               addGameMessage("Server", "Select 5x5 bomb center.", false);
               setIsBombHighlightActive(true);
-              setHighlightedBombArea([]);
             });
 
             socketRef.current.on("opponent-left", () => {
@@ -530,7 +533,7 @@ function App() {
 
       if (event.data && event.data.type === 'AUTH_SUCCESS') {
         const { user } = event.data;
-        localStorage.setItem('auth_success_user', JSON.stringify({ user })); 
+        localStorage.setItem('auth_success_user', JSON.stringify({ user })); // Save for Safari
         setName(user.displayName || `User_${user.id.substring(0, 8)}`);
         setLoggedIn(true);
         setIsGuest(user.id.startsWith('guest_'));
@@ -574,11 +577,13 @@ function App() {
     };
   }, [loggedIn, name, addGameMessage, gameId]);
 
+// NEW: Effect to synthesize matching sounds for flag captures vs normal tile clicks
   useEffect(() => {
     if (!gameId || !board || board.length === 0 || !scores || playerNumber === null || playerNumber === 0) {
       return;
     }
 
+    // 1. Calculate the total number of revealed tiles on the current board
     let currentRevealedCount = 0;
     board.forEach(row => {
       row.forEach(tile => {
@@ -586,6 +591,7 @@ function App() {
       });
     });
 
+    // 2. Determine your team/player score tracking key
     let myScoreKey = playerNumber;
     if (gameType === '2v2') {
       myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
@@ -595,7 +601,9 @@ function App() {
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
     const previousRevealedCount = prevRevealedCountRef.current;
 
+    // 3. Audio logic conditions
     if (currentScore > previousScore) {
+      // SCENARIO A: Your score went up -> Play the Flag Capture Chime
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
@@ -603,10 +611,10 @@ function App() {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           
-          osc.type = "triangle"; 
+          osc.type = "triangle"; // Soft, retro game tone
           const startTime = ctx.currentTime;
-          osc.frequency.setValueAtTime(523.25, startTime); 
-          osc.frequency.setValueAtTime(783.99, startTime + 0.08); 
+          osc.frequency.setValueAtTime(523.25, startTime); // C5 note
+          osc.frequency.setValueAtTime(783.99, startTime + 0.08); // Jumps up to G5
           
           gain.gain.setValueAtTime(0.15, startTime);
           gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
@@ -620,6 +628,7 @@ function App() {
         console.error("Audio playback failed:", e);
       }
     } else if (currentRevealedCount > previousRevealedCount) {
+      // SCENARIO B: Tiles were revealed but your score didn't change -> Normal Tile Click
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
@@ -627,14 +636,15 @@ function App() {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           
-          osc.type = "sine"; 
+          osc.type = "sine"; // Pure, organic water-drop click tone
           const startTime = ctx.currentTime;
           
+          // Fast pitch slide downward creates a perfect synthetic percussion tick/pop
           osc.frequency.setValueAtTime(600, startTime);
           osc.frequency.exponentialRampToValueAtTime(150, startTime + 0.04);
           
-          gain.gain.setValueAtTime(0.1, startTime); 
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); 
+          gain.gain.setValueAtTime(0.1, startTime); // Quiet volume profile
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); // Rapid snap decay
           
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -646,10 +656,12 @@ function App() {
       }
     }
 
+    // 4. Update memory layers for next layout delta match
     prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
 
+  // NEW useEffect to calculate unrevealed mines whenever the board changes
   useEffect(() => {
     if (board && board.length > 0) {
       let totalMines = 0;
@@ -658,19 +670,25 @@ function App() {
         row.forEach(tile => {
           if (tile.isMine) {
             totalMines++;
+            // A mine is "revealed" if it's visible on the board (e.g., clicked or part of an explosion)
+            // The `tile.revealed` property indicates if the tile state has been changed to revealed.
             if (tile.revealed) {
               revealedMines++;
             }
           }
         });
       });
+      // The number of unrevealed mines is the total minus those that have been revealed.
+      // This implies that flags are not explicitly tracked as "revealed" for this count,
+      // only actual mine exposure.
       setUnrevealedMines(totalMines - revealedMines);
     } else {
-      setUnrevealedMines(0); 
+      setUnrevealedMines(0); // Reset if board is empty or game not started
     }
   }, [board]);
 
-  const loginAsGuest = async () => {
+// NEW & FIXED: Function to handle Guest Login with Safari ITP localStorage Fallback
+const loginAsGuest = async () => {
     let guestId;
     let displayName;
     try {
@@ -694,6 +712,7 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         
+        // CRITICAL SAFARI FIX: Write the session information down into localStorage
         if (data.user) {
           localStorage.setItem('auth_success_user', JSON.stringify({ user: data.user }));
         }
@@ -713,6 +732,8 @@ function App() {
   };
 
 
+  // --- User Interaction Functions (using socketRef.current for emits) ---
+
   const handlePlayerClick = (player) => {
     if (player.id === socketRef.current.id) {
       showMessage("You cannot invite yourself.", true);
@@ -723,16 +744,17 @@ function App() {
       return;
     }
 
-    if (!is2v2Mode) { 
-      invitePlayer([player.id], '1v1'); 
-    } else { 
-      if (invitationStage === 0) { 
+    if (!is2v2Mode) { // 1v1 mode
+      invitePlayer([player.id], '1v1'); // Send socket ID for 1v1
+    } else { // 2v2 mode
+      if (invitationStage === 0) { // Should not happen, checkbox triggers stage 1
         showMessage("Please select 2v2 mode first.", true);
-      } else if (invitationStage === 1) { 
+      } else if (invitationStage === 1) { // Select partner
         setSelectedPartner(player);
         setInvitationStage(2);
         showMessage(`Selected ${player.name} as your partner. Now double-click two rivals.`);
-      } else if (invitationStage === 2) { 
+      } else if (invitationStage === 2) { // Select rivals
+        // Check if player is already selected as partner or rival
         const isAlreadySelected = (selectedPartner && selectedPartner.id === player.id) ||
                                   selectedRivals.some(rival => rival.id === player.id);
         if (isAlreadySelected) {
@@ -744,6 +766,7 @@ function App() {
         setSelectedRivals(newRivals);
         if (newRivals.length === 2) {
           showMessage(`Selected rivals: ${newRivals[0].name}, ${newRivals[1].name}. All players selected.`);
+          // Automatically send invitation when all four are selected
           sendTeamInvite(selectedPartner, newRivals);
         } else {
           showMessage(`Selected ${player.name} as a rival. Select one more rival.`);
@@ -758,6 +781,8 @@ function App() {
       showMessage("Invitation sent.");
     } else if (!socketRef.current || !socketRef.current.connected) {
         showMessage("Not connected to server. Please wait or refresh.", true);
+    } else {
+        console.warn("Invite failed: Not logged in or inviting self.");
     }
   };
 
@@ -766,19 +791,23 @@ function App() {
       showMessage("Please select one partner and two rivals.", true);
       return;
     }
-    const allPlayerIds = [partner.id, rivals[0].id, rivals[1].id]; 
+    const allPlayerIds = [partner.id, rivals[0].id, rivals[1].id]; // Exclude self from this list, server adds inviter
     invitePlayer(allPlayerIds, '2v2');
+    // Reset selection after sending invite
     setSelectedPartner(null);
     setSelectedRivals([]);
-    setIs2v2Mode(false); 
+    setIs2v2Mode(false); // Disable 2v2 mode after invite
     setInvitationStage(0);
   };
 
   const respondInvite = (accept) => {
     if (invite && socketRef.current && socketRef.current.connected) {
+      // MODIFIED: Pass inviteId from the current invite state to the backend
+      // gameIdFromClient can be null if it's a new game being created
       socketRef.current.emit("respond-invite", { inviteId: invite.inviteId, gameIdFromClient: null, accept });
       setInvite(null);
       setMessage("");
+      // Clear 2v2 selection if an invite is accepted/rejected
       setSelectedPartner(null);
       setSelectedRivals([]);
       setIs2v2Mode(false);
@@ -789,30 +818,33 @@ function App() {
   };
 
   const handleClick = (x, y) => {
+    // Only players (playerNumber 1, 2, 3, 4) can click tiles
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
 
-    if (bombMode) { 
-      const MIN_COORD = 2; 
-      const MAX_COORD_X = WIDTH - 3; 
-      const MAX_COORD_Y = HEIGHT - 3; 
+    // If waiting for bomb center, emit bomb-center event
+    if (bombMode) { // bombMode is true when backend sent 'wait-bomb-center'
+      const MIN_COORD = 2; // Hardcoded in original, keep for now
+      const MAX_COORD_X = WIDTH - 3; // Use WIDTH constant
+      const MAX_COORD_Y = HEIGHT - 3; // 16 - 3 = 13
 
-      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) { 
-        addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); 
+      if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) { // Fixed: was `cy > MAX_COORD_Y`
+        addGameMessage("Server", "Bomb center must be within the 12x12 area.", true); // Send to server chat
         return;
       }
 
+      // Check if bomb area is already fully revealed (client-side check for user feedback)
       let allTilesRevealed = true;
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
           const checkX = x + dx;
           const checkY = y + dy;
-          if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) { 
+          if (checkX >= 0 && checkX < WIDTH && checkY >= 0 && checkY < HEIGHT) { // Use WIDTH/HEIGHT constants
             if (!board[checkY][checkX].revealed) {
               allTilesRevealed = false;
               break;
             }
           } else {
-              allTilesRevealed = false; 
+              allTilesRevealed = false; // Treat out-of-bounds as not fully revealed for bomb purpose
               break;
           }
         }
@@ -820,98 +852,108 @@ function App() {
       }
 
       if (allTilesRevealed) {
-        addGameMessage("Server", "All tiles in the bomb's blast area are already revealed.", true); 
+        addGameMessage("Server", "All tiles in the bomb's blast area are already revealed.", true); // Send to server chat
         return;
       }
 
-      addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); 
+      addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("bomb-center", { gameId, x, y });
-      setBombMode(false); 
-      setIsBombHighlightActive(false); 
-      setHighlightedBombArea([]); 
+      setBombMode(false); // Exit bomb selection mode
+      setIsBombHighlightActive(false); // Turn off highlighting after selection
+      setHighlightedBombArea([]); // Clear highlights
     } else if (playerNumber === turn && !gameOver) {
-      addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
+      addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); // Indicate action in server chat
       socketRef.current.emit("tile-click", { gameId, x, y });
     } else if (playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn!", true); 
+        addGameMessage("Server", "It's not your turn!", true); // Send to server chat
     }
   };
 
-  const handleUseBombClick = () => { 
+  const handleUseBombClick = () => { // Renamed from useBomb to distinguish from "cancel bomb"
+    // Only players (not observers) can use bombs
     if (playerNumber === 0) {
-        addGameMessage("Server", "Observers cannot use bombs.", true); 
+        addGameMessage("Server", "Observers cannot use bombs.", true); // Send to server chat
         return;
     }
+    
+    // Determine the relevant scores and bomb usage based on game type
+    // These variables are now calculated in the main render function scope below.
+    // So, we just need to use them here.
 
     if (!isSocketConnected || !gameId || gameOver || currentBombUsedStatus || !(gameType === '1v1' ? playerNumber === turn : true)) {
       if (currentBombUsedStatus) {
-        addGameMessage("Server", "Your team has already used its bomb!", true); 
+        addGameMessage("Server", "Your team has already used its bomb!", true); // Send to server chat
       } else if (gameOver) {
-        addGameMessage("Server", "Game is over, cannot use bomb.", true); 
+        addGameMessage("Server", "Game is over, cannot use bomb.", true); // Send to server chat
       } else if (!gameId) {
-        addGameMessage("Server", "Not in a game to use bomb.", true); 
+        addGameMessage("Server", "Not in a game to use bomb.", true); // Send to server chat
       } else if (gameType === '1v1' && playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn to use the bomb!", true); 
+        addGameMessage("Server", "It's not your turn to use the bomb!", true); // Send to server chat
       } else if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); 
+        addGameMessage("Server", "Not connected to server. Please wait or refresh.", true); // Send to server chat
       }
       return;
     }
 
-    if (currentPlayerScore < opponentPlayerOrTeamScore) { 
+    // Only allow bomb usage if player's team is strictly behind in score
+    if (currentPlayerScore < opponentPlayerOrTeamScore) { // Condition remains strictly less than
       socketRef.current.emit("use-bomb", { gameId });
+      // When 'use-bomb' is emitted, we immediately activate visual highlighting
       setIsBombHighlightActive(true); 
-      addGameMessage("Server", "Bomb initiated. Select target.", false); 
+      addGameMessage("Server", "Bomb initiated. Select target.", false); // Send to server chat
     } else {
-      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); 
+      addGameMessage("Server", "You can only use the bomb when your team is behind in score!", true); // Updated message
     }
   };
 
-  const handleCancelBomb = () => { 
-    setBombMode(false); 
-    setIsBombHighlightActive(false); 
-    setHighlightedBombArea([]); 
-    addGameMessage("Server", "Bomb selection cancelled.", false); 
+  const handleCancelBomb = () => { // New function for cancelling bomb mode
+    setBombMode(false); // Reset backend's waitingForBombCenter state
+    setIsBombHighlightActive(false); // Deactivate visual bomb highlighting
+    setHighlightedBombArea([]); // Clear highlights
+    addGameMessage("Server", "Bomb selection cancelled.", false); // Send to server chat
   };
 
   const backToLobby = () => {
     if (gameId && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("leave-game", { gameId });
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Cannot leave game.", true); 
+        showMessage("Not connected to server. Cannot leave game.", true); // Global message
     }
 
     setGameId(null);
-    setPlayerNumber(null); 
+    setPlayerNumber(null); // Reset player number
     setBoard([]);
     setTurn(null);
     setScores({ 1: 0, 2: 0 });
     setBombsUsed({ 1: false, 2: false });
-    setBombMode(false); 
-    setIsBombHighlightActive(false); 
-    setHighlightedBombArea([]); 
+    setBombMode(false); // Reset backend's bombMode state
+    setIsBombHighlightActive(false); // Clear bomb highlight on leaving game
+    setHighlightedBombArea([]); // Clear highlights
     setGameOver(false);
     setOpponentName("");
     setInvite(null);
-    setMessage(""); 
+    setMessage(""); // Clear global message
     setUnfinishedGames([]);
-    setObservableGames([]); 
-    setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); 
-    setLobbyMessages([]); 
-    setGameMessages([]); 
-    setServerMessages([]); 
-    setObserversInGame([]); 
-    setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); 
-    setGameType('1v1'); 
+    setObservableGames([]); // Clear observable games
+    setLastClickedTile({ 1: null, 2: null, 3: null, 4: null }); // Reset for 2v2
+    setLobbyMessages([]); // Clear lobby chat on returning to lobby (will be re-fetched)
+    setGameMessages([]); // Clear game chat
+    setServerMessages([]); // NEW: Clear server messages on returning to lobby
+    setObserversInGame([]); // Clear observers list in game
+    setGamePlayerNames({ 1: '', 2: '', 3: '', 4: '' }); // Clear player names for score display
+    setGameType('1v1'); // Reset game type
 
+    // Clear 2v2 invitation related states
     setSelectedPartner(null);
     setSelectedRivals([]);
     setIs2v2Mode(false);
     setInvitationStage(0);
 
+    // Request unfinished games and observable games again to refresh the list in the lobby
+    // This check is already in place. The issue was in the JSX render, not here.
     if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit("request-unfinished-games");
-      socketRef.current.emit("request-observable-games"); 
+      socketRef.current.emit("request-observable-games"); // NEW: Re-request observable games
     }
 };
 
@@ -928,6 +970,7 @@ const logout = async () => {
         setIsSocketConnected(false);
       }
 
+      // CRITICAL LOGOUT FIX: Wipe local credentials
       localStorage.removeItem('auth_success_user');
 
       setLoggedIn(false);
@@ -941,33 +984,33 @@ const logout = async () => {
     }
   };
 
+  // NEW: Mouse movement handler for bomb highlighting
   const handleMouseMoveOnGrid = useCallback((event) => {
+    // Only highlight if bomb mode is active and board data is loaded
     if (!isBombHighlightActive || !board.length || !Array.isArray(board[0])) {
-      setHighlightedBombArea([]); 
+      setHighlightedBombArea([]); // Ensure no highlights if mode is off or board is not ready
       return;
     }
     const { x, y } = getTileCoordinates(event);
     setHighlightedBombArea(calculateBombArea(x, y));
-  }, [isBombHighlightActive, board.length, board, calculateBombArea]); 
+  }, [isBombHighlightActive, board.length, board, calculateBombArea]); // Add board to dependencies
 
+  // NEW: Mouse leave handler for grid
   const handleMouseLeaveGrid = useCallback(() => {
     if (isBombHighlightActive) {
-      setHighlightedBombArea([]); 
+      setHighlightedBombArea([]); // Clear highlights when mouse leaves grid
     }
   }, [isBombHighlightActive]);
 
 
   const renderTile = (tile) => {
-    // CRITICAL EXTENSION: If game is over, render the dedicated custom mine structure for all unrevealed mines
-    if (gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam) {
-      return <div className="unrevealed-mine-cell" />;
-    }
-
     if (!tile.revealed) return "";
-    
+    // If the tile is a mine and has an owner (i.e., it's a captured flag)
     if (tile.isMine && tile.ownerTeam) {
+      // Return a div with the "hidden" class to get the unrevealed tile background
+      // and then render the flag SVG inside it.
       return (
-        <div className="tile hidden"> 
+        <div className="tile hidden"> {/* Apply 'hidden' class for background color */}
           {tile.ownerTeam === 1 && (
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
               <path d="M0 0h24v24H0z" fill="none"/>
@@ -983,7 +1026,7 @@ const logout = async () => {
         </div>
       );
     }
-    
+    // Corrected: Wrap the number in a span with the appropriate class for coloring
     if (tile.adjacentMines > 0) {
       return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
     }
@@ -993,18 +1036,19 @@ const logout = async () => {
   const resumeGame = (gameIdToResume) => {
     if (gameIdToResume && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("resume-game", { gameId: gameIdToResume });
-        showMessage("Attempting to resume game..."); 
+        showMessage("Attempting to resume game..."); // Global message
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Please wait or refresh.", true); 
+        showMessage("Not connected to server. Please wait or refresh.", true); // Global message
     }
   };
 
+  // NEW: Function to observe a game
   const observeGame = (gameIdToObserve) => {
     if (gameIdToObserve && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("observe-game", { gameId: gameIdToObserve });
-        showMessage("Attempting to observe game..."); 
+        showMessage("Attempting to observe game..."); // Global message
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Please wait or refresh.", true); 
+        showMessage("Not connected to server. Please wait or refresh.", true); // Global message
     }
   };
 
@@ -1014,7 +1058,7 @@ const logout = async () => {
       socketRef.current.emit("send-lobby-message", lobbyMessageInput);
       setLobbyMessageInput("");
     } else if (!isSocketConnected) {
-        showMessage("Not connected to server. Cannot send message.", true); 
+        showMessage("Not connected to server. Cannot send message.", true); // Global message
     }
   };
 
@@ -1024,9 +1068,9 @@ const logout = async () => {
       socketRef.current.emit("send-game-message", { gameId, message: gameMessageInput });
       setGameMessageInput("");
     } else if (!isSocketConnected) {
-        addGameMessage("Server", "Not connected to server. Cannot send message.", true); 
+        addGameMessage("Server", "Not connected to server. Cannot send message.", true); // Send to server chat
     } else if (!gameId) {
-        addGameMessage("Server", "Not in a game to send message.", true); 
+        addGameMessage("Server", "Not in a game to send message.", true); // Send to server chat
     }
   };
 
@@ -1034,16 +1078,18 @@ const logout = async () => {
     const isChecked = e.target.checked;
     setIs2v2Mode(isChecked);
     if (isChecked) {
-      setInvitationStage(1); 
+      setInvitationStage(1); // Start invitation process: select partner
       showMessage("2v2 mode enabled. Double-click your partner, then two rivals.", false);
     } else {
-      setInvitationStage(0); 
+      setInvitationStage(0); // Reset invitation stage
       setSelectedPartner(null);
       setSelectedRivals([]);
       showMessage("2v2 mode disabled.", false);
     }
   };
 
+
+  // --- Conditional Rendering based on App State ---
 
   if (!loggedIn) {
     return (
@@ -1052,11 +1098,17 @@ const logout = async () => {
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
           onLogin={(googleName) => {
+            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
+            // No direct socket.emit("join-lobby") here anymore.
+            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
             console.log("Google Login completed via pop-up callback. State will update.");
           }}
         />
         <FacebookLogin
           onLogin={(facebookName) => {
+            // This onLogin callback is now triggered by AuthCallback pop-up postMessage.
+            // No direct socket.emit("join-lobby") here anymore.
+            // The state update (setName, setLoggedIn) will trigger the socket useEffect.
             console.log("Facebook Login completed via pop-up callback. State will update.");
           }}
         />
@@ -1067,6 +1119,8 @@ const logout = async () => {
     );
   }
 
+  // --- Variables for Bomb Logic and Conditional Rendering ---
+  // These need to be calculated here so they are in scope for the JSX
   let currentPlayerScore = 0;
   let opponentPlayerOrTeamScore = 0;
   let currentBombUsedStatus = false;
@@ -1074,7 +1128,7 @@ const logout = async () => {
   if (gameId && playerNumber !== null && scores) {
       if (gameType === '1v1') {
           currentPlayerScore = scores[playerNumber];
-          opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; 
+          opponentPlayerOrTeamScore = scores[playerNumber === 1 ? 2 : 1]; // Opponent is the other player number
           currentBombUsedStatus = bombsUsed[playerNumber];
       } else if (gameType === '2v2') {
           const myTeamNumber = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
@@ -1091,7 +1145,7 @@ const logout = async () => {
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
-        {!gameId && ( 
+        {!gameId && ( // Only show lobby elements if not in a game
             <>
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
@@ -1103,7 +1157,7 @@ const logout = async () => {
                   type="checkbox"
                   checked={is2v2Mode}
                   onChange={handle2v2CheckboxChange}
-                  disabled={!!selectedPartner || selectedRivals.length > 0} 
+                  disabled={!!selectedPartner || selectedRivals.length > 0} // Disable if selection has started
                 />
                 2v2 Game Mode
               </label>
@@ -1131,11 +1185,12 @@ const logout = async () => {
                       {p.role === 'player' ? ` (In Game vs. ${p.opponentName})` : ` (Observing: ${p.opponentName})`}
                     </span>
                   )}
-                  {socketRef.current && p.id !== socketRef.current.id && !p.gameId && ( 
+                  {/* Add Invite Button */}
+                  {socketRef.current && p.id !== socketRef.current.id && !p.gameId && ( // Only show if not self and not in a game
                     <button 
                       className="invite-button" 
                       onClick={(e) => {
-                        e.stopPropagation(); 
+                        e.stopPropagation(); // Prevent double-click from firing if button is clicked
                         handlePlayerClick(p);
                       }}
                       disabled={is2v2Mode && (invitationStage === 1 && selectedPartner) || (invitationStage === 2 && selectedRivals.length === 2)}
@@ -1149,8 +1204,10 @@ const logout = async () => {
             {invite && (
               <div className="invite-popup">
                 {invite.gameType === '2v2' ? (
+                  // MODIFIED: Update invite display message to use invitedPlayersInfo
                   <p>
                     2v2 Invitation from <b>{invite.senderName}</b>.<br/>
+                    {/* Assuming invitedPlayersInfo includes all 4 players (inviter + partner + 2 rivals) */}
                     Invited: {invite.invitedPlayersInfo.map(p => p.name).join(', ')}
                   </p>
                 ) : (
@@ -1204,6 +1261,7 @@ const logout = async () => {
                 )}
             </div>
 
+            {/* NEW: Observable Games Section */}
             <div className="observable-games-section">
                 <h3>Observable Games</h3>
                 {observableGames.length === 0 ? (
@@ -1229,6 +1287,7 @@ const logout = async () => {
                 )}
             </div>
 
+            {/* Lobby Chat Section */}
             <div className="lobby-chat-container chat-container">
               <h3>Lobby Chat</h3>
               <div className="messages-display">
@@ -1257,27 +1316,31 @@ const logout = async () => {
 
         {gameId && (
             <div className="app-game-container">
-                <div className="game-layout-grid"> 
+                <div className="game-layout-grid"> {/* Main layout grid */}
+                    {/* Top Row - Left Sidebar (Controls & Info) */}
                     <div className="game-sidebar left-sidebar">
                         <h1 className="game-title">Minesweeper Flags</h1>
                         <div className="game-controls">
-                            {playerNumber !== 0 && ( 
-                              !currentBombUsedStatus && 
-                              currentPlayerScore < opponentPlayerOrTeamScore && 
+                            {/* Only show 'Use Bomb' button if player, not observer */}
+                            {playerNumber !== 0 && ( // Players 1,2,3,4 can use bomb
+                              !currentBombUsedStatus && // Check bomb used for current player/team
+                              currentPlayerScore < opponentPlayerOrTeamScore && // Check score against opponent
                               !gameOver && (
                                 <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
                                     Use Bomb
                                 </button>
                               ))}
+                            {/* Display Cancel Bomb button if bombMode is active for selection (only for players) */}
                             {playerNumber !== 0 && bombMode && (
                               <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
                                   Cancel Bomb
                               </button>
                             )}
+                            {/* Back to Lobby & Restart buttons */}
                             <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
                                 Back to Lobby
                             </button>
-                            {gameOver && playerNumber !== 0 && ( 
+                            {gameOver && playerNumber !== 0 && ( // Only players can restart
                                 <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
                                     Restart Game
                                 </button>
@@ -1288,6 +1351,7 @@ const logout = async () => {
                                 {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
                                 {gameType === '1v1' ? ` (vs. ${opponentName})` : ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2 })`}
                             </h2>
+                            {/* Score display logic adjusted for 2v2 */}
                             {gameType === '2v2' ? (
                                 <div className="score-display">
                                     <p style={{ color: (turn === 1 || turn === 2) ? 'green' : 'inherit' }}>
@@ -1322,26 +1386,30 @@ const logout = async () => {
                                 </div>
                             )}
 
+                            {/* Display unrevealed mines count */}
                             <p className="mine-count-display">
                                 Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                             </p>
-                            {gameOver && playerNumber === 0 && ( 
+                            {gameOver && playerNumber === 0 && ( // Observer sees game over message
                                 <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
                             )}
                         </div>
-                    </div> 
+                    </div> {/* End of left-sidebar */}
 
+                    {/* Top Row - Central Game Board Area */}
                     <div className="game-board-area">
                         <div
                             className="grid"
                             style={{
                               gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
                             }}
+                            // Only attach mouse events for players in bomb mode
                             onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
                             onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
                         >
                             {board.flatMap((row, y) =>
                               row.map((tile, x) => {
+                                // Check if the current tile is part of the highlighted bomb area
                                 const isHighlighted = highlightedBombArea.some(
                                     (coord) => coord.x === x && coord.y === y
                                 );
@@ -1360,7 +1428,7 @@ const logout = async () => {
                                       gameType === '2v2' && lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p4" : ""
                                     } ${isHighlighted ? "highlighted-bomb-area" : ""
                                     }`}
-                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} 
+                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} // Only players can click
                                   >
                                     {renderTile(tile)}
                                   </div>
@@ -1368,11 +1436,14 @@ const logout = async () => {
                               })
                             )}
                         </div>
-                    </div> 
+                    </div> {/* End of game-board-area */}
                     
+                    {/* Top Row - Right Sidebar (now empty, primarily for layout spacing) */}
                     <div className="game-sidebar right-sidebar">
+                        {/* No content here as observers and chat moved to bottom */}
                     </div>
 
+                    {/* Bottom Row - Observer List (left) */}
                     <div className="game-bottom-panel observer-list-panel">
                         {observersInGame.length > 0 && (
                             <div className="observers-list">
@@ -1386,6 +1457,7 @@ const logout = async () => {
                         )}
                     </div>
 
+                    {/* Bottom Row - Game Chat (middle) */}
                     <div className="game-bottom-panel game-chat-panel">
                         <div className="game-chat-container chat-container">
                             <h3>Game Chat</h3>
@@ -1395,6 +1467,7 @@ const logout = async () => {
                                         <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
                                     </div>
                                 ))}
+                                {/* Removed ref={gameChatEndRef} for no auto-scroll */}
                             </div>
                             <form onSubmit={sendGameMessage} className="message-input-form">
                                 <input
@@ -1410,8 +1483,9 @@ const logout = async () => {
                         </div>
                     </div>
 
+                    {/* Bottom Row - Server Messages Chat (right) */}
                     <div className="game-bottom-panel server-chat-panel">
-                        <div className="server-chat-container chat-container"> 
+                        <div className="server-chat-container chat-container"> {/* Reusing chat-container styles */}
                             <h3>Server Messages</h3>
                             <div className="messages-display">
                                 {serverMessages.map((msg, index) => (
@@ -1419,10 +1493,12 @@ const logout = async () => {
                                         <strong>{msg.sender}:</strong> {msg.text} <span className="timestamp">({msg.timestamp})</span>
                                     </div>
                                 ))}
+                                {/* No ref for auto-scroll here as per request */}
                             </div>
+                            {/* No input form for server messages */}
                         </div>
                     </div>
-                </div> 
+                </div> {/* End of game-layout-grid */}
             </div>
         )}
     </div>
