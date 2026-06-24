@@ -909,10 +909,10 @@ function App() {
     }
   }, [isBombHighlightActive]);
 
-  const renderTile = (tile) => {
-    // CRITICAL FIX: Intercept hidden mines on game completion BEFORE checking tile visibility overrides
+const renderTile = (tile) => {
+    // If it's an unrevealed mine at game over, the outer cell handles the graphic styles
     if (gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam) {
-      return <div className="unrevealed-mine-cell" />;
+      return "";
     }
 
     if (!tile.revealed) return "";
@@ -1297,11 +1297,17 @@ function App() {
                                 const isHighlighted = highlightedBombArea.some(
                                     (coord) => coord.x === x && coord.y === y
                                 );
+                                
+                                // Determine if this cell should show up as a revealed mine at the end of the match
+                                const isUnrevealedEndGameMine = gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam;
+
                                 return (
                                   <div
                                     key={`${x}-${y}`}
                                     className={`tile ${
-                                      tile.revealed ? "revealed" : "hidden"
+                                      isUnrevealedEndGameMine 
+                                        ? "unrevealed-mine-cell" 
+                                        : tile.revealed ? "revealed" : "hidden"
                                     } ${tile.isMine && tile.revealed ? "mine" : ""} ${
                                       lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
                                     } ${
@@ -1320,7 +1326,7 @@ function App() {
                               })
                             )}
                         </div>
-                    </div> 
+                    </div>
                     
                     <div className="game-sidebar right-sidebar">
                     </div>
