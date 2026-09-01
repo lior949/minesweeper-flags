@@ -2447,8 +2447,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ 
-await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
             board: serializedBoard,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
