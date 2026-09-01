@@ -674,7 +674,7 @@ function App() {
     e.preventDefault();
     // FIXED: Added /auth/ prefix to match backend routes
     const endpoint = isRegistering 
-      ? "https://minesweeper-flags-backend.onrender.com/auth/register" 
+      ? "https://minesweeper-flags-backend.onrender.com/auth/signup" 
       : "https://minesweeper-flags-backend.onrender.com/auth/login";
     
     try {
