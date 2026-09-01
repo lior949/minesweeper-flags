@@ -10,7 +10,6 @@ const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
-const LocalStrategy = require("passport-local").Strategy; // Import Local Strategy for Username/Password
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
 
 // --- Firebase Admin SDK Imports ---
@@ -248,27 +247,6 @@ function(accessToken, refreshToken, profile, cb) {
   cb(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
 }));
 
-// Local Strategy config for User-Password authentication
-passport.use(new LocalStrategy(
-  { usernameField: 'username', passwordField: 'password' },
-  async (username, password, done) => {
-    try {
-      const userRef = db.collection('users').doc(username);
-      const doc = await userRef.get();
-      if (!doc.exists) {
-        return done(null, false, { message: 'Incorrect username.' });
-      }
-      const user = doc.data();
-      if (user.password !== password) {
-        return done(null, false, { message: 'Incorrect password.' });
-      }
-      return done(null, { id: user.id, displayName: user.displayName || username });
-    } catch (err) {
-      return done(err);
-    }
-  }
-));
-
 
 // Passport Serialization/Deserialization
 passport.serializeUser((user, done) => {
@@ -370,53 +348,6 @@ app.get("/auth/facebook/callback",
     });
   }
 );
-
-// NEW: Local Sign-up Route
-app.post("/auth/signup", async (req, res) => {
-  const { username, password, displayName } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ message: "Username and password are required." });
-  }
-  try {
-    const userRef = db.collection('users').doc(username);
-    const doc = await userRef.get();
-    if (doc.exists) {
-      return res.status(400).json({ message: "Username already exists." });
-    }
-    const userId = uuidv4();
-    const newUser = {
-      id: userId,
-      username,
-      password,
-      displayName: displayName || username
-    };
-    await userRef.set(newUser);
-
-    req.login({ id: userId, displayName: newUser.displayName }, (err) => {
-      if (err) {
-        return res.status(500).json({ message: "Login after signup failed." });
-      }
-      req.session.save((saveErr) => {
-        if (saveErr) {
-          return res.status(500).json({ message: "Session save failed." });
-        }
-        res.status(200).json({ user: { id: userId, displayName: newUser.displayName } });
-      });
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Signup failed.", error: error.message });
-  }
-});
-
-// NEW: Local Login Route
-app.post("/auth/login", passport.authenticate("local"), (req, res) => {
-  req.session.save((err) => {
-    if (err) {
-      return res.status(500).json({ message: "Session save failed." });
-    }
-    res.status(200).json({ user: req.user });
-  });
-});
 
 // NEW: Guest Login Route
 app.post("/auth/guest", (req, res) => {
