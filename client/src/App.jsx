@@ -672,7 +672,10 @@ function App() {
   // NEW: Handle local password-based login or registration submit
   const handleLocalAuthSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = isRegistering ? "https://minesweeper-flags-backend.onrender.com/register" : "https://minesweeper-flags-backend.onrender.com/login";
+    // FIXED: Added /auth/ prefix to match backend routes
+    const endpoint = isRegistering 
+      ? "https://minesweeper-flags-backend.onrender.com/auth/register" 
+      : "https://minesweeper-flags-backend.onrender.com/auth/login";
     
     try {
       const response = await fetch(endpoint, {
