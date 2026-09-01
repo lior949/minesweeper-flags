@@ -57,9 +57,6 @@ function App() {
   const [name, setName] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [isGuest, setIsGuest] = useState(false); // NEW: Track if logged in as guest
-  const [isRegistering, setIsRegistering] = useState(false); // NEW: Toggle between login and registration mode
-  const [usernameInput, setUsernameInput] = useState(""); // NEW: Input state for username/email/password
-  const [passwordInput, setPasswordInput] = useState(""); // NEW: Input state for password
   const [playersList, setPlayersList] = useState([]);
   const [message, setMessage] = useState(""); // General message/error display
 
@@ -669,40 +666,6 @@ function App() {
     }
   };
 
-  // NEW: Handle local password-based login or registration submit
-  const handleLocalAuthSubmit = async (e) => {
-    e.preventDefault();
-    // FIXED: Added /auth/ prefix to match backend routes
-    const endpoint = isRegistering 
-      ? "https://minesweeper-flags-backend.onrender.com/auth/signup" 
-      : "https://minesweeper-flags-backend.onrender.com/auth/login";
-    
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameInput, password: passwordInput }),
-        credentials: "include",
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.user) {
-        localStorage.setItem('auth_success_user', JSON.stringify({ user: data.user }));
-        const currentUserName = data.user.displayName || data.user.name || usernameInput;
-        setName(currentUserName);
-        setLoggedIn(true);
-        setIsGuest(false);
-        showMessage(isRegistering ? "Registration successful!" : "Login successful!");
-      } else {
-        showMessage(data.message || "Authentication failed", true);
-      }
-    } catch (err) {
-      console.error("Local auth request failed:", err);
-      showMessage("Network error during authentication", true);
-    }
-  };
-
   const handlePlayerClick = (player) => {
     if (player.id === socketRef.current.id) {
       showMessage("You cannot invite yourself.", true);
@@ -1039,35 +1002,6 @@ const renderTile = (tile) => {
       <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <h2>Login or Play as Guest</h2>
-        
-        {/* NEW: Local username and password form */}
-        <form onSubmit={handleLocalAuthSubmit} className="local-auth-form" style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '300px', margin: '0 auto 20px auto' }}>
-          <input
-            type="text"
-            placeholder="Username"
-            value={usernameInput}
-            onChange={(e) => setUsernameInput(e.target.value)}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={passwordInput}
-            onChange={(e) => setPasswordInput(e.target.value)}
-            required
-          />
-          <button type="submit" className="bomb-button">
-            {isRegistering ? "Register" : "Login"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsRegistering(!isRegistering)}
-            style={{ background: 'none', border: 'none', color: 'blue', cursor: 'pointer', textDecoration: 'underline' }}
-          >
-            {isRegistering ? "Already have an account? Login" : "Need an account? Register"}
-          </button>
-        </form>
-
         <GoogleLogin
           onLogin={(googleName) => {
             console.log("Google Login completed via pop-up callback. State will update.");
