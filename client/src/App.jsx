@@ -629,9 +629,9 @@ function App() {
     let displayName;
     try {
         const deviceUuid = getDeviceUuid();
-        guestId = await generate5DigitGuestId(deviceUuid);
-        guestId = `guest_${guestId}`;
-        displayName = `Guest_${guestId.substring(6)}`;
+        const numericPart = await generate5DigitGuestId(deviceUuid);
+        guestId = `guest_${numericPart}`;
+        displayName = `Guest_${numericPart}`; // Safely use the exact 5 digits
     } catch (error) {
       guestId = `guest_fallback_${Date.now()}`;
       displayName = `Guest_Fallback`;
