@@ -10,6 +10,7 @@ const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
+const LocalStrategy = require("passport-local").Strategy; // Import Local Strategy for Username/Password
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
 
 // --- Firebase Admin SDK Imports ---
@@ -247,6 +248,27 @@ function(accessToken, refreshToken, profile, cb) {
   cb(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
 }));
 
+// Local Strategy config for User-Password authentication
+passport.use(new LocalStrategy(
+  { usernameField: 'username', passwordField: 'password' },
+  async (username, password, done) => {
+    try {
+      const userRef = db.collection('users').doc(username);
+      const doc = await userRef.get();
+      if (!doc.exists) {
+        return done(null, false, { message: 'Incorrect username.' });
+      }
+      const user = doc.data();
+      if (user.password !== password) {
+        return done(null, false, { message: 'Incorrect password.' });
+      }
+      return done(null, { id: user.id, displayName: user.displayName || username });
+    } catch (err) {
+      return done(err);
+    }
+  }
+));
+
 
 // Passport Serialization/Deserialization
 passport.serializeUser((user, done) => {
@@ -348,6 +370,53 @@ app.get("/auth/facebook/callback",
     });
   }
 );
+
+// NEW: Local Sign-up Route
+app.post("/auth/signup", async (req, res) => {
+  const { username, password, displayName } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ message: "Username and password are required." });
+  }
+  try {
+    const userRef = db.collection('users').doc(username);
+    const doc = await userRef.get();
+    if (doc.exists) {
+      return res.status(400).json({ message: "Username already exists." });
+    }
+    const userId = uuidv4();
+    const newUser = {
+      id: userId,
+      username,
+      password,
+      displayName: displayName || username
+    };
+    await userRef.set(newUser);
+
+    req.login({ id: userId, displayName: newUser.displayName }, (err) => {
+      if (err) {
+        return res.status(500).json({ message: "Login after signup failed." });
+      }
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          return res.status(500).json({ message: "Session save failed." });
+        }
+        res.status(200).json({ user: { id: userId, displayName: newUser.displayName } });
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Signup failed.", error: error.message });
+  }
+});
+
+// NEW: Local Login Route
+app.post("/auth/login", passport.authenticate("local"), (req, res) => {
+  req.session.save((err) => {
+    if (err) {
+      return res.status(500).json({ message: "Session save failed." });
+    }
+    res.status(200).json({ user: req.user });
+  });
+});
 
 // NEW: Guest Login Route
 app.post("/auth/guest", (req, res) => {
@@ -2378,215 +2447,4 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
-            board: serializedBoard,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            turn: game.turn,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            status: 'active', // Game is active after restart
-            lastUpdated: Timestamp.now(),
-            winnerTeam: null, // Reset winner/loser team
-            loserTeam: null, // Reset winner/loser team
-            messages: game.messages, // Save cleared messages
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name })) // Save observers list
-        }, { merge: true });
-        console.log(`Game ${gameId} restarted and updated in Firestore.`);
-    } catch (error) {
-        console.error("Error restarting game in Firestore:", error);
-    }
-
-    // Emit to all players AND observers in the game room
-    game.players.forEach(p => {
-        io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
-            gameId: game.gameId,
-            gameType: game.gameType,
-            playerNumber: p.number, // This will be the player's own number, not observer's 0
-            board: JSON.stringify(game.board),
-            turn: game.turn,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A", // Only relevant for 1v1
-            gameChat: game.messages,
-            observers: game.observers, // Send observer list
-            player1Name: game.players.find(pl => pl.number === 1)?.name,
-            player2Name: game.players.find(pl => pl.number === 2)?.name,
-            player3Name: game.players.find(pl => pl.number === 3)?.name,
-            player4Name: game.players.find(pl => pl.number === 4)?.name,
-        });
-    });
-  });
-
- // Leave Game Event (Player or Observer voluntarily leaves)
-socket.on("leave-game", async ({ gameId }) => {
-  const game = games[gameId];
-  
-  // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
-  const user = socket.request.session?.passport?.user || socket.request.user || null;
-  const userId = user ? (user.id || socket.request.user?.id) : null;
-  const userName = user ? (user.displayName || user.name || 'Unknown User') : 'Unknown User';
-
-  if (game && userId) {
-    const gameMapping = userGameMap[userId];
-    if (!gameMapping || gameMapping.gameId !== gameId) {
-        console.warn(`User ${userId} tried to leave game ${gameId} but was not mapped to it.`);
-        return;
-    }
-
-    // Remove from userGameMap
-    delete userGameMap[userId];
-    socket.leave(gameId); // Make the socket leave the game room
-
-    if (gameMapping.role === 'player') {
-      const playerInGame = game.players.find(p => p.userId === userId);
-      if (playerInGame) {
-        playerInGame.socketId = null; // Mark their socket as null
-        console.log(`User ${userId} (${playerInGame.name}) left game ${gameId} as a player.`);
-
-        // Notify other players in the game (if 2v2) or opponent (if 1v1)
-        game.players.filter(p => p.userId !== userId && p.socketId).forEach(player => {
-            io.to(player.socketId).emit("opponent-left");
-            console.log(`Notified player ${player.name} that ${playerInGame.name} left.`);
-        });
-        // Notify observers in the game that a player left
-        io.to(gameId).emit("player-left", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' });
-
-        // Set game status to 'waiting_for_resume' when a player voluntarily leaves.
-        try {
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-              status: 'waiting_for_resume',
-              lastUpdated: Timestamp.now()
-          }, { merge: true });
-          console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to player leaving.`);
-        } catch (error) {
-          console.error("Error updating game status to 'waiting_for_resume' on player leave:", error);
-        }
-      }
-    } else if (gameMapping.role === 'observer') {
-      // Remove observer from the in-memory game object
-      game.observers = game.observers.filter(o => o.userId !== userId);
-      console.log(`User ${userId} (${userName}) left game ${gameId} as an observer.`);
-
-      // Update Firestore to remove the observer
-      try {
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
-              observers: FieldValue.arrayRemove({ userId, name: userName })
-          });
-          console.log(`Observer ${userName} removed from game ${gameId} in Firestore.`);
-      } catch (error) {
-          console.error("Error removing observer from Firestore on leave:", error);
-      }
-      // Notify others in the game that an observer left
-      io.to(gameId).emit("observer-left", { name: userName, userId: userId });
-    }
-  } else {
-      console.warn(`Attempt to leave game failed: game ${gameId} not found or userId missing.`);
-  }
-
-  // Attempt to re-add player/observer to lobby list if they were logged in
-  if (userId && !userGameMap[userId]) { // Only add to lobby if they successfully left their game and are not mapped to another
-      let existingPlayerInLobby = players.find(p => p.userId === userId);
-      if (existingPlayerInLobby) {
-          existingPlayerInLobby.id = socket.id; // Update their socket if needed
-          console.log(`User ${userName} updated in lobby players list with new socket.`);
-      } else {
-          const userNameForLobby = user ? (user.displayName || user.name) : `User_${userId.substring(0, 8)}`;
-          players.push({ id: socket.id, userId: userId, name: userNameForLobby });
-          console.log(`User ${userName} added to lobby players list after leaving game.`);
-      }
-  }
-  emitLobbyPlayersList(); // Always update lobby list to reflect changes
-  socket.emit("request-observable-games"); // Refresh observable games
-});
-
-
-// Socket Disconnect Event (e.g., browser tab closed, network drop)
-socket.on("disconnect", async () => {
-  console.log(`[Disconnect] Socket disconnected: ${socket.id}`);
-  
-  // FIXED: Fallback user detection context matching for Safari ITP layouts on exit
-  const user = socket.request.session?.passport?.user || socket.request.user || null;
-  const disconnectedUserId = user ? (user.id || socket.request.user?.id) : null;
-  const disconnectedUserName = user ? (user.displayName || user.name || 'Unknown User') : 'Unknown User';
-
-  if (disconnectedUserId) {
-    // Correctly remove from userSocketMap as this specific socket is no longer active for this user
-    delete userSocketMap[disconnectedUserId];
-    console.log(`[Disconnect] User ${disconnectedUserId} socket removed from userSocketMap.`);
-  }
-
-  // Filter players list: This list represents users who are currently online.
-  players = players.filter(p => userSocketMap[p.userId] !== undefined);
-  console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-  emitLobbyPlayersList(); // Use the helper to update lobby list
-
-
-  // Check if the disconnected user was in a game (as player or observer)
-  let gameId = null;
-  let role = null;
-  // Iterate through userGameMap to find if the disconnected user was in any game
-  for (const uid in userGameMap) {
-      if (uid === disconnectedUserId) {
-          gameId = userGameMap[uid].gameId;
-          role = userGameMap[uid].role;
-          break;
-      }
-  }
-
-  if (gameId) {
-    const game = games[gameId];
-    console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId} as a ${role}.`);
-
-    if (game) {
-      if (role === 'player') {
-        const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
-        if (disconnectedPlayerInGame) {
-          disconnectedPlayerInGame.socketId = null; // Mark their socket as null
-          console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
-        }
-
-        try {
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            status: 'waiting_for_resume', // Set game status to waiting_for_resume
-            lastUpdated: Timestamp.now()
-          }, { merge: true });
-          console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
-        } catch (error) {
-          console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on disconnect:", error);
-        }
-
-        // Notify other players in the game that a player disconnected
-        game.players.filter(p => p.userId !== disconnectedUserId && p.socketId).forEach(player => {
-            io.to(player.socketId).emit("opponent-left");
-            console.log(`Notified player ${player.name} that ${disconnectedUserName} disconnected.`);
-        });
-        io.to(gameId).emit("player-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'player' });
-
-      } else if (role === 'observer') {
-        const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
-        if (disconnectedObserverInGame) {
-            disconnectedObserverInGame.socketId = null;
-            console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
-        }
-
-        // Notify others in the game that an observer left (disconnected)
-        io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
-      }
-      socket.emit("request-observable-games"); // Refresh observable games
-    } else {
-      delete userGameMap[disconnectedUserId];
-      console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
-    }
-  }
-});
-
-});
-
-// --- Server Startup ---
-const PORT = process.env.PORT || 3001; // Use Render's PORT env var, or 3001 for local dev
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set
