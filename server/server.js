@@ -39,6 +39,9 @@ const userGameMap = {};   // Maps userId to the gameId and role they are current
 app.use(
   cors({
     origin: "https://minesweeper-flags-frontend.onrender.com", // Your frontend URL
+    "https://localhost",
+    "http://localhost",
+    "capacitor://localhost",
     credentials: true, // Allow cookies to be sent cross-origin
   })
 );
