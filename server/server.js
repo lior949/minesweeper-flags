@@ -176,7 +176,12 @@ try {
   // Configure Socket.IO with CORS
   io = new Server(server, { // Assign to the already declared 'io' variable
     cors: {
-      origin: "https://minesweeper-flags-frontend.onrender.com",
+      origin: [
+        "https://minesweeper-flags-frontend.onrender.com",
+        "https://localhost",
+        "capacitor://localhost",
+        "http://localhost"
+      ],
       methods: ["GET", "POST"],
       credentials: true, // Allow cookies for Socket.IO handshake
     },
