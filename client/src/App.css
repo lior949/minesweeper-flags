@@ -748,3 +748,20 @@ html, body {
         max-width: 360px;
     }
 }
+
+.board-viewport {
+  width: 100%;
+  height: 60vh;
+  overflow: hidden;
+  position: relative;
+  touch-action: none; /* Prevents default browser scrolling/zooming */
+  cursor: grab;
+}
+.board-viewport:active {
+  cursor: grabbing;
+}
+.board-transform-layer {
+  position: absolute;
+  transform-origin: 0 0;
+  will-change: transform;
+}
