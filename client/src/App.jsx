@@ -103,34 +103,6 @@ function App() {
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
 
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const isDragging = useRef(false);
-  const startPos = useRef({ x: 0, y: 0 });
-
-const handlePointerDown = (e) => {
-    isDragging.current = true;
-    startPos.current = { x: e.clientX - position.x, y: e.clientY - position.y };
-  };
-
-  const handlePointerMove = (e) => {
-    if (!isDragging.current) return;
-    setPosition({
-      x: e.clientX - startPos.current.x,
-      y: e.clientY - startPos.current.y
-    });
-  };
-
-  const handlePointerUp = () => {
-    isDragging.current = false;
-  };
-
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-    setScale((prevScale) => Math.min(Math.max(prevScale * zoomFactor, 0.5), 4));
-  };
-
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
       lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -657,9 +629,9 @@ const handlePointerDown = (e) => {
     let displayName;
     try {
         const deviceUuid = getDeviceUuid();
-        const numericPart = await generate5DigitGuestId(deviceUuid);
-        guestId = `guest_${numericPart}`;
-        displayName = `Guest_${numericPart}`; // Safely use the exact 5 digits
+        guestId = await generate5DigitGuestId(deviceUuid);
+        guestId = `guest_${guestId}`;
+        displayName = `Guest_${guestId.substring(6)}`;
     } catch (error) {
       guestId = `guest_fallback_${Date.now()}`;
       displayName = `Guest_Fallback`;
@@ -1311,61 +1283,48 @@ const renderTile = (tile) => {
                         </div>
                     </div> 
 
-                    <div 
-                        className="game-board-area board-viewport"
-                        onPointerDown={handlePointerDown}
-                        onPointerMove={handlePointerMove}
-                        onPointerUp={handlePointerUp}
-                        onWheel={handleWheel}
-                    >
-                        <div 
-                            className="board-transform-layer"
+                    <div className="game-board-area">
+                        <div
+                            className="grid"
                             style={{
-                              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`
+                              gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
                             }}
+                            onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
+                            onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
                         >
-                            <div
-                                className="grid"
-                                style={{
-                                  gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
-                                }}
-                                onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
-                                onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
-                            >
-                                {board.flatMap((row, y) =>
-                                  row.map((tile, x) => {
-                                    const isHighlighted = highlightedBombArea.some(
-                                        (coord) => coord.x === x && coord.y === y
-                                    );
-                                    
-                                    // Determine if this cell should show up as a revealed mine at the end of the match
-                                    const isUnrevealedEndGameMine = gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam;
+                            {board.flatMap((row, y) =>
+                              row.map((tile, x) => {
+                                const isHighlighted = highlightedBombArea.some(
+                                    (coord) => coord.x === x && coord.y === y
+                                );
+                                
+                                // Determine if this cell should show up as a revealed mine at the end of the match
+                                const isUnrevealedEndGameMine = gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam;
 
-                                    return (
-                                      <div
-                                        key={`${x}-${y}`}
-                                        className={`tile ${
-                                          isUnrevealedEndGameMine 
-                                            ? "unrevealed-mine-cell" 
-                                            : tile.revealed ? "revealed" : "hidden"
-                                        } ${tile.isMine && tile.revealed ? "mine" : ""} ${
-                                          lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
-                                        } ${
-                                          lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
-                                        } ${
-                                          gameType === '2v2' && lastClickedTile[3]?.x === x && lastClickedTile[3]?.y === y ? "last-clicked-p3" : ""
-                                        } ${
-                                          gameType === '2v2' && lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p4" : ""
-                                        } ${isHighlighted ? "highlighted-bomb-area" : ""
-                                        }`}
-                                        onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} 
-                                      >
-                                        {renderTile(tile)}
-                                      </div>
-                                    );
-                                  })
-                                )}
-                            </div>
+                                return (
+                                  <div
+                                    key={`${x}-${y}`}
+                                    className={`tile ${
+                                      isUnrevealedEndGameMine 
+                                        ? "unrevealed-mine-cell" 
+                                        : tile.revealed ? "revealed" : "hidden"
+                                    } ${tile.isMine && tile.revealed ? "mine" : ""} ${
+                                      lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
+                                    } ${
+                                      lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                                    } ${
+                                      gameType === '2v2' && lastClickedTile[3]?.x === x && lastClickedTile[3]?.y === y ? "last-clicked-p3" : ""
+                                    } ${
+                                      gameType === '2v2' && lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p4" : ""
+                                    } ${isHighlighted ? "highlighted-bomb-area" : ""
+                                    }`}
+                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} 
+                                  >
+                                    {renderTile(tile)}
+                                  </div>
+                                );
+                              })
+                            )}
                         </div>
                     </div>
                     
