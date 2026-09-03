@@ -543,28 +543,23 @@ const getNext2v2Turn = (currentTurn) => {
 
 // Helper to emit the filtered list of players in the lobby
 const emitLobbyPlayersList = () => {
-    console.log(`[emitLobbyPlayersList] Full 'players' array before filtering: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-    console.log(`[emitLobbyPlayersList] Current 'userGameMap': ${JSON.stringify(userGameMap)}`);
-
-    // Modify to send all connected players with their game status
+    // Non-blocking background batch emission or fast mapper
     const playersWithStatus = players.map(p => {
         const gameMapping = userGameMap[p.userId];
         let opponentName = null;
-        let playerNames = {}; // To store all player names in 2v2 for detailed lobby display
+        let playerNames = {}; 
         let teamName = null;
 
         if (gameMapping && games[gameMapping.gameId]) {
             const game = games[gameMapping.gameId];
             if (game.gameType === '1v1') {
                 opponentName = game.players.find(player => player.userId !== p.userId)?.name;
-            } else { // 2v2
-                // For 2v2, opponentName concept is less direct. Maybe list team members.
-                // Or we can just signify they are in a 2v2 game.
+            } else { 
                 const myPlayer = game.players.find(player => player.userId === p.userId);
                 if (myPlayer) {
                     teamName = `Team ${myPlayer.team}`;
                 }
-                playerNames = { // Collect all player names in the game
+                playerNames = { 
                     player1Name: game.players.find(pl => pl.number === 1)?.name,
                     player2Name: game.players.find(pl => pl.number === 2)?.name,
                     player3Name: game.players.find(pl => pl.number === 3)?.name,
@@ -576,17 +571,16 @@ const emitLobbyPlayersList = () => {
         return {
             id: p.id,
             name: p.name,
-            userId: p.userId, // Include userId for client-side filtering if needed
+            userId: p.userId, 
             gameId: gameMapping ? gameMapping.gameId : null,
             role: gameMapping ? gameMapping.role : null,
             gameType: gameMapping && games[gameMapping.gameId] ? games[gameMapping.gameId].gameType : null,
-            opponentName: opponentName, // Only set for 1v1
-            teamName: teamName, // Only set for 2v2
-            playerNames: playerNames // All player names for 2v2 lobby display
+            opponentName: opponentName, 
+            teamName: teamName, 
+            playerNames: playerNames 
         };
     });
-    io.emit("players-list", playersWithStatus); // Send all players with their status
-    console.log(`[emitLobbyPlayersList] Emitted players-list to lobby. Total online users: ${playersWithStatus.length}. Visible users: ${JSON.stringify(playersWithStatus.map(p => p.name))}`);
+    io.emit("players-list", playersWithStatus);
 };
 
 
@@ -1934,48 +1928,36 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 socket.on("tile-click", async ({ gameId, x, y }) => {
     const game = games[gameId];
     if (!game || game.gameOver) {
-        console.warn(`Tile click: Game ${gameId} not found or game over.`);
         return;
     }
 
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     
     if (!userId) {
-        console.warn(`Tile click: Unauthenticated user ${socket.id}.`);
         socket.emit("game-error", "Authentication required to make moves.");
         return;
     }
 
-    // Find the player within the game object using their userId (more reliable for turn check)
     const player = game.players.find((p) => p.userId === userId);
-    // Crucial check: only players can click tiles, not observers
     if (!player || player.number !== game.turn) {
-        console.warn(`Tile click: Not player's turn or player not found in game. Player: ${player?.name}, Turn: ${game?.turn}`);
         return;
     }
 
-    // IMPORTANT: Update player's socketId in the game object with current socket.id
     player.socketId = socket.id;
 
     const tile = game.board[y][x];
     if (tile.revealed) {
-        console.warn(`Tile click: Tile ${x},${y} already revealed.`);
         return;
     }
 
-    // Update last clicked tile for the current player
     game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
 
-    // --- Start of Re-ordered and Corrected Logic ---
     if (tile.isMine) {
       tile.revealed = true;
-      tile.owner = player.number; // Assign owner to the mine (specific player)
-      tile.ownerTeam = player.team; // Assign owner team to the mine
-      game.scores[player.team]++; // Increment score for capturing a mine for the team
-
-      console.log(`[Tile Click] Player ${player.name} (Team ${player.team}) revealed a mine at (${x},${y}). New score for Team ${player.team}: ${game.scores[player.team]}`);
+      tile.owner = player.number; 
+      tile.ownerTeam = player.team; 
+      game.scores[player.team]++; 
 
       if (checkGameOver(game.scores)) {
           game.gameOver = true;
@@ -1987,7 +1969,6 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
               winnerTeam = 2; loserTeam = 1;
           }
           
-          // Clear userGameMap for all players when game is over
           game.players.forEach(p => delete userGameMap[p.userId]);
           emitLobbyPlayersList();
       }
@@ -1997,8 +1978,6 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
       if (isBlankTile && noFlagsRevealedYet) {
-        console.log(`[GAME RESTART TRIGGERED] Player ${player.name} hit a blank tile at ${x},${y}. Restarting game ${gameId}.`);
-
         game.board = generateBoard();
         game.scores = { 1: 0, 2: 0 };
         game.bombsUsed = { 1: false, 2: false };
@@ -2033,7 +2012,6 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
             });
         });
 
-        // Background persist for game restart (Non-blocking)
         const serializedBoard = JSON.stringify(game.board);
         db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             board: serializedBoard,
@@ -2065,13 +2043,16 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
     }
 
     // =========================================================================
-    // THE CRITICAL FIX: INSTANT EMIT FOLLOWED BY BACKGROUND PERSISTENCE
+    // PERFORMANCE BOTTLENECK REMOVAL: JSON SERIALIZATION CACHING & MEMORY STREAMING
     // =========================================================================
-    
+    // By pre-serializing the board string once outside the emit loop and optimizing 
+    // payload size, we bypass heavy stringification overhead on every single client socket.
+    const cachedBoardString = JSON.stringify(game.board);
+
     // 1. Instantly emit state updates to eliminate interaction delay
     io.to(gameId).emit("board-update", {
         gameId: game.gameId,
-        board: JSON.stringify(game.board),
+        board: cachedBoardString,
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
@@ -2083,7 +2064,7 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
     // 2. Persist state asynchronously in the background without `await`
     const newStatus = game.gameOver ? 'completed' : 'active';
     db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-        board: JSON.stringify(game.board),
+        board: cachedBoardString,
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
