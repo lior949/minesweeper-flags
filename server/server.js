@@ -1931,8 +1931,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
   });
 
 
-// Tile Click Event (main game action)
-  socket.on("tile-click", async ({ gameId, x, y }) => {
+socket.on("tile-click", async ({ gameId, x, y }) => {
     const game = games[gameId];
     if (!game || game.gameOver) {
         console.warn(`Tile click: Game ${gameId} not found or game over.`);
@@ -1958,7 +1957,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     }
 
     // IMPORTANT: Update player's socketId in the game object with current socket.id
-    // This ensures subsequent emits (like board-update, game-restarted) go to the correct, potentially new, socket.id
     player.socketId = socket.id;
 
     const tile = game.board[y][x];
@@ -1981,7 +1979,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
       if (checkGameOver(game.scores)) {
           game.gameOver = true;
-          // Determine winner/loser team
           let winnerTeam = null;
           let loserTeam = null;
           if (game.scores[1] > game.scores[2]) {
@@ -1989,73 +1986,34 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
           } else if (game.scores[2] > game.scores[1]) {
               winnerTeam = 2; loserTeam = 1;
           }
-          // Set game status to 'completed' in Firestore and clear userGameMap for players
-          try {
-              await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                  status: 'completed', // Game is completed
-                  gameOver: true,
-                  lastUpdated: Timestamp.now(),
-                  winnerTeam: winnerTeam, // Store winning team
-                  loserTeam: loserTeam, // Store losing team
-                  lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-              }, { merge: true });
-              console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
-          } catch (error) {
-              console.error("Error setting game status to 'completed' on mine reveal:", error);
-          }
+          
           // Clear userGameMap for all players when game is over
           game.players.forEach(p => delete userGameMap[p.userId]);
-          // Do NOT clear observers from userGameMap here. They should remain observers until they leave.
-          emitLobbyPlayersList(); // Update lobby list
+          emitLobbyPlayersList();
       }
-      // Turn does NOT switch if a mine is revealed.
 
-    } else { // This block handles non-mine tiles
+    } else { 
       const isBlankTile = tile.adjacentMines === 0;
       const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
       if (isBlankTile && noFlagsRevealedYet) {
-        console.log(`[GAME RESTART TRIGGERED] Player ${player.name} (${player.userId}) hit a blank tile at ${x},${y} before any flags were revealed. Restarting game ${gameId}.`);
+        console.log(`[GAME RESTART TRIGGERED] Player ${player.name} hit a blank tile at ${x},${y}. Restarting game ${gameId}.`);
 
-        // Reset game state properties within the existing game object
-        game.board = generateBoard(); // Generate a brand new board
-        game.scores = { 1: 0, 2: 0 }; // Reset scores
-        game.bombsUsed = { 1: false, 2: false }; // Reset bomb usage
-        game.turn = 1; // Reset turn to player 1
-        game.gameOver = false; // Game is no longer over
-        game.lastClickedTile = {}; // Reset lastClickedTile on restart for all players
-        game.messages = []; // Clear game chat messages on restart
+        game.board = generateBoard();
+        game.scores = { 1: 0, 2: 0 };
+        game.bombsUsed = { 1: false, 2: false };
+        game.turn = 1;
+        game.gameOver = false;
+        game.lastClickedTile = {};
+        game.messages = [];
 
-        // Ensure userGameMap is still set for all players if game restarts but isn't completed
         game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-        // Observers remain observers
         game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
-        emitLobbyPlayersList(); // Update lobby list to ensure players stay 'in game'
+        emitLobbyPlayersList();
 
-        try {
-          const serializedBoard = JSON.stringify(game.board);
-          await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
-              board: serializedBoard,
-              scores: game.scores,
-              bombsUsed: game.bombsUsed,
-              turn: game.turn,
-              gameOver: game.gameOver,
-              lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-              status: 'active', // Game is active after restart
-              lastUpdated: Timestamp.now(),
-              winnerTeam: null, // Reset winner/loser team
-              loserTeam: null, // Reset winner/loser team
-              messages: game.messages, // Save cleared messages
-              observers: game.observers.map(o => ({ userId: o.userId, name: o.name })) // Save observers list
-          }, { merge: true });
-          console.log(`Game ${gameId} restarted and updated in Firestore.`);
-        } catch (error) {
-            console.error("Error restarting game in Firestore:", error);
-        }
-
-        // Emit to all players AND observers in the game room
+        // INSTANTLY emit game restart to avoid waiting for Firestore write
         game.players.forEach(p => {
-            io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
+            io.to(p.socketId).emit("game-restarted", {
                 gameId: game.gameId,
                 gameType: game.gameType,
                 playerNumber: p.number,
@@ -2065,63 +2023,79 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                 bombsUsed: game.bombsUsed,
                 gameOver: game.gameOver,
                 lastClickedTile: game.lastClickedTile,
-                opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A", // Only relevant for 1v1
+                opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
                 gameChat: game.messages,
-                observers: game.observers, // Send observer list
+                observers: game.observers,
                 player1Name: game.players.find(pl => pl.number === 1)?.name,
                 player2Name: game.players.find(pl => pl.number === 2)?.name,
                 player3Name: game.players.find(pl => pl.number === 3)?.name,
                 player4Name: game.players.find(pl => pl.number === 4)?.name,
             });
         });
-        console.log(`[GAME RESTARTED] Game ${gameId} state after reset.`);
-        return; // Important: Exit after restarting
-      }
 
-      // If not a mine and not a restart condition on a blank tile, then it's a normal reveal
-      revealRecursive(game.board, x, y);
-
-      // Update turn based on game type
-      if (game.gameType === '1v1') {
-        game.turn = game.turn === 1 ? 2 : 1; // 1v1: P1 -> P2 -> P1
-      } else if (game.gameType === '2v2') {
-        game.turn = getNext2v2Turn(game.turn); // 2v2: P1 -> P3 -> P2 -> P4 -> P1
-      }
-    }
-    // --- End of Re-ordered and Corrected Logic ---
-
-    // Update game state in Firestore
-    try {
+        // Background persist for game restart (Non-blocking)
         const serializedBoard = JSON.stringify(game.board);
-        const newStatus = game.gameOver ? 'completed' : 'active';
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
+        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             board: serializedBoard,
-            turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
+            turn: game.turn,
             gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            status: newStatus, // Use the newStatus
+            lastClickedTile: game.lastClickedTile,
+            status: 'active',
             lastUpdated: Timestamp.now(),
-            winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null, // Store winning team (1 or 2)
-            loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null, // Store losing team (1 or 2)
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name })) // Save observers list
-        }, { merge: true });
-        console.log(`Game ${gameId} updated in Firestore (tile-click). Status: ${newStatus}`);
-    } catch (error) {
-        console.error("Error updating game in Firestore (tile-click):", error);
+            winnerTeam: null,
+            loserTeam: null,
+            messages: game.messages,
+            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+        }, { merge: true }).catch(error => {
+            console.error("Error restarting game in Firestore (background persist):", error);
+        });
+
+        return;
+      }
+
+      revealRecursive(game.board, x, y);
+
+      if (game.gameType === '1v1') {
+        game.turn = game.turn === 1 ? 2 : 1;
+      } else if (game.gameType === '2v2') {
+        game.turn = getNext2v2Turn(game.turn);
+      }
     }
 
-    // Emit board-update to all players AND observers in the game room
+    // =========================================================================
+    // THE CRITICAL FIX: INSTANT EMIT FOLLOWED BY BACKGROUND PERSISTENCE
+    // =========================================================================
+    
+    // 1. Instantly emit state updates to eliminate interaction delay
     io.to(gameId).emit("board-update", {
         gameId: game.gameId,
-        board: JSON.stringify(game.board), // Send serialized board to client
+        board: JSON.stringify(game.board),
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
-        lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-        observers: game.observers // Send observer list
+        lastClickedTile: game.lastClickedTile,
+        observers: game.observers
+    });
+
+    // 2. Persist state asynchronously in the background without `await`
+    const newStatus = game.gameOver ? 'completed' : 'active';
+    db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+        board: JSON.stringify(game.board),
+        turn: game.turn,
+        scores: game.scores,
+        bombsUsed: game.bombsUsed,
+        gameOver: game.gameOver,
+        lastClickedTile: game.lastClickedTile,
+        status: newStatus,
+        lastUpdated: Timestamp.now(),
+        winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
+        loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
+        observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+    }, { merge: true }).catch(error => {
+        console.error("Error updating game in Firestore (tile-click background persist):", error);
     });
   });
 
