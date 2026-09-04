@@ -1399,8 +1399,6 @@ socket.on("resume-game", async ({ gameId }) => {
 socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const inviterUser = socket.request.session?.passport?.user || socket.request.user || null;
-    
-    // FIXED: Extract the active userId reliably across all session structures
     const inviterUserId = inviterUser ? (inviterUser.id || socket.request.user?.id) : null;
     const inviterPlayer = players.find((p) => p.userId === inviterUserId);
 
@@ -1410,9 +1408,18 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
-    const targetId = targetSocketIds && targetSocketIds.length > 0 ? targetSocketIds[0] : null;
+    // --- BULLETPROOF AI CHECK ---
+    // Handle targetSocketIds whether it's passed as an array, a string, or null
+    const firstTarget = Array.isArray(targetSocketIds) ? targetSocketIds[0] : targetSocketIds;
+    const isAiInvite = 
+        gameType === '1v1' && (
+            firstTarget === 'ai_bot_player_id' || 
+            firstTarget === null || 
+            !targetSocketIds || 
+            (typeof firstTarget === 'string' && firstTarget.includes('ai'))
+        );
 
-    if (gameType === '1v1' && targetId === 'ai_bot_player_id') {
+    if (isAiInvite) {
         const gameId = uuidv4();
         const board = generateBoard();
         const player1 = inviterPlayer;
@@ -1475,7 +1482,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         emitLobbyPlayersList();
         return;
     }
-
     const invitedPlayersData = []; // To store player objects for invite
     const allInvitedUserIds = [];
 
