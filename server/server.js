@@ -2012,89 +2012,25 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
             });
         });
 
-  // =========================================================================
-  // IMPORTED AI ADVERSARY ENGINE MODULE
-  // =========================================================================
-  const { getBestAIMove } = require('./ai.js');
+        const serializedBoard = JSON.stringify(game.board);
+        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+            board: serializedBoard,
+            scores: game.scores,
+            bombsUsed: game.bombsUsed,
+            turn: game.turn,
+            gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile,
+            status: 'active',
+            lastUpdated: Timestamp.now(),
+            winnerTeam: null,
+            loserTeam: null,
+            messages: game.messages,
+            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+        }, { merge: true }).catch(error => {
+            console.error("Error restarting game in Firestore (background persist):", error);
+        });
 
-  // Helper to ensure AI Bot is always present in the players list
-  function getPlayersWithAI() {
-      const aiBot = {
-          userId: 'ai_bot_player_id',
-          name: '🤖 Minesweeper Bot',
-          socketId: null,
-          isAi: true
-      };
-      // Check if AI already exists in players array
-      if (!players.some(p => p.userId === aiBot.userId)) {
-          players.push(aiBot);
-      }
-      return players;
-  }
-
-  function emitLobbyPlayersList() {
-      const activePlayers = getPlayersWithAI();
-      io.emit("players-list", activePlayers);
-  }
-
-  // Handle invitation or game start against AI bot
-  socket.on("send-invite", ({ targetUserId }) => {
-      const senderUser = socket.request.session?.passport?.user || socket.request.user;
-      const senderId = senderUser ? (senderUser.id || senderUser.userId) : null;
-      const senderPlayer = players.find(p => p.userId === senderId);
-
-      if (!senderPlayer) return;
-
-      if (targetUserId === 'ai_bot_player_id') {
-          // Instantly start a 1v1 match against the AI Bot!
-          const gameId = uuidv4();
-          const board = generateBoard();
-
-          const player1 = senderPlayer;
-          const player2 = { userId: 'ai_bot_player_id', name: '🤖 Minesweeper Bot', socketId: null, isAi: true };
-
-          const newGame = {
-              gameId,
-              gameType: '1v1',
-              board,
-              scores: { 1: 0, 2: 0 },
-              bombsUsed: { 1: false, 2: false },
-              turn: 1,
-              gameOver: false,
-              lastClickedTile: {},
-              players: [
-                  { userId: player1.userId, name: player1.name, number: 1, socketId: socket.id },
-                  { userId: player2.userId, name: player2.name, number: 2, socketId: null }
-              ],
-              messages: [],
-              observers: []
-          };
-
-          games[gameId] = newGame;
-          userGameMap[player1.userId] = { gameId, role: 'player' };
-
-          const serializedBoard = JSON.stringify(board);
-
-          socket.join(gameId);
-          socket.emit("game-start", {
-              gameId,
-              gameType: '1v1',
-              playerNumber: 1,
-              board: serializedBoard,
-              turn: 1,
-              scores: newGame.scores,
-              bombsUsed: newGame.bombsUsed,
-              gameOver: false,
-              lastClickedTile: {},
-              opponentName: player2.name,
-              gameChat: [],
-              observers: [],
-              player1Name: player1.name,
-              player2Name: player2.name
-          });
-
-          console.log(`[AI Game Started] Game ID: ${gameId} between ${player1.name} and AI Bot`);
-          return;
+        return;
       }
 
       revealRecursive(game.board, x, y);
@@ -2105,49 +2041,6 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
         game.turn = getNext2v2Turn(game.turn);
       }
     }
-
-    // Check if next turn belongs to AI Bot
-    if (!game.gameOver) {
-        const currentPlayerObj = game.players.find(p => p.number === game.turn);
-        if (currentPlayerObj && currentPlayerObj.isAi) {
-            // Trigger AI Move asynchronously after a short natural delay
-            setTimeout(() => {
-                if (game.gameOver) return;
-                const aiMove = getBestAIMove(game.board);
-                if (aiMove) {
-                    const tile = game.board[aiMove.r][aiMove.c];
-                    if (!tile.revealed && !tile.flagged) {
-                        tile.revealed = true;
-                        if (tile.isMine) {
-                            game.scores[game.turn] = (game.scores[game.turn] || 0) + 1;
-                            unrevealedMines--;
-                            if (unrevealedMines === 0) {
-                                game.gameOver = true;
-                            }
-                        } else {
-                            revealRecursive(game.board, aiMove.r, aiMove.c);
-                            game.turn = game.turn === 1 ? 2 : 1;
-                        }
-                        
-                        // Broadcast AI move update
-                        const cachedBoardString = JSON.stringify(game.board);
-                        io.to(gameId).emit("board-update", {
-                            gameId: game.gameId,
-                            board: cachedBoardString,
-                            turn: game.turn,
-                            scores: game.scores,
-                            bombsUsed: game.bombsUsed,
-                            gameOver: game.gameOver,
-                            lastClickedTile: game.lastClickedTile,
-                            observers: game.observers
-                        });
-                    }
-                }
-            }, 800);
-        }
-    }
-
-
 
     // =========================================================================
     // PERFORMANCE BOTTLENECK REMOVAL: JSON SERIALIZATION CACHING & MEMORY STREAMING
