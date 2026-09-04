@@ -525,6 +525,84 @@ const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
   }
 };
 
+// AI Adversary Turn Loop Integration
+async function processAiTurn(gameId) {
+    const game = games[gameId];
+    if (!game || game.gameOver) return;
+
+    const nextPlayer = game.players.find(p => p.number === game.turn);
+    if (!nextPlayer || !nextPlayer.isAi) return;
+
+    setTimeout(async () => {
+        if (game.gameOver) return;
+        
+        const aiMove = getBestAIMove(game.board);
+        if (!aiMove) return;
+
+        const aiTile = game.board[aiMove.r][aiMove.c];
+        if (aiTile.revealed || aiTile.flagged) return;
+
+        let aiHitMine = false;
+        // FIXED: Use the actual team assigned to the AI player object (Team 2)
+        const aiTeam = nextPlayer.team || nextPlayer.number;
+
+        if (aiTile.isMine) {
+            aiTile.revealed = true;
+            aiTile.owner = nextPlayer.number;
+            aiTile.ownerTeam = aiTeam;
+            game.scores[aiTeam] = (game.scores[aiTeam] || 0) + 1;
+
+            if (checkGameOver(game.scores)) {
+                game.gameOver = true;
+            } else {
+                aiHitMine = true; // AI hit a mine, so it gets another turn!
+            }
+        } else {
+            revealRecursive(game.board, aiMove.r, aiMove.c);
+            if (game.gameType === '1v1') {
+                game.turn = game.turn === 1 ? 2 : 1;
+            } else if (game.gameType === '2v2') {
+                game.turn = getNext2v2Turn(game.turn);
+            }
+        }
+
+        const cachedBoardString = JSON.stringify(game.board);
+
+        // Emit update to clients
+        io.to(gameId).emit("board-update", {
+            gameId: game.gameId,
+            board: cachedBoardString,
+            turn: game.turn,
+            scores: game.scores,
+            bombsUsed: game.bombsUsed,
+            gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile,
+            observers: game.observers
+        });
+
+        // Persist state asynchronously
+        const newStatus = game.gameOver ? 'completed' : 'active';
+        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+            board: cachedBoardString,
+            turn: game.turn,
+            scores: game.scores,
+            bombsUsed: game.bombsUsed,
+            gameOver: game.gameOver,
+            status: newStatus,
+            lastUpdated: Timestamp.now(),
+            winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
+            loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null
+        }, { merge: true }).catch(error => {
+            console.error("Error updating AI move in Firestore:", error);
+        });
+
+        // FIXED: If AI hit a mine, keep playing consecutive turns automatically!
+        if (aiHitMine && !game.gameOver) {
+            processAiTurn(gameId);
+        }
+    }, 800);
+}
+
 // Helper to check for game over condition
 const checkGameOver = (scores) => {
   // Game over if either player (1v1) or team (2v2) reaches 26 flags (mines)
@@ -2127,36 +2205,8 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
     if (!game.gameOver) {
         const nextPlayer = game.players.find(p => p.number === game.turn);
         if (nextPlayer && nextPlayer.isAi) {
-            setTimeout(() => {
-                if (game.gameOver) return;
-                const aiMove = getBestAIMove(game.board);
-                if (aiMove) {
-                    const aiTile = game.board[aiMove.r][aiMove.c];
-                    if (!aiTile.revealed && !aiTile.flagged) {
-                        aiTile.revealed = true;
-                        const aiTeam = (nextPlayer.number === 1 || nextPlayer.number === 2) ? 1 : 2;
-                        if (aiTile.isMine) {
-                            aiTile.owner = nextPlayer.number;
-                            aiTile.ownerTeam = aiTeam;
-                            game.scores[aiTeam] = (game.scores[aiTeam] || 0) + 1;
-                            if (checkGameOver(game.scores)) game.gameOver = true;
-                        } else {
-                            revealRecursive(game.board, aiMove.r, aiMove.c);
-                            game.turn = game.gameType === '1v1' ? (game.turn === 1 ? 2 : 1) : getNext2v2Turn(game.turn);
-                        }
-
-                        const boardStr = JSON.stringify(game.board);
-                        io.to(gameId).emit("board-update", {
-                            gameId: game.gameId,
-                            board: boardStr,
-                            turn: game.turn,
-                            scores: game.scores,
-                            bombsUsed: game.bombsUsed,
-                            gameOver: game.gameOver
-                        });
-                    }
-                }
-            }, 800);
+            processAiTest = true; // or call function directly
+            processAiTurn(gameId);
         }
     }
 
