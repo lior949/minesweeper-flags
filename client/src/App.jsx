@@ -11,40 +11,6 @@ const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
-const clientRevealRecursive = (boardCopy, startX, startY) => {
-    const height = boardCopy.length;
-    const width = boardCopy[0].length;
-    const queue = [{ x: startX, y: startY }];
-    const visited = new Set();
-
-    while (queue.length > 0) {
-      const { x, y } = queue.shift();
-      const key = `${x},${y}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
-      const tile = boardCopy[y][x];
-
-      if (tile.revealed || tile.isMine) continue;
-
-      // Reveal the tile optimistically
-      tile.revealed = true;
-      tile.owner = playerNumber;
-
-      // If it's a blank tile (0 adjacent mines), expand to neighbors
-      if (tile.adjacentMines === 0) {
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx !== 0 || dy !== 0) {
-              queue.push({ x: x + dx, y: y + dy });
-            }
-          }
-        }
-      }
-    }
-  };
-
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 const generate5DigitGuestId = async (message) => {
     try {
@@ -189,6 +155,39 @@ function App() {
       console.log(msg);
     }
     setTimeout(() => setMessage(""), 5000);
+  };
+
+const clientRevealRecursive = (boardCopy, startX, startY) => {
+    const queue = [{ x: startX, y: startY }];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const { x, y } = queue.shift();
+      const key = `${x},${y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      // Now it can safely use WIDTH and HEIGHT from the outer scope!
+      if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+      const tile = boardCopy[y][x];
+
+      if (tile.revealed || tile.isMine) continue;
+
+      // Reveal the tile optimistically
+      tile.revealed = true;
+      tile.owner = playerNumber; // Has access to playerNumber too!
+
+      // If it's a blank tile (0 adjacent mines), expand to neighbors
+      if (tile.adjacentMines === 0) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx !== 0 || dy !== 0) {
+              queue.push({ x: x + dx, y: y + dy });
+            }
+          }
+        }
+      }
+    }
   };
 
   const addGameMessage = useCallback((sender, text, isError = false) => {
