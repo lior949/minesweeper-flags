@@ -1410,7 +1410,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
-    if (gameType === '1v1' && targetSocketIds && targetSocketIds.length > 0 && targetSocketIds[0] === 'ai_bot_player_id') {
+    const targetId = targetSocketIds && targetSocketIds.length > 0 ? targetSocketIds[0] : null;
+
+    if (gameType === '1v1' && targetId === 'ai_bot_player_id') {
         const gameId = uuidv4();
         const board = generateBoard();
         const player1 = inviterPlayer;
@@ -1478,10 +1480,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const allInvitedUserIds = [];
 
     if (gameType === '1v1') {
-        const targetSocketId = targetSocketIds[0];
+        const targetSocketId = targetId; // Use the safely extracted targetId variable
         const invitedPlayer = players.find((p) => p.id === targetSocketId);
         if (!invitedPlayer) {
             console.warn(`Invite failed: Invitee not found for 1v1. targetSocketId: ${targetSocketId}`);
+            socket.emit("join-error", "Invite failed: AI Bot or player not found.");
             return;
         }
         invitedPlayersData.push(invitedPlayer);
