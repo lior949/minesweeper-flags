@@ -164,16 +164,17 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     const startTile = boardCopy[startY][startX];
     if (!startTile || startTile.revealed) return;
 
-    // 1. Instantly reveal the clicked tile (whether it's a mine, number, or blank)
+    // 1. Instantly reveal the clicked tile (even if it's a mine!)
     startTile.revealed = true;
     startTile.owner = playerNumber;
+    startTile.ownerTeam = playerNumber; // Ensures the team color/styling renders instantly
 
-    // 2. If it's a mine, it doesn't cascade further (just like the server)
+    // 2. If the clicked tile is a mine, it stops right here (just like the server)
     if (startTile.isMine) {
       return;
     }
 
-    // 3. Otherwise, run the cascade queue for blank/numbered tiles
+    // 3. Otherwise, run the cascade queue for regular blank/numbered tiles
     const queue = [{ x: startX, y: startY }];
     const visited = new Set();
 
@@ -186,13 +187,11 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       if (x < 0 || x >= width || y < 0 || y >= height) continue;
       const tile = boardCopy[y][x];
 
-      if (tile.revealed) continue;
-      
-      // Stop the cascade if we hit a mine
-      if (tile.isMine) continue;
+      if (tile.revealed || tile.isMine) continue;
 
       tile.revealed = true;
       tile.owner = playerNumber;
+      tile.ownerTeam = playerNumber;
 
       // Expand if it's a blank tile
       if (tile.adjacentMines === 0) {
