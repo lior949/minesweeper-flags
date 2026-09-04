@@ -12,6 +12,8 @@ const bufferToHex = (buffer) => {
 };
 
 const clientRevealRecursive = (boardCopy, startX, startY) => {
+    const height = boardCopy.length;
+    const width = boardCopy[0].length;
     const queue = [{ x: startX, y: startY }];
     const visited = new Set();
 
@@ -21,7 +23,7 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       if (visited.has(key)) continue;
       visited.add(key);
 
-      if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
       const tile = boardCopy[y][x];
 
       if (tile.revealed || tile.isMine) continue;
