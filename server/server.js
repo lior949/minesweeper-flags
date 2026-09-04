@@ -539,11 +539,16 @@ async function processAiTurn(gameId) {
         const aiMove = getBestAIMove(game.board);
         if (!aiMove) return;
 
-        const aiTile = game.board[aiMove.r][aiMove.c];
+        const x = aiMove.c; // column
+        const y = aiMove.r; // row
+
+        // FIXED: Record the AI's last move so the frontend highlights it with its border color
+        game.lastClickedTile = { ...game.lastClickedTile, [nextPlayer.number]: { x, y } };
+
+        const aiTile = game.board[y][x];
         if (aiTile.revealed || aiTile.flagged) return;
 
         let aiHitMine = false;
-        // FIXED: Use the actual team assigned to the AI player object (Team 2)
         const aiTeam = nextPlayer.team || nextPlayer.number;
 
         if (aiTile.isMine) {
@@ -555,10 +560,11 @@ async function processAiTurn(gameId) {
             if (checkGameOver(game.scores)) {
                 game.gameOver = true;
             } else {
-                aiHitMine = true; // AI hit a mine, so it gets another turn!
+                aiHitMine = true;
             }
         } else {
-            revealRecursive(game.board, aiMove.c, aiMove.r);
+            revealRecursive(game.board, x, y); // Pass x (col) then y (row)
+            
             if (game.gameType === '1v1') {
                 game.turn = game.turn === 1 ? 2 : 1;
             } else if (game.gameType === '2v2') {
@@ -1564,7 +1570,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const allInvitedUserIds = [];
 
     if (gameType === '1v1') {
-        const targetSocketId = targetId; // Use the safely extracted targetId variable
+        const targetSocketId = firstTarget;
         const invitedPlayer = players.find((p) => p.id === targetSocketId);
         if (!invitedPlayer) {
             console.warn(`Invite failed: Invitee not found for 1v1. targetSocketId: ${targetSocketId}`);
