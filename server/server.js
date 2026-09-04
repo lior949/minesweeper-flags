@@ -2096,6 +2096,7 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
     if (!game || game.gameOver) {
         return;
     }
+   game.clickStartTime = clickStartTime;
 
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
