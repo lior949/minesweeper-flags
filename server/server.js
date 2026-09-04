@@ -12,6 +12,8 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
 
+const { getBestAIMove } = require('./ai.js');
+
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
@@ -540,10 +542,24 @@ const getNext2v2Turn = (currentTurn) => {
   }
 };
 
+const getPlayersWithAI = () => {
+    const aiBot = {
+        userId: 'ai_bot_player_id',
+        name: '🤖 Minesweeper Bot',
+        socketId: null,
+        isAi: true
+    };
+    if (!players.some(p => p.userId === aiBot.userId)) {
+        players.push(aiBot);
+    }
+    return players;
+};
+
 
 // Helper to emit the filtered list of players in the lobby
 const emitLobbyPlayersList = () => {
     // Non-blocking background batch emission or fast mapper
+    const activePlayers = getPlayersWithAI();
     const playersWithStatus = players.map(p => {
         const gameMapping = userGameMap[p.userId];
         let opponentName = null;
@@ -1394,6 +1410,70 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
+    if (gameType === '1v1' && targetSocketIds && targetSocketIds.length > 0 && targetSocketIds[0] === 'ai_bot_player_id') {
+        const gameId = uuidv4();
+        const board = generateBoard();
+        const player1 = inviterPlayer;
+        const player2 = { userId: 'ai_bot_player_id', name: '🤖 Minesweeper Bot', socketId: null, isAi: true };
+
+        const newGame = {
+            gameId,
+            gameType: '1v1',
+            board,
+            scores: { 1: 0, 2: 0 },
+            bombsUsed: { 1: false, 2: false },
+            turn: 1,
+            gameOver: false,
+            lastClickedTile: {},
+            players: [
+                { userId: player1.userId, name: player1.name, number: 1, socketId: socket.id, team: 1 },
+                { userId: player2.userId, name: player2.name, number: 2, socketId: null, isAi: true, team: 2 }
+            ],
+            messages: [],
+            observers: []
+        };
+
+        games[gameId] = newGame;
+        userGameMap[player1.userId] = { gameId, role: 'player' };
+
+        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+            gameId,
+            gameType: '1v1',
+            player1_userId: player1.userId,
+            player1_name: player1.name,
+            player2_userId: player2.userId,
+            player2_name: player2.name,
+            board: JSON.stringify(board),
+            scores: newGame.scores,
+            bombsUsed: newGame.bombsUsed,
+            turn: newGame.turn,
+            gameOver: false,
+            status: 'active',
+            lastUpdated: Timestamp.now()
+        }).catch(err => console.error("Error saving AI game to Firestore:", err));
+
+        socket.join(gameId);
+        socket.emit("game-start", {
+            gameId,
+            gameType: '1v1',
+            playerNumber: 1,
+            board: JSON.stringify(board),
+            turn: 1,
+            scores: newGame.scores,
+            bombsUsed: newGame.bombsUsed,
+            gameOver: false,
+            lastClickedTile: {},
+            opponentName: player2.name,
+            gameChat: [],
+            observers: [],
+            player1Name: player1.name,
+            player2Name: player2.name
+        });
+
+        emitLobbyPlayersList();
+        return;
+    }
+
     const invitedPlayersData = []; // To store player objects for invite
     const allInvitedUserIds = [];
 
@@ -1481,23 +1561,15 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         console.log(`[2v2 Invite] Inviter ${inviterPlayer.name} (${inviterUserId}) implicitly accepted for invite ${inviteId}.`);
     }
 
-    // Now emit the invite to each recipient's current socket
+    // Now emit the invitations to the target players
     for (const invitedP of invitedPlayersData) {
-        if (invitedP.id === inviterPlayer.id) continue; // Skip self
-
-        const recipientSocket = io.sockets.sockets.get(invitedP.id);
-        if (recipientSocket) {
-            // Send the invite ID and relevant details
-            recipientSocket.emit("game-invite", pendingInvites[invitedP.userId][inviteId]);
-            console.log(`Invite sent from ${inviterPlayer.name} to ${invitedP.name} for ${gameType} game (Invite ID: ${inviteId}).`);
-        } else {
-            console.warn(`Attempted to send invite to offline socket for user ${invitedP.name} (${invitedP.userId}). Invite will remain pending.`);
+        const targetSocketId = invitedP.id;
+        if (targetSocketId) {
+            io.to(targetSocketId).emit("game-invite", pendingInvites[invitedP.userId][inviteId]);
         }
     }
-    // Also notify the inviter that invites have been sent (or are pending)
-    io.to(inviterPlayer.id).emit("server-message", { text: `Invites sent for a ${gameType} game. Waiting for responses.`, isError: false });
+    io.to(inviterPlayer.id).emit("invite-sent", { message: "Invite sent successfully." });
   });
-
 
 // Respond to Invite Event
   socket.on("respond-invite", async ({ inviteId, gameIdFromClient, accept }) => { // Added inviteId and gameIdFromClient for clarity
@@ -2040,6 +2112,43 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
       } else if (game.gameType === '2v2') {
         game.turn = getNext2v2Turn(game.turn);
       }
+    }
+
+// AI Adversary Turn Loop Integration
+    if (!game.gameOver) {
+        const nextPlayer = game.players.find(p => p.number === game.turn);
+        if (nextPlayer && nextPlayer.isAi) {
+            setTimeout(() => {
+                if (game.gameOver) return;
+                const aiMove = getBestAIMove(game.board);
+                if (aiMove) {
+                    const aiTile = game.board[aiMove.r][aiMove.c];
+                    if (!aiTile.revealed && !aiTile.flagged) {
+                        aiTile.revealed = true;
+                        const aiTeam = (nextPlayer.number === 1 || nextPlayer.number === 2) ? 1 : 2;
+                        if (aiTile.isMine) {
+                            aiTile.owner = nextPlayer.number;
+                            aiTile.ownerTeam = aiTeam;
+                            game.scores[aiTeam] = (game.scores[aiTeam] || 0) + 1;
+                            if (checkGameOver(game.scores)) game.gameOver = true;
+                        } else {
+                            revealRecursive(game.board, aiMove.r, aiMove.c);
+                            game.turn = game.gameType === '1v1' ? (game.turn === 1 ? 2 : 1) : getNext2v2Turn(game.turn);
+                        }
+
+                        const boardStr = JSON.stringify(game.board);
+                        io.to(gameId).emit("board-update", {
+                            gameId: game.gameId,
+                            board: boardStr,
+                            turn: game.turn,
+                            scores: game.scores,
+                            bombsUsed: game.bombsUsed,
+                            gameOver: game.gameOver
+                        });
+                    }
+                }
+            }, 800);
+        }
     }
 
     // =========================================================================
