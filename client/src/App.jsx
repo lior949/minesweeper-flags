@@ -325,8 +325,14 @@ function App() {
 
             socketRef.current.on("board-update", (game) => {
              if (game.clickStartTime) {
-        const totalDuration = performance.now() - game.clickStartTime;
-        console.log(`⏱️ Tile reveal latency: ${totalDuration.toFixed(2)}ms`);
+        const networkDuration = performance.now() - game.clickStartTime;
+        console.log(`⏱️ Network & Server round-trip: ${networkDuration.toFixed(2)}ms`);
+        
+        // Measure React rendering time right after state updates finish
+        requestAnimationFrame(() => {
+            const totalDuration = performance.now() - game.clickStartTime;
+            console.log(`⏱️ Total time including React paint: ${totalDuration.toFixed(2)}ms`);
+        });
     }
               setBoard(JSON.parse(game.board));
               setTurn(game.turn);
