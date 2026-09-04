@@ -11,6 +11,38 @@ const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
+const clientRevealRecursive = (boardCopy, startX, startY) => {
+    const queue = [{ x: startX, y: startY }];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const { x, y } = queue.shift();
+      const key = `${x},${y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+      const tile = boardCopy[y][x];
+
+      if (tile.revealed || tile.isMine) continue;
+
+      // Reveal the tile optimistically
+      tile.revealed = true;
+      tile.owner = playerNumber;
+
+      // If it's a blank tile (0 adjacent mines), expand to neighbors
+      if (tile.adjacentMines === 0) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx !== 0 || dy !== 0) {
+              queue.push({ x: x + dx, y: y + dy });
+            }
+          }
+        }
+      }
+    }
+  };
+
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 const generate5DigitGuestId = async (message) => {
     try {
@@ -795,20 +827,27 @@ function App() {
 
     } else if (playerNumber === turn && !gameOver) {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
-      
-      // ⏱️ 1. Record the start timestamp
       const clickStartTime = performance.now(); 
 
-      // 🚀 2. OPTIMISTIC UI UPDATE: Instantly reveal the clicked tile locally
+      // 🚀 OPTIMISTIC CASCADE UPDATE: Instantly reveal the tile AND its matching cluster
       setBoard(prevBoard => {
-        // Create a safe deep copy of the grid
         const newBoard = prevBoard.map(row => row.map(tile => ({ ...tile })));
         if (newBoard[y] && newBoard[y][x]) {
-          newBoard[y][x].revealed = true;
-          newBoard[y][x].owner = playerNumber;
+          // Run the client-side cascade matching the server behavior
+          clientRevealRecursive(newBoard, x, y);
         }
         return newBoard;
       });
+
+      setLastClickedTile(prev => ({ ...prev, [playerNumber]: { x, y } }));
+
+      // Send to server
+      socketRef.current.emit("tile-click", { gameId, x, y, clickStartTime });
+      
+    } else if (playerNumber !== turn) {
+        addGameMessage("Server", "It's not your turn!", true); 
+    }
+  };
 
       // Instantly update the last clicked marker for immediate visual feedback
       setLastClickedTile(prev => ({ ...prev, [playerNumber]: { x, y } }));
