@@ -1410,10 +1410,10 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
-    if (gameType === '1v1' && targetSocketIds && targetSocketIds.length > 0 && targetSocketIds[0] === 'ai_bot_player_id') {
+    if (targetUserId === 'ai_bot_player_id' || (gameType === '1v1' && targetUserId === 'ai_bot_player_id')) {
         const gameId = uuidv4();
         const board = generateBoard();
-        const player1 = inviterPlayer;
+        const player1 = senderPlayer;
         const player2 = { userId: 'ai_bot_player_id', name: '🤖 Minesweeper Bot', socketId: null, isAi: true };
 
         const newGame = {
@@ -1432,47 +1432,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             messages: [],
             observers: []
         };
-
-        games[gameId] = newGame;
-        userGameMap[player1.userId] = { gameId, role: 'player' };
-
-        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            gameId,
-            gameType: '1v1',
-            player1_userId: player1.userId,
-            player1_name: player1.name,
-            player2_userId: player2.userId,
-            player2_name: player2.name,
-            board: JSON.stringify(board),
-            scores: newGame.scores,
-            bombsUsed: newGame.bombsUsed,
-            turn: newGame.turn,
-            gameOver: false,
-            status: 'active',
-            lastUpdated: Timestamp.now()
-        }).catch(err => console.error("Error saving AI game to Firestore:", err));
-
-        socket.join(gameId);
-        socket.emit("game-start", {
-            gameId,
-            gameType: '1v1',
-            playerNumber: 1,
-            board: JSON.stringify(board),
-            turn: 1,
-            scores: newGame.scores,
-            bombsUsed: newGame.bombsUsed,
-            gameOver: false,
-            lastClickedTile: {},
-            opponentName: player2.name,
-            gameChat: [],
-            observers: [],
-            player1Name: player1.name,
-            player2Name: player2.name
-        });
-
-        emitLobbyPlayersList();
-        return;
-    }
 
     const invitedPlayersData = []; // To store player objects for invite
     const allInvitedUserIds = [];
