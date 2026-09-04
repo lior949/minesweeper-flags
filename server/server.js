@@ -558,7 +558,7 @@ async function processAiTurn(gameId) {
                 aiHitMine = true; // AI hit a mine, so it gets another turn!
             }
         } else {
-            revealRecursive(game.board, aiMove.r, aiMove.c);
+            revealRecursive(game.board, aiMove.c, aiMove.r);
             if (game.gameType === '1v1') {
                 game.turn = game.turn === 1 ? 2 : 1;
             } else if (game.gameType === '2v2') {
