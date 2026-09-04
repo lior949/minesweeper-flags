@@ -583,7 +583,8 @@ async function processAiTurn(gameId) {
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile,
-            observers: game.observers
+            observers: game.observers,
+            clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
         });
 
         // Persist state asynchronously
@@ -2486,7 +2487,8 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-        observers: game.observers // Send observer list
+        observers: game.observers, // Send observer list
+        clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
     });
   });
 
