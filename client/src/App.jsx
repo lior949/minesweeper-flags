@@ -849,17 +849,6 @@ function App() {
     }
   };
 
-      // Instantly update the last clicked marker for immediate visual feedback
-      setLastClickedTile(prev => ({ ...prev, [playerNumber]: { x, y } }));
-
-      // ⏱️ 3. Emit the event to the server as usual
-      socketRef.current.emit("tile-click", { gameId, x, y, clickStartTime });
-      
-    } else if (playerNumber !== turn) {
-        addGameMessage("Server", "It's not your turn!", true); 
-    }
-  };
-
   const handleUseBombClick = () => { 
     if (playerNumber === 0) {
         addGameMessage("Server", "Observers cannot use bombs.", true); 
