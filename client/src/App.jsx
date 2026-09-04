@@ -784,7 +784,11 @@ function App() {
       setHighlightedBombArea([]); 
     } else if (playerNumber === turn && !gameOver) {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
-      socketRef.current.emit("tile-click", { gameId, x, y });
+      // ⏱️ 1. Record the start timestamp
+      const clickStartTime = performance.now(); 
+
+      // ⏱️ 2. Include clickStartTime in the socket emit payload
+      socketRef.current.emit("tile-click", { gameId, x, y, clickStartTime });
     } else if (playerNumber !== turn) {
         addGameMessage("Server", "It's not your turn!", true); 
     }
