@@ -775,8 +775,8 @@ function App() {
               break;
             }
           } else {
-              allTilesRevealed = false; 
-              break;
+            allTilesRevealed = false; 
+            break;
           }
         }
         if (!allTilesRevealed) break;
@@ -792,13 +792,30 @@ function App() {
       setBombMode(false); 
       setIsBombHighlightActive(false); 
       setHighlightedBombArea([]); 
+
     } else if (playerNumber === turn && !gameOver) {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
+      
       // ⏱️ 1. Record the start timestamp
       const clickStartTime = performance.now(); 
 
-      // ⏱️ 2. Include clickStartTime in the socket emit payload
+      // 🚀 2. OPTIMISTIC UI UPDATE: Instantly reveal the clicked tile locally
+      setBoard(prevBoard => {
+        // Create a safe deep copy of the grid
+        const newBoard = prevBoard.map(row => row.map(tile => ({ ...tile })));
+        if (newBoard[y] && newBoard[y][x]) {
+          newBoard[y][x].revealed = true;
+          newBoard[y][x].owner = playerNumber;
+        }
+        return newBoard;
+      });
+
+      // Instantly update the last clicked marker for immediate visual feedback
+      setLastClickedTile(prev => ({ ...prev, [playerNumber]: { x, y } }));
+
+      // ⏱️ 3. Emit the event to the server as usual
       socketRef.current.emit("tile-click", { gameId, x, y, clickStartTime });
+      
     } else if (playerNumber !== turn) {
         addGameMessage("Server", "It's not your turn!", true); 
     }
