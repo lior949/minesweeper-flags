@@ -324,6 +324,10 @@ function App() {
             });
 
             socketRef.current.on("board-update", (game) => {
+             if (game.clickStartTime) {
+        const totalDuration = performance.now() - game.clickStartTime;
+        console.log(`⏱️ Tile reveal latency: ${totalDuration.toFixed(2)}ms`);
+    }
               setBoard(JSON.parse(game.board));
               setTurn(game.turn);
               setScores(game.scores);
