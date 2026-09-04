@@ -2232,7 +2232,8 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile,
-        observers: game.observers
+        observers: game.observers,
+        clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
     });
 
     // 2. Persist state asynchronously in the background without `await`
