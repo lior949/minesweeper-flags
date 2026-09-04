@@ -158,6 +158,22 @@ function App() {
   };
 
 const clientRevealRecursive = (boardCopy, startX, startY) => {
+    const height = boardCopy.length;
+    const width = boardCopy[0].length;
+    
+    const startTile = boardCopy[startY][startX];
+    if (!startTile || startTile.revealed) return;
+
+    // 1. Instantly reveal the clicked tile (whether it's a mine, number, or blank)
+    startTile.revealed = true;
+    startTile.owner = playerNumber;
+
+    // 2. If it's a mine, it doesn't cascade further (just like the server)
+    if (startTile.isMine) {
+      return;
+    }
+
+    // 3. Otherwise, run the cascade queue for blank/numbered tiles
     const queue = [{ x: startX, y: startY }];
     const visited = new Set();
 
@@ -167,17 +183,18 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       if (visited.has(key)) continue;
       visited.add(key);
 
-      // Now it can safely use WIDTH and HEIGHT from the outer scope!
-      if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
       const tile = boardCopy[y][x];
 
-      if (tile.revealed || tile.isMine) continue;
+      if (tile.revealed) continue;
+      
+      // Stop the cascade if we hit a mine
+      if (tile.isMine) continue;
 
-      // Reveal the tile optimistically
       tile.revealed = true;
-      tile.owner = playerNumber; // Has access to playerNumber too!
+      tile.owner = playerNumber;
 
-      // If it's a blank tile (0 adjacent mines), expand to neighbors
+      // Expand if it's a blank tile
       if (tile.adjacentMines === 0) {
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
