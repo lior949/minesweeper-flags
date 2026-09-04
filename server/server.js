@@ -1433,6 +1433,31 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             observers: []
         };
 
+        games[gameId] = newGame;
+        userGameMap[player1.userId] = { gameId, role: 'player' };
+
+        socket.join(gameId);
+        socket.emit("game-start", {
+            gameId,
+            gameType: '1v1',
+            playerNumber: 1,
+            board: JSON.stringify(board),
+            turn: 1,
+            scores: newGame.scores,
+            bombsUsed: newGame.bombsUsed,
+            gameOver: false,
+            lastClickedTile: {},
+            opponentName: player2.name,
+            gameChat: [],
+            observers: [],
+            player1Name: player1.name,
+            player2Name: player2.name
+        });
+
+        emitLobbyPlayersList();
+        return;
+    }
+
     const invitedPlayersData = []; // To store player objects for invite
     const allInvitedUserIds = [];
 
