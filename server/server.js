@@ -2012,36 +2012,6 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
             });
         });
 
-        const serializedBoard = JSON.stringify(game.board);
-        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            board: serializedBoard,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            turn: game.turn,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            status: 'active',
-            lastUpdated: Timestamp.now(),
-            winnerTeam: null,
-            loserTeam: null,
-            messages: game.messages,
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-        }, { merge: true }).catch(error => {
-            console.error("Error restarting game in Firestore (background persist):", error);
-        });
-
-        return;
-      }
-
-      revealRecursive(game.board, x, y);
-
-      if (game.gameType === '1v1') {
-        game.turn = game.turn === 1 ? 2 : 1;
-      } else if (game.gameType === '2v2') {
-        game.turn = getNext2v2Turn(game.turn);
-      }
-    }
-
   // =========================================================================
   // IMPORTED AI ADVERSARY ENGINE MODULE
   // =========================================================================
@@ -2076,6 +2046,8 @@ socket.on("tile-click", async ({ gameId, x, y }) => {
         game.turn = getNext2v2Turn(game.turn);
       }
     }
+
+
 
     // =========================================================================
     // PERFORMANCE BOTTLENECK REMOVAL: JSON SERIALIZATION CACHING & MEMORY STREAMING
