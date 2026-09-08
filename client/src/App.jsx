@@ -1183,22 +1183,6 @@ const renderTile = (tile) => {
                 </li>
               ))}
             </ul>
-            {invite && (
-              <div className="invite-popup">
-                {invite.gameType === '2v2' ? (
-                  <p>
-                    2v2 Invitation from <b>{invite.senderName}</b>.<br/>
-                    Invited: {invite.invitedPlayersInfo.map(p => p.name).join(', ')}
-                  </p>
-                ) : (
-                  <p>
-                    Invitation from <b>{invite.senderName}</b>
-                  </p>
-                )}
-                <button onClick={() => respondInvite(true)}>Accept</button>
-                <button onClick={() => respondInvite(false)}>Reject</button>
-              </div>
-            )}
 
             <div className="unfinished-games-section">
                 <h3>Your Unfinished Games</h3>
@@ -1495,6 +1479,33 @@ const renderTile = (tile) => {
                 </div> 
             </div>
         )}
+    </div>
+  );
+}
+
+{/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
+        {invite && (
+          <div className="invite-modal-overlay">
+            <div className="invite-modal-card">
+              <h3>Game Invitation</h3>
+              {invite.gameType === '2v2' ? (
+                <p>
+                  2v2 Invitation from <b>{invite.senderName}</b>.<br/>
+                  Invited: {invite.invitedPlayersInfo.map(p => p.name).join(', ')}
+                </p>
+              ) : (
+                <p>
+                  Invitation from <b>{invite.senderName}</b>
+                </p>
+              )}
+              <div className="invite-actions">
+                <button onClick={() => respondInvite(true)} className="bomb-button" style={{ margin: 0 }}>Accept</button>
+                <button onClick={() => respondInvite(false)} className="bomb-button" style={{ margin: 0, backgroundColor: '#ef4444' }}>Reject</button>
+              </div>
+            </div>
+          </div>
+        )}
+
     </div>
   );
 }
