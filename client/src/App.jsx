@@ -1293,125 +1293,77 @@ const renderTile = (tile) => {
         )}
 
         {gameId && (
-            <div className="max-w-7xl mx-auto">
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6"> 
-                    
-                    {/* SIMPLIFIED, HIGH-CONTRAST SCORECARD PANEL */}
-                    <div className="lg:col-span-1 bg-slate-900 border border-slate-700/60 rounded-2xl p-5 shadow-2xl flex flex-col justify-between space-y-6">
-                        <div>
-                          <div className="flex items-center justify-between mb-5">
-                            <h1 className="text-lg font-bold text-white tracking-wide">Minesweeper</h1>
-                            <button onClick={backToLobby} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 rounded-xl border border-slate-600 transition">Lobby</button>
-                          </div>
-
-                          <div className="space-y-3">
-                            <div className="text-xs uppercase tracking-wider text-slate-400 font-bold mb-2">Players & Score</div>
-                            
-                            {gameType === '2v2' ? (
-                              <>
-                                <div className={`p-4 rounded-xl border transition-all ${
-                                  turn === 1 || turn === 2 
-                                    ? 'bg-emerald-950/80 border-emerald-500 shadow-lg ring-1 ring-emerald-500' 
-                                    : 'bg-slate-950/60 border-slate-800'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-sm font-bold text-white">Team 1 ({gamePlayerNames[1]} & {gamePlayerNames[2]})</span>
-                                    {(turn === 1 || turn === 2) && (
-                                      <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
-                                        Turn
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between text-xs text-slate-300">
-                                    <span>Team Flags:</span>
-                                    <span className="text-lg font-black text-rose-400">{scores[1] || 0}</span>
-                                  </div>
-                                </div>
-
-                                <div className={`p-4 rounded-xl border transition-all ${
-                                  turn === 3 || turn === 4 
-                                    ? 'bg-emerald-950/80 border-emerald-500 shadow-lg ring-1 ring-emerald-500' 
-                                    : 'bg-slate-950/60 border-slate-800'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-sm font-bold text-white">Team 2 ({gamePlayerNames[3]} & {gamePlayerNames[4]})</span>
-                                    {(turn === 3 || turn === 4) && (
-                                      <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
-                                        Turn
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between text-xs text-slate-300">
-                                    <span>Team Flags:</span>
-                                    <span className="text-lg font-black text-sky-400">{scores[2] || 0}</span>
-                                  </div>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className={`p-4 rounded-xl border transition-all ${
-                                  turn === 1 
-                                    ? 'bg-emerald-950/80 border-emerald-500 shadow-lg ring-1 ring-emerald-500' 
-                                    : 'bg-slate-950/60 border-slate-800'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-sm font-bold text-white truncate max-w-[120px]">{gamePlayerNames[1] || "Player 1"}</span>
-                                    {turn === 1 && (
-                                      <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
-                                        Turn
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between text-xs text-slate-300">
-                                    <span>Flags:</span>
-                                    <span className="text-lg font-black text-rose-400">{scores[1] || 0}</span>
-                                  </div>
-                                </div>
-
-                                <div className={`p-4 rounded-xl border transition-all ${
-                                  turn === 2 
-                                    ? 'bg-emerald-950/80 border-emerald-500 shadow-lg ring-1 ring-emerald-500' 
-                                    : 'bg-slate-950/60 border-slate-800'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-sm font-bold text-white truncate max-w-[120px]">{gamePlayerNames[2] || "Player 2"}</span>
-                                    {turn === 2 && (
-                                      <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
-                                        Turn
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between text-xs text-slate-300">
-                                    <span>Flags:</span>
-                                    <span className="text-lg font-black text-sky-400">{scores[2] || 0}</span>
-                                  </div>
-                                </div>
-                              </>
+            <div className="app-game-container">
+                <div className="game-layout-grid"> 
+                    <div className="game-sidebar left-sidebar">
+                        <h1 className="game-title">Minesweeper Flags</h1>
+                        <div className="game-controls">
+                            {playerNumber !== 0 && ( 
+                              !currentBombUsedStatus && 
+                              currentPlayerScore < opponentPlayerOrTeamScore && 
+                              !gameOver && (
+                                <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
+                                    Use Bomb
+                                </button>
+                              ))}
+                            {playerNumber !== 0 && bombMode && (
+                              <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
+                                  Cancel Bomb
+                              </button>
                             )}
-                          </div>
-                           <div className="mt-5 p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
-                              <span className="text-xs font-semibold text-slate-400">Unrevealed Mines</span>
-                              <span className="text-xl font-bold text-rose-400">{unrevealedMines}</span>
-                               <p className="mine-count-display">
+                            <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
+                                Back to Lobby
+                            </button>
+                            {gameOver && playerNumber !== 0 && ( 
+                                <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
+                                    Restart Game
+                                </button>
+                            )}
+                        </div>
+                        <div className="game-info">
+                            <h2>
+                                {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
+                                {gameType === '1v1' ? ` (vs. ${opponentName})` : ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2 })`}
+                            </h2>
+                            {gameType === '2v2' ? (
+                                <div className="score-display">
+                                    <p style={{ color: (turn === 1 || turn === 2) ? 'green' : 'inherit' }}>
+                                        Team 1 ({gamePlayerNames[1]}, {gamePlayerNames[2]}): {scores[1]} <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                          <path d="M0 0h24v24H0z" fill="none"/>
+                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                        </svg>
+                                    </p>
+                                    <p style={{ color: (turn === 3 || turn === 4) ? 'green' : 'inherit' }}>
+                                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]}): {scores[2]} 
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                          <path d="M0 0h24v24H0z" fill="none"/>
+                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                        </svg>
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="score-display">
+                                    <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
+                                    {gamePlayerNames[1]}: {scores[1]} <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                          <path d="M0 0h24v24H0z" fill="none"/>
+                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                        </svg>
+                                    </p>
+                                    <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
+                                    {gamePlayerNames[2]}: {scores[2]} 
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
+                                      <path d="M0 0h24v24H0z" fill="none"/>
+                                      <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                                    </svg>
+                                    </p>
+                                </div>
+                            )}
+
+                            <p className="mine-count-display">
                                 Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
                             </p>
                             {gameOver && playerNumber === 0 && ( 
                                 <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
-                            )}
-                        </div>
-                    </div> 
-
-                        {/* Action Buttons */}
-                        <div className="space-y-2 pt-3 border-t border-slate-800">
-                            {playerNumber !== 0 && !currentBombUsedStatus && currentPlayerScore < opponentPlayerOrTeamScore && !gameOver && (
-                              <button className="w-full py-3 bg-amber-600 hover:bg-amber-500 font-bold text-xs uppercase tracking-wider rounded-xl text-white shadow transition duration-200" onClick={handleUseBombClick}>
-                                💣 Use Bomb Ability
-                              </button>
-                            )}
-                            {playerNumber !== 0 && bombMode && (
-                              <button className="w-full py-3 bg-rose-600 hover:bg-rose-500 font-bold text-xs uppercase tracking-wider rounded-xl text-white shadow transition duration-200 animate-pulse" onClick={handleCancelBomb}>
-                                Cancel Bomb Mode
-                              </button>
                             )}
                         </div>
                     </div> 
