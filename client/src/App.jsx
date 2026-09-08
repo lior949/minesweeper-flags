@@ -1480,30 +1480,40 @@ const renderTile = (tile) => {
             </div>
         )}
         {/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
-        {invite && (
-          <div className="invite-modal-overlay">
-            <div className="invite-modal-card">
-              <h3>Game Invitation</h3>
-              {invite.gameType === '2v2' ? (
-                <p>
-                  2v2 Invitation from <b>{invite.senderName}</b>.<br/>
-                  Invited: {invite.invitedPlayersInfo.map(p => p.name).join(', ')}
-                </p>
-              ) : (
-                <p>
-                  Invitation from <b>{invite.senderName}</b>
-                </p>
-              )}
-              <div className="invite-actions">
-                <button onClick={() => respondInvite(true)} className="bomb-button" style={{ margin: 0 }}>Accept</button>
-                <button onClick={() => respondInvite(false)} className="bomb-button" style={{ margin: 0, backgroundColor: '#ef4444' }}>Reject</button>
-              </div>
-            </div>
-          </div>
+{invite && (
+  <div className="invite-modal-overlay">
+    <div className="invite-modal-card">
+      <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>
+        {invite.gameType === '2v2' ? (
+          <>
+            2v2 Invitation from <b>{invite.senderName}</b>.<br/>
+            <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>
+              Invited: {invite.invitedPlayersInfo?.map(p => p.name).join(', ')}
+            </span>
+          </>
+        ) : (
+          <>Invitation from <b>{invite.senderName}</b></>
         )}
+      </div>
+      <div className="invite-actions">
+        <button 
+          className="btn-accept" 
+          onClick={() => respondInvite(true)}
+          style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          ACCEPT
+        </button>
+        <button 
+          className="btn-decline" 
+          onClick={() => respondInvite(false)}
+          style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          DECLINE
+        </button>
+      </div>
     </div>
-  );
-}
+  </div>
+)}
 
 
 
