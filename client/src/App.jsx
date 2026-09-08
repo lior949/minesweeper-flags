@@ -77,7 +77,7 @@ function App() {
   const [bombMode, setBombMode] = useState(false); 
   const [gameOver, setGameOver] = useState(false);
   const [opponentName, setOpponentName] = useState(""); 
-  const [invite, setInvite] = useState(null);
+  const [invites, setInvites] = useState([]);
   const [unfinishedGames, setUnfinishedGames] = useState([]); 
   const [observableGames, setObservableGames] = useState([]); 
   const [lastClickedTile, setLastClickedTile] = useState({ 1: null, 2: null, 3: null, 4: null }); 
@@ -316,27 +316,33 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
             });
 
             socketRef.current.on("game-invite", (inviteData) => {
-              setInvite(inviteData);
-              if (inviteData.gameType === '2v2' && inviteData.invitedPlayersInfo) {
-                const inviterName = inviteData.senderName;
-                const otherPlayers = inviteData.invitedPlayersInfo
-                    .filter(p => p.userId !== inviteData.senderId && p.userId !== (data.user.id))
-                    .map(p => p.name);
+  setInvites(prevInvites => {
+    if (prevInvites.some(inv => inv.inviteId === inviteData.inviteId)) {
+      return prevInvites;
+    }
+    return [...prevInvites, inviteData];
+  });
 
-                let inviteMessage = `2v2 Invitation from ${inviterName}.`;
-                if (otherPlayers.length === 3) {
-                    const partnerName = otherPlayers[0];
-                    const rival1Name = otherPlayers[1];
-                    const rival2Name = otherPlayers[2];
-                    inviteMessage += ` You, ${partnerName}, ${rival1Name}, and ${rival2Name} are invited.`;
-                } else {
-                    inviteMessage += ` Invited players: ${otherPlayers.join(', ')}`;
-                }
-                showMessage(inviteMessage);
-              } else {
-                showMessage(`Invitation from ${inviteData.senderName}!`);
-              }
-            });
+  if (inviteData.gameType === '2v2' && inviteData.invitedPlayersInfo) {
+    const inviterName = inviteData.senderName;
+    const otherPlayers = inviteData.invitedPlayersInfo
+        .filter(p => p.userId !== inviteData.senderId && p.userId !== (data.user.id))
+        .map(p => p.name);
+
+    let inviteMessage = `2v2 Invitation from ${inviterName}.`;
+    if (otherPlayers.length === 3) {
+        const partnerName = otherPlayers[0];
+        const rival1Name = otherPlayers[1];
+        const rival2Name = otherPlayers[2];
+        inviteMessage += ` You, ${partnerName}, ${rival1Name}, and ${rival2Name} are invited.`;
+    } else {
+        inviteMessage += ` Invited players: ${otherPlayers.join(', ')}`;
+    }
+    showMessage(inviteMessage);
+  } else {
+    showMessage(`Invitation from ${inviteData.senderName}!`);
+  }
+});
 
             socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
               showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
@@ -787,19 +793,19 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     setInvitationStage(0);
   };
 
-  const respondInvite = (accept) => {
-    if (invite && socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("respond-invite", { inviteId: invite.inviteId, gameIdFromClient: null, accept });
-      setInvite(null);
-      setMessage("");
-      setSelectedPartner(null);
-      setSelectedRivals([]);
-      setIs2v2Mode(false);
-      setInvitationStage(0);
-    } else if (!socketRef.current || !socketRef.current.connected) {
-        showMessage("Not connected to server. Cannot respond to invite.", true);
-    }
-  };
+const respondInvite = (inviteId, accept) => {
+  if (socketRef.current && socketRef.current.connected) {
+    socketRef.current.emit("respond-invite", { inviteId, gameIdFromClient: null, accept });
+    setInvites(prev => prev.filter(inv => inv.inviteId !== inviteId));
+    setMessage("");
+    setSelectedPartner(null);
+    setSelectedRivals([]);
+    setIs2v2Mode(false);
+    setInvitationStage(0);
+  } else if (!socketRef.current || !socketRef.current.connected) {
+      showMessage("Not connected to server. Cannot respond to invite.", true);
+  }
+};
 
   const handleClick = (x, y) => {
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
@@ -922,7 +928,7 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     setHighlightedBombArea([]); 
     setGameOver(false);
     setOpponentName("");
-    setInvite(null);
+    setInvites([]);
     setMessage(""); 
     setUnfinishedGames([]);
     setObservableGames([]); 
@@ -1480,40 +1486,47 @@ const renderTile = (tile) => {
             </div>
         )}
         {/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
-       {invite && (
-  <div className="invite-modal-overlay">
-    <div className="invite-modal-card">
-      <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>
-        {invite.gameType === '2v2' ? (
-          <>
-            2v2 Invitation from <b>{invite.senderName}</b>.<br/>
-            <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>
-              Invited: {invite.invitedPlayersInfo?.map(p => p.name).join(', ')}
-            </span>
-          </>
-        ) : (
-          <>Invitation from <b>{invite.senderName}</b></>
+       {invites.length > 0 && (
+          <div className="invite-modal-overlay">
+            <div className="invite-modal-card" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+              <h3 style={{ margin: '0 0 12px 0', fontSize: '1.2rem', textAlign: 'center' }}>Game Invitations ({invites.length})</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {invites.map((inv) => (
+                  <div key={inv.inviteId} style={{ padding: '12px', background: '#334155', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px', border: '1px solid #475569' }}>
+                    <div style={{ fontWeight: '600', fontSize: '1rem', color: '#f8fafc' }}>
+                      {inv.gameType === '2v2' ? (
+                        <>
+                          2v2 Invitation from <b>{inv.senderName}</b>.<br/>
+                          <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                            Invited: {inv.invitedPlayersInfo?.map(p => p.name).join(', ')}
+                          </span>
+                        </>
+                      ) : (
+                        <>Invitation from <b>{inv.senderName}</b></>
+                      )}
+                    </div>
+                    <div className="invite-actions">
+                      <button 
+                        className="btn-accept" 
+                        onClick={() => respondInvite(inv.inviteId, true)}
+                        style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        ACCEPT
+                      </button>
+                      <button 
+                        className="btn-decline" 
+                        onClick={() => respondInvite(inv.inviteId, false)}
+                        style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        DECLINE
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
-      </div>
-      <div className="invite-actions">
-        <button 
-          className="btn-accept" 
-          onClick={() => respondInvite(true)}
-          style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-        >
-          ACCEPT
-        </button>
-        <button 
-          className="btn-decline" 
-          onClick={() => respondInvite(false)}
-          style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-        >
-          DECLINE
-        </button>
-      </div>
-    </div>
-  </div>
-)}
     </div>
   );
 }
