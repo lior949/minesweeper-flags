@@ -1183,7 +1183,40 @@ const renderTile = (tile) => {
                 </li>
               ))}
             </ul>
-            
+            {invite && (
+  <div className="invite-modal-overlay">
+    <div className="invite-modal-card">
+      <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>
+        {invite.gameType === '2v2' ? (
+          <>
+            2v2 Invitation from <b>{invite.senderName}</b>.<br/>
+            <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>
+              Invited: {invite.invitedPlayersInfo?.map(p => p.name).join(', ')}
+            </span>
+          </>
+        ) : (
+          <>Invitation from <b>{invite.senderName}</b></>
+        )}
+      </div>
+      <div className="invite-actions">
+        <button 
+          className="btn-accept" 
+          onClick={() => respondInvite(true)}
+          style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          ACCEPT
+        </button>
+        <button 
+          className="btn-decline" 
+          onClick={() => respondInvite(false)}
+          style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          DECLINE
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
             <div className="unfinished-games-section">
                 <h3>Your Unfinished Games</h3>
@@ -1276,42 +1309,6 @@ const renderTile = (tile) => {
 
             </>
         )}
-        {invite && (
-          <div className="invite-modal-overlay">
-            <div className="invite-modal-card">
-              <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>
-                {invite.gameType === '2v2' ? (
-                  <>
-                    2v2 Invitation from <b>{invite.senderName}</b>.<br/>
-                    <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>
-                      Invited: {invite.invitedPlayersInfo?.map(p => p.name).join(', ')}
-                    </span>
-                  </>
-                ) : (
-                  <>Invitation from <b>{invite.senderName}</b></>
-                )}
-              </div>
-              <div className="invite-actions">
-                <button 
-                  onClick={() => respondInvite(true)}
-                  style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                >
-                  ACCEPT
-                </button>
-                <button 
-                  onClick={() => respondInvite(false)}
-                  style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                >
-                  DECLINE
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-    </div> // This closes <div className="lobby">
-  );
-}
 
         {gameId && (
             <div className="app-game-container">
