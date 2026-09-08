@@ -1082,7 +1082,7 @@ const renderTile = (tile) => {
   <img 
     src={logoImage} 
     alt="Minesweeper Flags Logo" 
-    style={{ width: '160px', height: '160px' }}
+    style={{ width: '240px', height: '240px' }}
     className="object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
   />
 </div>
