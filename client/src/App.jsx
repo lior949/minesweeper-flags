@@ -1479,11 +1479,7 @@ const renderTile = (tile) => {
                 </div> 
             </div>
         )}
-    </div>
-  );
-}
-
-{/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
+        {/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
         {invite && (
           <div className="invite-modal-overlay">
             <div className="invite-modal-card">
@@ -1505,9 +1501,10 @@ const renderTile = (tile) => {
             </div>
           </div>
         )}
-
     </div>
   );
 }
+
+
 
 export default App;
