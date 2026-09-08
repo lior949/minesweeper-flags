@@ -1320,71 +1320,115 @@ const renderTile = (tile) => {
                                 </button>
                             )}
                         </div>
-                        <div className="space-y-3">
-                            <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold block">Live Scoreboard</span>
+                        {/* BOLD, HIGH-CONTRAST SCORE & TURN STATS CARDS */}
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs uppercase tracking-widest text-slate-300 font-extrabold">Scoreboard & Turns</span>
+                              <span className="text-xs font-bold text-emerald-400 animate-pulse">● LIVE</span>
+                            </div>
                             
                             {gameType === '2v2' ? (
                                 <>
-                                  <div className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-between ${
-                                    (turn === 1 || turn === 2) ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-slate-950/40 border-slate-800'
+                                  <div className={`p-4 rounded-2xl border-2 transition-all duration-300 ${
+                                    (turn === 1 || turn === 2) 
+                                      ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.35)] scale-[1.02]' 
+                                      : 'bg-slate-950/80 border-slate-800'
                                   }`}>
-                                    <div>
-                                      <p className="text-xs text-slate-400 font-medium">Team 1</p>
-                                      <p className="text-sm font-bold text-slate-200">{gamePlayerNames[1]} & {gamePlayerNames[2]}</p>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-black uppercase tracking-wider text-slate-300">Team 1</span>
+                                      {(turn === 1 || turn === 2) && (
+                                        <span className="px-2 py-0.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-full uppercase tracking-wider">
+                                          ▶ THEIR TURN
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-2xl font-black text-rose-400">{scores[1] || 0}</span>
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f87171" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                    <p className="text-sm font-extrabold text-white mb-2 truncate">{gamePlayerNames[1]} & {gamePlayerNames[2]}</p>
+                                    <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                                      <span className="text-xs text-slate-400 font-semibold">Flags Captured:</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-2xl font-black text-rose-400">{scores[1] || 0}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f87171" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-between ${
-                                    (turn === 3 || turn === 4) ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-slate-950/40 border-slate-800'
+                                  <div className={`p-4 rounded-2xl border-2 transition-all duration-300 ${
+                                    (turn === 3 || turn === 4) 
+                                      ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.35)] scale-[1.02]' 
+                                      : 'bg-slate-950/80 border-slate-800'
                                   }`}>
-                                    <div>
-                                      <p className="text-xs text-slate-400 font-medium">Team 2</p>
-                                      <p className="text-sm font-bold text-slate-200">{gamePlayerNames[3]} & {gamePlayerNames[4]}</p>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-black uppercase tracking-wider text-slate-300">Team 2</span>
+                                      {(turn === 3 || turn === 4) && (
+                                        <span className="px-2 py-0.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-full uppercase tracking-wider">
+                                          ▶ THEIR TURN
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-2xl font-black text-sky-400">{scores[2] || 0}</span>
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#60a5fa" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                    <p className="text-sm font-extrabold text-white mb-2 truncate">{gamePlayerNames[3]} & {gamePlayerNames[4]}</p>
+                                    <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                                      <span className="text-xs text-slate-400 font-semibold">Flags Captured:</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-2xl font-black text-sky-400">{scores[2] || 0}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#60a5fa" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                      </div>
                                     </div>
                                   </div>
                                 </>
                             ) : (
                                 <>
-                                  <div className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-between ${
-                                    turn === 1 ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-slate-950/40 border-slate-800'
+                                  <div className={`p-4 rounded-2xl border-2 transition-all duration-300 ${
+                                    turn === 1 
+                                      ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.35)] scale-[1.02]' 
+                                      : 'bg-slate-950/80 border-slate-800'
                                   }`}>
-                                    <div>
-                                      <p className="text-xs text-slate-400 font-medium">Player 1</p>
-                                      <p className="text-sm font-bold text-slate-200">{gamePlayerNames[1]}</p>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-black uppercase tracking-wider text-slate-300">Player 1</span>
+                                      {turn === 1 && (
+                                        <span className="px-2.5 py-0.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-full uppercase tracking-wider shadow">
+                                          ▶ THEIR TURN
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-2xl font-black text-rose-400">{scores[1] || 0}</span>
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f87171" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                    <p className="text-sm font-extrabold text-white mb-2 truncate">{gamePlayerNames[1] || "Player 1"}</p>
+                                    <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                                      <span className="text-xs text-slate-400 font-semibold">Flags Captured:</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-2xl font-black text-rose-400">{scores[1] || 0}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f87171" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                      </div>
                                     </div>
                                   </div>
 
-                                  <div className={`p-4 rounded-xl border transition-all duration-300 flex items-center justify-between ${
-                                    turn === 2 ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'bg-slate-950/40 border-slate-800'
+                                  <div className={`p-4 rounded-2xl border-2 transition-all duration-300 ${
+                                    turn === 2 
+                                      ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.35)] scale-[1.02]' 
+                                      : 'bg-slate-950/80 border-slate-800'
                                   }`}>
-                                    <div>
-                                      <p className="text-xs text-slate-400 font-medium">Player 2</p>
-                                      <p className="text-sm font-bold text-slate-200">{gamePlayerNames[2]}</p>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-black uppercase tracking-wider text-slate-300">Player 2</span>
+                                      {turn === 2 && (
+                                        <span className="px-2.5 py-0.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-full uppercase tracking-wider shadow">
+                                          ▶ THEIR TURN
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-2xl font-black text-sky-400">{scores[2] || 0}</span>
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#60a5fa" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                    <p className="text-sm font-extrabold text-white mb-2 truncate">{gamePlayerNames[2] || "Player 2"}</p>
+                                    <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                                      <span className="text-xs text-slate-400 font-semibold">Flags Captured:</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-2xl font-black text-sky-400">{scores[2] || 0}</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#60a5fa" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/></svg>
+                                      </div>
                                     </div>
                                   </div>
                                 </>
                             )}
                           </div>
 
-                          <div className="mt-6 p-4 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
-                              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Unrevealed Mines</span>
-                              <span className="text-xl font-black text-rose-500">{unrevealedMines}</span>
+                          <div className="mt-5 p-4 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Unrevealed Mines</span>
+                              <span className="text-2xl font-black text-rose-500">{unrevealedMines}</span>
                           </div>
                         </div>
 
