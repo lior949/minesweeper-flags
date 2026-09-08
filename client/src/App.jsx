@@ -1082,7 +1082,7 @@ const renderTile = (tile) => {
               <img 
                 src="/client/src/components/logo.png" 
                 alt="Minesweeper Flags Logo" 
-                className="w-16 h-16 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+                className="w-24 h-24 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
                 onError={(e) => {
                   e.target.style.display = 'none';
                 }}
