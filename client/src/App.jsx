@@ -1078,13 +1078,14 @@ const renderTile = (tile) => {
     return (
       <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
-        <div className="login-logo-container mb-6 flex justify-center">
-              <img 
-  src={logoImage} 
-  alt="Minesweeper Flags Logo" 
-  className="w-10 h-10 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
-/>
-            </div>
+        <div className="login-logo-container mb-4 flex justify-center">
+  <img 
+    src={logoImage} 
+    alt="Minesweeper Flags Logo" 
+    style={{ width: '80px', height: '80px' }}
+    className="object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+  />
+</div>
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
           onLogin={(googleName) => {
