@@ -5,6 +5,7 @@ import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exist
 import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogin component exists
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
+import logoImage from './components/logo.png';
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
@@ -1079,14 +1080,10 @@ const renderTile = (tile) => {
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <div className="login-logo-container mb-6 flex justify-center">
               <img 
-                src="/client/src/components/logo.png" 
-                alt="Minesweeper Flags Logo" 
-                className="w-20 h-20 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
-                onError={(e) => {
-                  // Fallback if image path needs adjustment relative to public/src
-                  e.target.style.display = 'none';
-                }}
-              />
+  src={logoImage} 
+  alt="Minesweeper Flags Logo" 
+  className="w-20 h-20 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+/>
             </div>
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
