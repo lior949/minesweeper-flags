@@ -1080,10 +1080,13 @@ const renderTile = (tile) => {
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <div className="login-logo-container mb-6 flex justify-center">
               <img 
-  src={logoImage} 
-  alt="Minesweeper Flags Logo" 
-  className="w-20 h-20 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
-/>
+                src={logoImage} 
+                alt="Minesweeper Flags Logo" 
+                className="w-20 h-20 object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                }}
+              />
             </div>
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
