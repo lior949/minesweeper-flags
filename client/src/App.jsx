@@ -1480,7 +1480,7 @@ const renderTile = (tile) => {
             </div>
         )}
         {/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
-{invite && (
+       {invite && (
   <div className="invite-modal-overlay">
     <div className="invite-modal-card">
       <div style={{ fontWeight: '600', fontSize: '1.1rem' }}>
@@ -1514,6 +1514,9 @@ const renderTile = (tile) => {
     </div>
   </div>
 )}
+    </div>
+  );
+}
 
 
 
