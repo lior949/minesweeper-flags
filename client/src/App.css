@@ -891,19 +891,20 @@ html, body {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.6); /* dims the background */
+  background-color: rgba(0, 0, 0, 0.6);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 9999; /* ensures it sits on top of everything */
+  z-index: 9999;
 }
 
 .invite-modal-card {
-  background: #ffffff;
-  color: #1e293b;
+  background: #1e293b;
+  color: #f8fafc;
   padding: 24px;
   border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  border: 1px solid #334155;
   width: 100%;
   max-width: 400px;
   display: flex;
