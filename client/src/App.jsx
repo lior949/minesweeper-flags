@@ -1295,78 +1295,105 @@ const renderTile = (tile) => {
         {gameId && (
             <div className="app-game-container">
                 <div className="game-layout-grid"> 
-                    <div className="game-sidebar left-sidebar">
-                        <h1 className="game-title">Minesweeper Flags</h1>
-                        <div className="game-controls">
-                            {playerNumber !== 0 && ( 
-                              !currentBombUsedStatus && 
-                              currentPlayerScore < opponentPlayerOrTeamScore && 
-                              !gameOver && (
-                                <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected}>
-                                    Use Bomb
-                                </button>
-                              ))}
-                            {playerNumber !== 0 && bombMode && (
-                              <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected}>
-                                  Cancel Bomb
-                              </button>
-                            )}
-                            <button className="bomb-button" onClick={backToLobby} disabled={!isSocketConnected}>
-                                Back to Lobby
-                            </button>
-                            {gameOver && playerNumber !== 0 && ( 
-                                <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected}>
-                                    Restart Game
-                                </button>
-                            )}
-                        </div>
-                        <div className="game-info">
-                            <h2>
-                                {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
-                                {gameType === '1v1' ? ` (vs. ${opponentName})` : ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2 })`}
-                            </h2>
-                            {gameType === '2v2' ? (
-                                <div className="score-display">
-                                    <p style={{ color: (turn === 1 || turn === 2) ? 'green' : 'inherit' }}>
-                                        Team 1 ({gamePlayerNames[1]}, {gamePlayerNames[2]}): {scores[1]} <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
-                                          <path d="M0 0h24v24H0z" fill="none"/>
-                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-                                        </svg>
-                                    </p>
-                                    <p style={{ color: (turn === 3 || turn === 4) ? 'green' : 'inherit' }}>
-                                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]}): {scores[2]} 
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
-                                          <path d="M0 0h24v24H0z" fill="none"/>
-                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-                                        </svg>
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="score-display">
-                                    <p style={{ color: turn === 1 ? 'green' : 'inherit' }}>
-                                    {gamePlayerNames[1]}: {scores[1]} <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
-                                          <path d="M0 0h24v24H0z" fill="none"/>
-                                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-                                        </svg>
-                                    </p>
-                                    <p style={{ color: turn === 2 ? 'green' : 'inherit' }}>
-                                    {gamePlayerNames[2]}: {scores[2]} 
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="18px" height="18px" style={{verticalAlign: 'middle', marginLeft: '5px'}}>
-                                      <path d="M0 0h24v24H0z" fill="none"/>
-                                      <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-                                    </svg>
-                                    </p>
-                                </div>
-                            )}
+                    <div className="observer-panel left-sidebar">
+    <h2 className="game-title">Minesweeper Flags</h2>
+    {playerNumber === 0 && <div className="observing-badge">Observing</div>}
 
-                            <p className="mine-count-display">
-                                Unrevealed Mines: <span style={{ color: 'red', fontWeight: 'bold' }}>{unrevealedMines}</span>
-                            </p>
-                            {gameOver && playerNumber === 0 && ( 
-                                <p style={{ fontWeight: 'bold', color: 'green' }}>Game Over!</p>
-                            )}
-                        </div>
-                    </div> 
+    <div className="game-controls" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+        {playerNumber !== 0 && ( 
+          !currentBombUsedStatus && 
+          currentPlayerScore < opponentPlayerOrTeamScore && 
+          !gameOver && (
+            <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
+                Use Bomb
+            </button>
+          ))}
+        {playerNumber !== 0 && bombMode && (
+          <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
+              Cancel Bomb
+          </button>
+        )}
+        <button className="btn-back-lobby" onClick={backToLobby} disabled={!isSocketConnected} style={{ width: '100%' }}>
+            Back to Lobby
+        </button>
+        {gameOver && playerNumber !== 0 && ( 
+            <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
+                Restart Game
+            </button>
+        )}
+    </div>
+
+    <div style={{ fontSize: '0.9rem', color: '#94a3b8', textAlign: 'center' }}>
+        {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
+        {gameType === '1v1' ? ` (vs. ${opponentName})` : ` (Team ${ (playerNumber === 1 || playerNumber === 2) ? 1 : 2 })`}
+    </div>
+
+    <div className="scores-container">
+        {gameType === '2v2' ? (
+            <>
+                <div className="score-card" style={{ borderColor: (turn === 1 || turn === 2) ? '#10b981' : undefined }}>
+                    <div className="player-info">
+                        Team 1 ({gamePlayerNames[1]}, {gamePlayerNames[2]})
+                    </div>
+                    <div className="player-score">
+                        {scores[1]} 
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="16px" height="16px">
+                          <path d="M0 0h24v24H0z" fill="none"/>
+                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div className="score-card" style={{ borderColor: (turn === 3 || turn === 4) ? '#10b981' : undefined }}>
+                    <div className="player-info">
+                        Team 2 ({gamePlayerNames[3]}, {gamePlayerNames[4]})
+                    </div>
+                    <div className="player-score">
+                        {scores[2]} 
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="16px" height="16px">
+                          <path d="M0 0h24v24H0z" fill="none"/>
+                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                        </svg>
+                    </div>
+                </div>
+            </>
+        ) : (
+            <>
+                <div className="score-card" style={{ borderColor: turn === 1 ? '#10b981' : undefined }}>
+                    <div className="player-info">
+                        {gamePlayerNames[1] || "Player 1"}
+                    </div>
+                    <div className="player-score">
+                        {scores[1]} 
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="16px" height="16px">
+                          <path d="M0 0h24v24H0z" fill="none"/>
+                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div className="score-card" style={{ borderColor: turn === 2 ? '#10b981' : undefined }}>
+                    <div className="player-info">
+                        {gamePlayerNames[2] || "Player 2"}
+                    </div>
+                    <div className="player-score">
+                        {scores[2]} 
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="16px" height="16px">
+                          <path d="M0 0h24v24H0z" fill="none"/>
+                          <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+                        </svg>
+                    </div>
+                </div>
+            </>
+        )}
+    </div>
+
+    <div className="mines-counter">
+        Unrevealed Mines: <span>{unrevealedMines}</span>
+    </div>
+
+    {gameOver && ( 
+        <div style={{ fontWeight: 'bold', color: '#10b981', textAlign: 'center' }}>Game Over!</div>
+    )}
+</div>
 
                     <div className="game-board-area">
                         <div
