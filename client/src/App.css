@@ -286,15 +286,21 @@ html, body {
 }
 
 .tile.hidden {
-  background-color: #5AA0C8;
-  border: 2px solid #4A8EB4;
+  background-image: url('./square.jpg'); /* Adjust path if your CSS is in a subfolder, e.g., url('../square.jpg') or url('/square.jpg') */
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: 1px solid #2d77b0;
   color: transparent;
-  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  
+  /* Keeps a subtle inner shadow/depth if desired */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  
+  transition: filter 0.1s ease;
 }
 
 .tile.hidden:hover {
-  background-color: #6CBAD2;
-  border-color: #5AA0C8;
+  filter: brightness(1.1); /* Slightly brightens the image on hover */
 }
 
 .app-game-container .tile.revealed { 
