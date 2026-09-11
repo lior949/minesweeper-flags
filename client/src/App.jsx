@@ -291,6 +291,12 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
                 socketRef.current.emit("join-lobby", currentUserName);
             });
 
+            socketRef.current.on("update-invites", (pendingInvitesObj) => {
+                // Convert the backend dictionary object into an array for your state
+                const invitesArray = Object.values(pendingInvitesObj || {});
+                setInvites(invitesArray);
+            });
+
             socketRef.current.on("join-error", (msg) => {
               showMessage(msg, true);
               if (gameId) addGameMessage("Server", msg, true);
