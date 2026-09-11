@@ -516,14 +516,6 @@ const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
             tile.owner = playerNumber; // Assign bomb owner (specific player)
             tile.ownerTeam = playerTeam; // Assign bomb owner (team)
             scores[playerTeam]++; // Increment score for captured mine for the team
-            // ---> ADD THIS EMIT HERE <---
-            io.to(gameId).emit("mine-triggered", {
-              x,
-              y,
-              playerNumber: player.number,
-              team: player.team,
-              scores: game.scores
-            });
           } else {
             revealRecursive(board, x, y); // Recursively reveal non-mine tiles
           }
@@ -601,14 +593,6 @@ async function processAiTurn(gameId) {
             aiTile.owner = nextPlayer.number;
             aiTile.ownerTeam = aiTeam;
             game.scores[aiTeam] = (game.scores[aiTeam] || 0) + 1;
-            // ---> ADD THIS EMIT HERE <---
-            io.to(gameId).emit("mine-triggered", {
-                x,
-                y,
-                playerNumber: nextPlayer.number,
-                team: aiTeam,
-                scores: game.scores
-            });
 
             if (checkGameOver(game.scores)) {
                 game.gameOver = true;
@@ -2160,14 +2144,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
       tile.owner = player.number; 
       tile.ownerTeam = player.team; 
       game.scores[player.team]++; 
-      // ---> ADD THIS EMIT HERE <---
-      io.to(gameId).emit("mine-triggered", {
-          x,
-          y,
-          playerNumber: player.number,
-          team: player.team,
-          scores: game.scores
-      });
 
       if (checkGameOver(game.scores)) {
           game.gameOver = true;
