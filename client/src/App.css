@@ -286,15 +286,20 @@ html, body {
 }
 
 .tile.hidden {
-  background-color: #5AA0C8;
-  border: 2px solid #4A8EB4;
+  background-color: #4ba3e3; /* Vibrant blue tone matching your reference image */
+  border: 1px solid #2d77b0;
   color: transparent;
-  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  
+  /* Creates the 3D beveled edge look with inner highlights */
+  box-shadow: inset 2px 2px 0px rgba(255, 255, 255, 0.35), 
+              inset -2px -2px 0px rgba(0, 0, 0, 0.2);
+  
+  transition: background-color 0.1s ease;
 }
 
 .tile.hidden:hover {
-  background-color: #6CBAD2;
-  border-color: #5AA0C8;
+  background-color: #5ab2f2;
+  border-color: #388bc5;
 }
 
 .app-game-container .tile.revealed { 
