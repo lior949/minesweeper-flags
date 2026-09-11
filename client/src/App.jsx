@@ -12,6 +12,25 @@ const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
+// Reusable audio helper with fixed volume to prevent random loudness spikes
+const playSoundEffect = (type) => {
+  try {
+    const audioFiles = {
+      click: '/sounds/click.mp3', // Optional: standard tile click
+      reveal: '/sounds/reveal.mp3', // Optional: standard reveal
+      score: '/sounds/score.mp3',   // Score increase chime
+      mine: '/sounds/mine.mp3'      // Mine explosion for BOTH player and opponent
+    };
+
+    const sound = new Audio(audioFiles[type] || audioFiles.reveal);
+    sound.volume = 0.3; // Fixed volume level to prevent clipping or loudness issues
+    sound.currentTime = 0;
+    sound.play().catch(e => console.log("Audio playback blocked or file missing:", e));
+  } catch (e) {
+    console.error("Audio playback failed:", e);
+  }
+};
+
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 const generate5DigitGuestId = async (message) => {
     try {
@@ -315,6 +334,10 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
               showMessage(`Lobby joined successfully as ${userName}!`);
               socketRef.current.emit("request-unfinished-games");
               socketRef.current.emit("request-observable-games");
+            });
+
+            socketRef.current.on("mine-triggered", (data) => {
+              playSoundEffect('mine');
             });
 
             socketRef.current.on("players-list", (players) => {
@@ -622,54 +645,9 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     const previousRevealedCount = prevRevealedCountRef.current;
 
     if (currentScore > previousScore) {
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          const ctx = new AudioContext();
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          
-          osc.type = "triangle"; 
-          const startTime = ctx.currentTime;
-          osc.frequency.setValueAtTime(523.25, startTime); 
-          osc.frequency.setValueAtTime(783.99, startTime + 0.08); 
-          
-          gain.gain.setValueAtTime(0.15, startTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
-          
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(startTime);
-          osc.stop(startTime + 0.3);
-        }
-      } catch (e) {
-        console.error("Audio playback failed:", e);
-      }
+      playSoundEffect('score');
     } else if (currentRevealedCount > previousRevealedCount) {
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          const ctx = new AudioContext();
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          
-          osc.type = "sine"; 
-          const startTime = ctx.currentTime;
-          
-          osc.frequency.setValueAtTime(600, startTime);
-          osc.frequency.exponentialRampToValueAtTime(150, startTime + 0.04);
-          
-          gain.gain.setValueAtTime(0.1, startTime); 
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); 
-          
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(startTime);
-          osc.stop(startTime + 0.05);
-        }
-      } catch (e) {
-        console.error("Audio playback failed:", e);
-      }
+      playSoundEffect('reveal');
     }
 
     prevScoresRef.current = { ...scores };
