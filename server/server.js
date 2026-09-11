@@ -525,6 +525,43 @@ const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
   }
 };
 
+function clearAllRelatedInvitesForUsers(userIds, currentInviteId) {
+    // 1. Loop through all users who have entries in pendingInvites
+    Object.keys(pendingInvites).forEach(targetUserId => {
+        if (!pendingInvites[targetUserId]) return;
+
+        Object.keys(pendingInvites[targetUserId]).forEach(invId => {
+            const inviteObj = pendingInvites[targetUserId][invId];
+            
+            // Check if the invite involves any of the active game users as a sender, 
+            // recipient (targetUserId), or explicitly listed in a 2v2 roster.
+            const involvesUser = 
+                userIds.includes(inviteObj.senderId) || 
+                userIds.includes(targetUserId) ||
+                (inviteObj.invitedPlayersInfo && inviteObj.invitedPlayersInfo.some(p => userIds.includes(p.userId)));
+
+            if (involvesUser || invId === currentInviteId) {
+                delete pendingInvites[targetUserId][invId];
+            }
+        });
+
+        // Push the updated state down to the user's socket if they are connected
+        const clientSocketId = userSocketMap[targetUserId];
+        if (clientSocketId) {
+            io.to(clientSocketId).emit("update-invites", pendingInvites[targetUserId] || {});
+        }
+    });
+
+    // 2. Clear tracking objects for 2v2 acceptances involving these users
+    Object.keys(pending2v2Acceptances).forEach(invId => {
+        const acceptanceObj = pending2v2Acceptances[invId];
+        const involvesTrackerUser = userIds.some(uid => acceptanceObj.requiredPlayers?.has(uid));
+        if (involvesTrackerUser || invId === currentInviteId) {
+            delete pending2v2Acceptances[invId];
+        }
+    });
+}
+
 // AI Adversary Turn Loop Integration
 async function processAiTurn(gameId) {
     const game = games[gameId];
@@ -1822,16 +1859,8 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
               return;
           }
 
-          // Clear all related pending invites for all involved players once game starts
-          allPlayerUserIdsInInvite.forEach(uid => { // For 1v1, this is inviter and responder
-              if (pendingInvites[uid] && pendingInvites[uid][inviteId]) {
-                  delete pendingInvites[uid][inviteId];
-                  const clientSocketId = userSocketMap[uid];
-                  if (clientSocketId) {
-                      io.to(clientSocketId).emit("update-invites", pendingInvites[uid] || {});
-                  }
-              }
-          });
+          // Clear all pending invites sent to or from both participants
+          clearAllRelatedInvitesForUsers([inviterPlayer.userId, respondingPlayer.userId], inviteId);
 
 
           // Emit game-start to all players
@@ -1978,18 +2007,8 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                   return;
               }
 
-              // Clean up all pending invites for this inviteId for all players involved
-              allRequiredPlayers.forEach(uid => {
-                  if (pendingInvites[uid] && pendingInvites[uid][inviteId]) {
-                      delete pendingInvites[uid][inviteId];
-                      const clientSocketId = userSocketMap[uid];
-                      if (clientSocketId) {
-                          io.to(clientSocketId).emit("update-invites", pendingInvites[uid] || {});
-                      }
-                  }
-              });
-              delete pending2v2Acceptances[inviteId]; // Clean up the 2v2 acceptance tracker
-              console.log(`Cleaned up pendingInvites and pending2v2Acceptances for inviteId ${inviteId}.`);
+              // Clear all pending invites sent to or from any of the 4 players involved in this 2v2 game
+              clearAllRelatedInvitesForUsers(allRequiredPlayers, inviteId);
 
               emitLobbyPlayersList();
               socket.emit("request-observable-games");
