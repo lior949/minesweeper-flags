@@ -630,7 +630,6 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       return;
     }
 
-    // 1. Calculate current revealed tiles count
     let currentRevealedCount = 0;
     board.forEach(row => {
       row.forEach(tile => {
@@ -638,7 +637,6 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       });
     });
 
-    // Determine player/team keys
     let myScoreKey = playerNumber;
     let opponentScoreKey = 2;
     if (gameType === '2v2') {
@@ -656,35 +654,33 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
 
     const previousRevealedCount = prevRevealedCountRef.current;
 
-    // Check if any scores increased
     const anyScoreIncreased = currentScore > previousScore || currentOpponentScore > previousOpponentScore;
 
     // --- SOUND PRIORITY LOGIC ---
 
     if (anyScoreIncreased) {
       // Priority 1: Opponent reached 20+ points
-      //if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
-        //playFlag20();
-      //} 
-      // Priority 2: Standard flag / score increase for anyone
-      //else {
+      if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
+        playFlag20();
+      } 
+      // Priority 2: Standard flag / score increase
+      else {
         playFlag();
-      //}
+      }
 
-      // Sync refs and exit so click sound doesn't double-fire on score changes
+      // Sync refs and explicitly block the tile click sound from firing on this same turn
       prevScoresRef.current = { ...scores };
-      prevRevealedCountRef.current = currentRevealedCount;
+      prevRevealedCountRef.current = currentRevealedCount; // Syncing this prevents revealedCount difference from triggering click!
       return;
     } 
 
-    // Priority 3: Regular tile revealed (Plays click sound for BOTH users when a tile opens)
+    // Priority 3: Regular tile revealed (Only plays if score DID NOT increase)
     if (currentRevealedCount > previousRevealedCount) {
       if (previousRevealedCount > 0) {
         playClick();
       }
     }
 
-    // Update refs for the next render cycle
     prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
