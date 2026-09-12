@@ -635,14 +635,14 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     if (currentScore > previousScore) {
       // Check if opponent or team crossed the 20 milestone or if it's past 20
       if (currentScore >= 20) {
-        playSound("./sounds/20.mp3");
+        playSound("20.mp3");
       } else {
-        playSound("./sounds/flag.mp3");
+        playSound("flag.mp3");
       }
     } 
     // Rule: Regular Click (click.mp3) when a non-mine tile is revealed
     else if (currentRevealedCount > previousRevealedCount) {
-      playSound("./sounds/click.mp3");
+      playSound("click.mp3");
     }
 
     prevScoresRef.current = { ...scores };
@@ -875,7 +875,7 @@ const respondInvite = (inviteId, accept) => {
 
     if (currentPlayerScore < opponentPlayerOrTeamScore) { 
       socketRef.current.emit("use-bomb", { gameId });
-        playSound("./sounds/bomb.mp3"); // 💣 Added bomb audio trigger
+        playSound("bomb.mp3"); // 💣 Added bomb audio trigger
       setIsBombHighlightActive(true); 
       addGameMessage("Server", "Bomb initiated. Select target.", false); 
     } else {
