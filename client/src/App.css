@@ -649,7 +649,11 @@ html, body {
     align-items: center;
     flex-grow: 1;
     flex-shrink: 0;
-    min-width: 670px;
+    min-width: 0; /* Allows the container to shrink properly inside CSS grid */
+    width: 100%;
+    overflow-x: auto; /* Enables horizontal scrolling on mobile/smaller screens */
+    -webkit-overflow-scrolling: touch; /* Adds momentum scrolling for iOS */
+    padding: 10px 0;
 }
 
 .game-board-area .grid {
