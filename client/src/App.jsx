@@ -663,13 +663,19 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
         playFlag20();
       } else {
-        // Otherwise, play the standard flag sound
+        // Play standard flag sound
         playFlag();
       }
+      
+      // 🛑 CRITICAL FIX: Update the revealed count ref right here so it doesn't 
+      // treat the simultaneous board change as a normal click in the next check.
+      prevScoresRef.current = { ...scores };
+      prevRevealedCountRef.current = currentRevealedCount;
+      return; // Exit early so click sound can never be reached on a scoring action!
     } 
-    // ONLY play click if scores did NOT increase, and an actual standard tile was revealed
-    else if (currentRevealedCount > previousRevealedCount) {
-      // Extra safeguard: make sure we don't play click if refs haven't initialized yet
+
+    // Regular Click (click.mp3) only fires if scores did NOT increase
+    if (currentRevealedCount > previousRevealedCount) {
       if (previousRevealedCount > 0) {
         playClick();
       }
