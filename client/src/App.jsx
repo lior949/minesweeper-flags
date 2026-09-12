@@ -113,6 +113,7 @@ function App() {
   const [selectedPartner, setSelectedPartner] = useState(null); 
   const [selectedRivals, setSelectedRivals] = useState([]); 
   const [invitationStage, setInvitationStage] = useState(0); 
+  const prevBombsUsedRef = useRef({ 1: false, 2: false });
 
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); 
   const [highlightedBombArea, setHighlightedBombArea] = useState([]); 
