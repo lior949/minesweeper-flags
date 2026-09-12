@@ -636,25 +636,38 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       });
     });
 
+    // Determine keys for both yourself/your team and the opponent/their team
     let myScoreKey = playerNumber;
+    let opponentScoreKey = 2;
     if (gameType === '2v2') {
       myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
+      opponentScoreKey = myScoreKey === 1 ? 2 : 1;
+    } else {
+      // 1v1 mode
+      opponentScoreKey = playerNumber === 1 ? 2 : 1;
     }
 
     const currentScore = scores[myScoreKey] || 0;
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
+
+    const currentOpponentScore = scores[opponentScoreKey] || 0;
+    const previousOpponentScore = prevScoresRef.current[opponentScoreKey] || 0;
+
     const previousRevealedCount = prevRevealedCountRef.current;
 
-    // Rule: Mine Hit / Score increase (flag.mp3) or Opponent Milestone (20.mp3)
-    if (currentScore > previousScore) {
-      // Check if opponent or team crossed the 20 milestone or if it's past 20
-      if (currentScore >= 20) {
+    // Check if ANY score got bigger
+    const anyScoreIncreased = currentScore > previousScore || currentOpponentScore > previousOpponentScore;
+
+    if (anyScoreIncreased) {
+      // If the opponent specifically reached/crossed 20, play the 20-sound
+      if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
         playFlag20();
       } else {
+        // Otherwise, play the standard flag sound for ANY other score increase (yours or opponent's)
         playFlag();
       }
     } 
-    // Rule: Regular Click (click.mp3) when a non-mine tile is revealed
+    // Regular Click (click.mp3) when a non-mine tile is revealed
     else if (currentRevealedCount > previousRevealedCount) {
       playClick();
     }
@@ -838,6 +851,7 @@ const respondInvite = (inviteId, accept) => {
 
       addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); 
       socketRef.current.emit("bomb-center", { gameId, x, y });
+      playBomb(); // 💣 Added bomb audio trigger
       setBombMode(false); 
       setIsBombHighlightActive(false); 
       setHighlightedBombArea([]); 
@@ -889,7 +903,6 @@ const respondInvite = (inviteId, accept) => {
 
     if (currentPlayerScore < opponentPlayerOrTeamScore) { 
       socketRef.current.emit("use-bomb", { gameId });
-        playBomb(); // 💣 Added bomb audio trigger
       setIsBombHighlightActive(true); 
       addGameMessage("Server", "Bomb initiated. Select target.", false); 
     } else {
