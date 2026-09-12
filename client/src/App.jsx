@@ -629,6 +629,7 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       return;
     }
 
+    // 1. Calculate current revealed tiles count
     let currentRevealedCount = 0;
     board.forEach(row => {
       row.forEach(tile => {
@@ -636,14 +637,13 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       });
     });
 
-    // Determine keys for both yourself/your team and the opponent/their team
+    // Determine player/team keys
     let myScoreKey = playerNumber;
     let opponentScoreKey = 2;
     if (gameType === '2v2') {
       myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
       opponentScoreKey = myScoreKey === 1 ? 2 : 1;
     } else {
-      // 1v1 mode
       opponentScoreKey = playerNumber === 1 ? 2 : 1;
     }
 
@@ -655,28 +655,56 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
 
     const previousRevealedCount = prevRevealedCountRef.current;
 
-    // Check if ANY score got bigger
+    // Check if any scores increased
     const anyScoreIncreased = currentScore > previousScore || currentOpponentScore > previousOpponentScore;
 
+    // --- SOUND PRIORITY LOGIC ---
+
     if (anyScoreIncreased) {
-      // If the opponent specifically reached/crossed 20, play the 20-sound
+      // Priority 1: Opponent reached 20+ points
       //if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
         //playFlag20();
-      //} else {
-        // Play standard flag sound
+      //} 
+      // Priority 2: Standard flag / score increase for anyone
+      //else {
         playFlag();
       //}
-      
-      // 🛑 CRITICAL FIX: Update the revealed count ref right here so it doesn't 
-      // treat the simultaneous board change as a normal click in the next check.
+
+      // Sync refs and exit so click sound doesn't double-fire on score changes
       prevScoresRef.current = { ...scores };
       prevRevealedCountRef.current = currentRevealedCount;
-      return; // Exit early so click sound can never be reached on a scoring action!
+      return;
     } 
 
+    // Priority 3: Regular tile revealed (Plays click sound for BOTH users when a tile opens)
+    if (currentRevealedCount > previousRevealedCount) {
+      if (previousRevealedCount > 0) {
+        playClick();
+      }
+    }
+
+    // Update refs for the next render cycle
     prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
+
+useEffect(() => {
+  if (!gameId || !bombsUsed) return;
+
+  // Check if either team/player's bomb status changed from false to true
+  const p1BombUsed = bombsUsed[1] || false;
+  const p2BombUsed = bombsUsed[2] || false;
+  
+  const prevP1 = prevBombsUsedRef.current[1] || false;
+  const prevP2 = prevBombsUsedRef.current[2] || false;
+
+  if ((p1BombUsed && !prevP1) || (p2BombUsed && !prevP2)) {
+    playBomb();
+  }
+
+  // Update ref
+  prevBombsUsedRef.current = { 1: p1BombUsed, 2: p2BombUsed };
+}, [bombsUsed, gameId]);
 
   useEffect(() => {
     if (board && board.length > 0) {
@@ -853,7 +881,6 @@ const respondInvite = (inviteId, accept) => {
 
       addGameMessage("Server", `Bomb selected at (${x},${y}).`, false); 
       socketRef.current.emit("bomb-center", { gameId, x, y });
-      playBomb(); // 💣 Added bomb audio trigger
       setBombMode(false); 
       setIsBombHighlightActive(false); 
       setHighlightedBombArea([]); 
@@ -865,11 +892,6 @@ const respondInvite = (inviteId, accept) => {
         // 🔍 Check if the clicked tile is actually a mine/flag before playing click sound
       const clickedTile = board[y] && board[y][x];
       const isMineOrFlag = clickedTile && clickedTile.isMine; // (or whatever property denotes a mine/flag in your tile object)
-
-      // Play regular click ONLY if it's NOT a mine/flag
-      if (!isMineOrFlag) {
-        playClick();
-      }
 
       // 🚀 OPTIMISTIC CASCADE UPDATE: Instantly reveal the tile AND its matching cluster
       setBoard(prevBoard => {
