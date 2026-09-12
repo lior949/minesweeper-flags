@@ -6,34 +6,10 @@ import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogi
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 import logoImage from './components/logo.png';
-import clickSoundFile from './sounds/click.mp3';
-import bombSoundFile from './sounds/bomb.mp3';
-import flagSoundFile from './sounds/flag.mp3';
-import flag20SoundFile from './sounds/20.mp3';
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
-};
-
-const playClick = () => {
-  const audio = new Audio(clickSoundFile);
-  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
-};
-
-const playFlag = () => {
-  const audio = new Audio(flagSoundFile);
-  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
-};
-
-const playFlag20 = () => {
-  const audio = new Audio(flag20SoundFile);
-  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
-};
-
-const playBomb = () => {
-  const audio = new Audio(bombSoundFile);
-  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
 };
 
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
@@ -90,7 +66,6 @@ function App() {
 
   const prevScoresRef = useRef({ 1: 0, 2: 0 });
   const prevRevealedCountRef = useRef(0);
-  const lastClickedWasMineRef = useRef(false); // 👈 ADD THIS LINE
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
@@ -114,7 +89,6 @@ function App() {
   const [selectedPartner, setSelectedPartner] = useState(null); 
   const [selectedRivals, setSelectedRivals] = useState([]); 
   const [invitationStage, setInvitationStage] = useState(0); 
-  const prevBombsUsedRef = useRef({ 1: false, 2: false });
 
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); 
   const [highlightedBombArea, setHighlightedBombArea] = useState([]); 
@@ -639,71 +613,68 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     });
 
     let myScoreKey = playerNumber;
-    let opponentScoreKey = 2;
     if (gameType === '2v2') {
       myScoreKey = (playerNumber === 1 || playerNumber === 2) ? 1 : 2;
-      opponentScoreKey = myScoreKey === 1 ? 2 : 1;
-    } else {
-      opponentScoreKey = playerNumber === 1 ? 2 : 1;
     }
 
     const currentScore = scores[myScoreKey] || 0;
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
-
-    const currentOpponentScore = scores[opponentScoreKey] || 0;
-    const previousOpponentScore = prevScoresRef.current[opponentScoreKey] || 0;
-
     const previousRevealedCount = prevRevealedCountRef.current;
 
-    const anyScoreIncreased = currentScore > previousScore || currentOpponentScore > previousOpponentScore;
-
-    // --- SOUND PRIORITY LOGIC ---
-
-    if (anyScoreIncreased) {
-      // Priority 1: Opponent reached 20+ points
-      //if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
-        //playFlag20();
-      //} 
-      // Priority 2: Standard flag / score increase
-      //else {
-        playFlag();
-      //}
-
-      // Sync refs and explicitly block the tile click sound from firing on this same turn
-      prevScoresRef.current = { ...scores };
-      prevRevealedCountRef.current = currentRevealedCount; // Syncing this prevents revealedCount difference from triggering click!
-      return;
-    } 
-
-    // Priority 3: Regular tile revealed (Only plays if score DID NOT increase)
-    if (currentRevealedCount > previousRevealedCount) {
-      if (previousRevealedCount > 0 && !lastClickedWasMineRef.current) { // 👈 UPDATE THIS LINE
-        playClick();
+    if (currentScore > previousScore) {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          const ctx = new AudioContext();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = "triangle"; 
+          const startTime = ctx.currentTime;
+          osc.frequency.setValueAtTime(523.25, startTime); 
+          osc.frequency.setValueAtTime(783.99, startTime + 0.08); 
+          
+          gain.gain.setValueAtTime(0.15, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + 0.3);
+        }
+      } catch (e) {
+        console.error("Audio playback failed:", e);
+      }
+    } else if (currentRevealedCount > previousRevealedCount) {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          const ctx = new AudioContext();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = "sine"; 
+          const startTime = ctx.currentTime;
+          
+          osc.frequency.setValueAtTime(600, startTime);
+          osc.frequency.exponentialRampToValueAtTime(150, startTime + 0.04);
+          
+          gain.gain.setValueAtTime(0.1, startTime); 
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); 
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + 0.05);
+        }
+      } catch (e) {
+        console.error("Audio playback failed:", e);
       }
     }
 
-     lastClickedWasMineRef.current = false; // 👈 RESET IT HERE
-      prevScoresRef.current = { ...scores };
+    prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
-
-useEffect(() => {
-  if (!gameId || !bombsUsed) return;
-
-  // Check if either team/player's bomb status changed from false to true
-  const p1BombUsed = bombsUsed[1] || false;
-  const p2BombUsed = bombsUsed[2] || false;
-  
-  const prevP1 = prevBombsUsedRef.current[1] || false;
-  const prevP2 = prevBombsUsedRef.current[2] || false;
-
-  if ((p1BombUsed && !prevP1) || (p2BombUsed && !prevP2)) {
-    playBomb();
-  }
-
-  // Update ref
-  prevBombsUsedRef.current = { 1: p1BombUsed, 2: p2BombUsed };
-}, [bombsUsed, gameId]);
 
   useEffect(() => {
     if (board && board.length > 0) {
@@ -887,11 +858,6 @@ const respondInvite = (inviteId, accept) => {
     } else if (playerNumber === turn && !gameOver) {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
       const clickStartTime = performance.now(); 
-
-        // 🔍 Check if the clicked tile is actually a mine/flag before playing click sound
-      const clickedTile = board[y] && board[y][x];
-      lastClickedWasMineRef.current = clickedTile?.isMine || false; // 👈 ADD THIS LINE
-      const isMineOrFlag = clickedTile && clickedTile.isMine; // (or whatever property denotes a mine/flag in your tile object)
 
       // 🚀 OPTIMISTIC CASCADE UPDATE: Instantly reveal the tile AND its matching cluster
       setBoard(prevBoard => {
