@@ -6,20 +6,34 @@ import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogi
 import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
 import "./App.css"; // Ensure you have App.css for styling
 import logoImage from './components/logo.png';
+import clickSoundFile from './sounds/click.mp3';
+import bombSoundFile from './sounds/bomb.mp3';
+import flagSoundFile from './sounds/flag.mp3';
+import flag20SoundFile from './sounds/20.mp3';
 
 // Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
-const playSound = (fileName) => {
-  try {
-    const audio = new Audio(`/sounds/${fileName}`);
-    audio.volume = 0.4;
-    audio.play().catch((err) => console.log("Audio play blocked/failed:", err));
-  } catch (e) {
-    console.error("Audio playback error:", e);
-  }
+const playClick = () => {
+  const audio = new Audio(clickSoundFile);
+  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
+};
+
+const playFlag = () => {
+  const audio = new Audio(flagSoundFile);
+  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
+};
+
+const playFlag20 = () => {
+  const audio = new Audio(flag20SoundFile);
+  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
+};
+
+const playBomb = () => {
+  const audio = new Audio(bombSoundFile);
+  audio.play().catch(err => console.log("Audio play blocked/failed:", err));
 };
 
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
@@ -635,14 +649,14 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     if (currentScore > previousScore) {
       // Check if opponent or team crossed the 20 milestone or if it's past 20
       if (currentScore >= 20) {
-        playSound("20.mp3");
+        playFlag20();
       } else {
-        playSound("flag.mp3");
+        playFlag();
       }
     } 
     // Rule: Regular Click (click.mp3) when a non-mine tile is revealed
     else if (currentRevealedCount > previousRevealedCount) {
-      playSound("click.mp3");
+      playClick();
     }
 
     prevScoresRef.current = { ...scores };
@@ -875,7 +889,7 @@ const respondInvite = (inviteId, accept) => {
 
     if (currentPlayerScore < opponentPlayerOrTeamScore) { 
       socketRef.current.emit("use-bomb", { gameId });
-        playSound("bomb.mp3"); // 💣 Added bomb audio trigger
+        playBomb(); // 💣 Added bomb audio trigger
       setIsBombHighlightActive(true); 
       addGameMessage("Server", "Bomb initiated. Select target.", false); 
     } else {
