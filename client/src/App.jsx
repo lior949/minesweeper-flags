@@ -674,13 +674,6 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
       return; // Exit early so click sound can never be reached on a scoring action!
     } 
 
-    // Regular Click (click.mp3) only fires if scores did NOT increase
-    if (currentRevealedCount > previousRevealedCount) {
-      if (previousRevealedCount > 0) {
-        playClick();
-      }
-    }
-
     prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
@@ -868,6 +861,15 @@ const respondInvite = (inviteId, accept) => {
     } else if (playerNumber === turn && !gameOver) {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
       const clickStartTime = performance.now(); 
+
+        // 🔍 Check if the clicked tile is actually a mine/flag before playing click sound
+      const clickedTile = board[y] && board[y][x];
+      const isMineOrFlag = clickedTile && clickedTile.isMine; // (or whatever property denotes a mine/flag in your tile object)
+
+      // Play regular click ONLY if it's NOT a mine/flag
+      if (!isMineOrFlag) {
+        playClick();
+      }
 
       // 🚀 OPTIMISTIC CASCADE UPDATE: Instantly reveal the tile AND its matching cluster
       setBoard(prevBoard => {
