@@ -12,6 +12,16 @@ const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
+const playSound = (fileName) => {
+  try {
+    const audio = new Audio(`/sounds/${fileName}`);
+    audio.volume = 0.4;
+    audio.play().catch((err) => console.log("Audio play blocked/failed:", err));
+  } catch (e) {
+    console.error("Audio playback error:", e);
+  }
+};
+
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 const generate5DigitGuestId = async (message) => {
     try {
@@ -621,55 +631,18 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
     const previousScore = prevScoresRef.current[myScoreKey] || 0;
     const previousRevealedCount = prevRevealedCountRef.current;
 
+    // Rule: Mine Hit / Score increase (flag.mp3) or Opponent Milestone (20.mp3)
     if (currentScore > previousScore) {
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          const ctx = new AudioContext();
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          
-          osc.type = "triangle"; 
-          const startTime = ctx.currentTime;
-          osc.frequency.setValueAtTime(523.25, startTime); 
-          osc.frequency.setValueAtTime(783.99, startTime + 0.08); 
-          
-          gain.gain.setValueAtTime(0.15, startTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
-          
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(startTime);
-          osc.stop(startTime + 0.3);
-        }
-      } catch (e) {
-        console.error("Audio playback failed:", e);
+      // Check if opponent or team crossed the 20 milestone or if it's past 20
+      if (currentScore >= 20) {
+        playSound("20.mpeg");
+      } else {
+        playSound("flag.mpeg");
       }
-    } else if (currentRevealedCount > previousRevealedCount) {
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          const ctx = new AudioContext();
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          
-          osc.type = "sine"; 
-          const startTime = ctx.currentTime;
-          
-          osc.frequency.setValueAtTime(600, startTime);
-          osc.frequency.exponentialRampToValueAtTime(150, startTime + 0.04);
-          
-          gain.gain.setValueAtTime(0.1, startTime); 
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05); 
-          
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(startTime);
-          osc.stop(startTime + 0.05);
-        }
-      } catch (e) {
-        console.error("Audio playback failed:", e);
-      }
+    } 
+    // Rule: Regular Click (click.mp3) when a non-mine tile is revealed
+    else if (currentRevealedCount > previousRevealedCount) {
+      playSound("click.mpeg");
     }
 
     prevScoresRef.current = { ...scores };
@@ -902,6 +875,7 @@ const respondInvite = (inviteId, accept) => {
 
     if (currentPlayerScore < opponentPlayerOrTeamScore) { 
       socketRef.current.emit("use-bomb", { gameId });
+        playSound("bomb.mpeg"); // 💣 Added bomb audio trigger
       setIsBombHighlightActive(true); 
       addGameMessage("Server", "Bomb initiated. Select target.", false); 
     } else {
