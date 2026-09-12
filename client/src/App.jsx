@@ -90,6 +90,7 @@ function App() {
 
   const prevScoresRef = useRef({ 1: 0, 2: 0 });
   const prevRevealedCountRef = useRef(0);
+  const lastClickedWasMineRef = useRef(false); // 👈 ADD THIS LINE
 
   // === Game State ===
   const [gameId, setGameId] = useState(null);
@@ -660,13 +661,13 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
 
     if (anyScoreIncreased) {
       // Priority 1: Opponent reached 20+ points
-      if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
-        playFlag20();
-      } 
+      //if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
+        //playFlag20();
+      //} 
       // Priority 2: Standard flag / score increase
-      else {
+      //else {
         playFlag();
-      }
+      //}
 
       // Sync refs and explicitly block the tile click sound from firing on this same turn
       prevScoresRef.current = { ...scores };
@@ -676,12 +677,13 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
 
     // Priority 3: Regular tile revealed (Only plays if score DID NOT increase)
     if (currentRevealedCount > previousRevealedCount) {
-      if (previousRevealedCount > 0) {
+      if (previousRevealedCount > 0 && !lastClickedWasMineRef.current) { // 👈 UPDATE THIS LINE
         playClick();
       }
     }
 
-    prevScoresRef.current = { ...scores };
+     lastClickedWasMineRef.current = false; // 👈 RESET IT HERE
+      prevScoresRef.current = { ...scores };
     prevRevealedCountRef.current = currentRevealedCount;
   }, [board, scores, gameId, playerNumber, gameType]);
 
@@ -888,6 +890,7 @@ const respondInvite = (inviteId, accept) => {
 
         // 🔍 Check if the clicked tile is actually a mine/flag before playing click sound
       const clickedTile = board[y] && board[y][x];
+      lastClickedWasMineRef.current = clickedTile?.isMine || false; // 👈 ADD THIS LINE
       const isMineOrFlag = clickedTile && clickedTile.isMine; // (or whatever property denotes a mine/flag in your tile object)
 
       // 🚀 OPTIMISTIC CASCADE UPDATE: Instantly reveal the tile AND its matching cluster
