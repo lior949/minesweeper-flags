@@ -660,12 +660,12 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
 
     if (anyScoreIncreased) {
       // If the opponent specifically reached/crossed 20, play the 20-sound
-      if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
-        playFlag20();
-      } else {
+      //if (currentOpponentScore > previousOpponentScore && currentOpponentScore >= 20) {
+        //playFlag20();
+      //} else {
         // Play standard flag sound
         playFlag();
-      }
+      //}
       
       // 🛑 CRITICAL FIX: Update the revealed count ref right here so it doesn't 
       // treat the simultaneous board change as a normal click in the next check.
