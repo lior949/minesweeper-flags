@@ -645,11 +645,15 @@ html, body {
     grid-column: 2 / 3;
     grid-row: 1 / 2;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start; /* Aligns content to start so users begin on the left side of the board */
     align-items: center;
     flex-grow: 1;
     flex-shrink: 0;
-    min-width: 670px;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto; /* Enables horizontal scrolling */
+    -webkit-overflow-scrolling: touch; /* Smooth momentum scrolling for iOS Safari */
+    padding: 10px 0;
 }
 
 .game-board-area .grid {
@@ -721,10 +725,15 @@ html, body {
     }
 
     .game-board-area {
-        grid-column: 1 / 2;
-        grid-row: 2 / 3;
-        min-width: unset;
-    }
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    min-width: unset;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+    padding: 10px;
+}
 
     .right-sidebar {
         grid-column: 1 / 2;
@@ -755,13 +764,6 @@ html, body {
     
     .game-chat-container, .server-chat-container, .observers-list {
         max-height: 250px;
-    }
-}
-
-@media (max-width: 768px) {
-    .grid {
-        width: 100%;
-        max-width: 360px;
     }
 }
 
