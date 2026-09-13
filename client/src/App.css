@@ -270,14 +270,12 @@ html, body {
 }
 
 .grid {
-  display: grid;
+  display: inline-grid;      /* Treats the grid like an inline element so text-align: center works */
   gap: 2px;
-  border: 2px solid #1e293b;       /* Dark border to match your theme */
-  background-color: transparent;   /* Removes the solid gray backing plate */
-  width: max-content;              /* Keeps columns from squishing on PC */
-  margin: auto;                    /* Centers the grid nicely */
+  border: 2px solid #1e293b;
+  background-color: transparent;
+  margin: 0 auto;            /* Fallback centering */
   border-radius: 8px;
-  flex-shrink: 0;
 }
 
 .tile {
@@ -769,12 +767,10 @@ html, body {
 
 .board-viewport {
   width: 100%;
-  overflow-x: auto;
-  display: flex;
-  justify-content: center; /* Centers the board horizontally in the viewport */
-  padding: 0 15px;         /* Breathing room so the board doesn't stick flush to edges */
-  box-sizing: border-box;
+  overflow-x: auto;          /* Keeps smooth horizontal scrolling for large boards */
   -webkit-overflow-scrolling: touch;
+  text-align: center;        /* Centers the grid when it's smaller than the screen */
+  padding-bottom: 15px;
 }
 .board-viewport:active {
   cursor: grabbing;
