@@ -273,11 +273,11 @@ html, body {
   display: grid;
   /* Adjust columns to match your game state, e.g., repeat(16, 30px) */
   gap: 2px;
-  border: 2px solid #AAA;
+  border: 2px solid #1e293b;
   width: max-content; /* Forces cells to stay in their proper rows/columns instead of wrapping */
   margin: 0 auto;
   border-radius: 8px;
-  background-color: #AAA;
+  background-color: transparent;
 }
 
 .tile {
