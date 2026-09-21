@@ -1396,7 +1396,7 @@ const renderTile = (tile) => {
         <div
             className="grid"
             style={{
-              gridTemplateColumns: `repeat(${board[0]?.length || 0}, 40px)`,
+              gridTemplateColumns: `repeat(${board && board[0] ? board[0].length : 1}, 40px)`
             }}
             onMouseMove={playerNumber !== 0 && bombMode ? handleMouseMoveOnGrid : null}
             onMouseLeave={playerNumber !== 0 && bombMode ? handleMouseLeaveGrid : null}
