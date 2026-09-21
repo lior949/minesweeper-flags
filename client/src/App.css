@@ -189,7 +189,7 @@ html, body {
 }
 
 .app, .app-game-container {
-  max-width: 1200px; /* Allow enough room for sidebar + board on PC */
+  max-width: 1200px;
   width: 100%;
   margin: 0 auto;
   padding: 10px;
@@ -635,15 +635,16 @@ html, body {
 }
 
 .game-board-area {
-    grid-column: 2 / 3;
-    grid-row: 1 / 2;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-grow: 1;
-    flex-shrink: 0;
-    width: 100%;
-    box-sizing: border-box;
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-grow: 1;
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 0; /* CRITICAL: Prevents the grid item from overflowing its column */
+  box-sizing: border-box;
 }
 
 .game-board-area .grid {
@@ -767,12 +768,13 @@ html, body {
 
 .board-viewport {
   width: 100%;
+  max-width: 100%; /* Ensures it stays bounded within the grid cell */
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   padding: 0 16px;
   box-sizing: border-box;
   display: flex;
-  justify-content: center; /* Centers the board automatically if it fits on screen */
+  justify-content: center; /* Centers the board automatically if it fits */
 }
 .board-viewport:active {
   cursor: grabbing;
