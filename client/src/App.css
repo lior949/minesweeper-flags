@@ -185,15 +185,15 @@ html, body {
 }
 
 /* Center your main application wrappers globally */
-#root, .app, .app-container, .app-game-container {
-  width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+#root, .app, .app-game-container, .app-container {
+    width: 100%;
+    max-width: 100% !important;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
 }
 
 .header {
@@ -612,15 +612,17 @@ html, body {
 
 .game-layout-grid {
     display: grid;
-    grid-template-columns: 280px minmax(auto, 800px);
-    justify-content: center; /* Centers the whole grid block horizontally */
+    /* Keeps the sidebar fixed at 280px and lets the game board flexibly scale up */
+    grid-template-columns: 280px minmax(auto, 700px);
+    grid-template-rows: auto auto;
     gap: 24px;
     width: 100%;
-    max-width: 1200px;
-    margin: 40px auto;
+    max-width: 1100px; /* Pulls the edges inward so it doesn't drift left on wide monitors */
+    margin: 0 auto;    /* Centers the entire grid container horizontally */
     padding: 20px;
     box-sizing: border-box;
     align-items: start;
+    justify-content: center; /* Forces the grid tracks to center if there's extra room */
 }
 
 .left-sidebar {
