@@ -772,7 +772,6 @@ html, body {
     .app-container,
     .app-game-container,
     .game-layout-grid,
-    .game-board-area,
     .board-viewport, 
     .game-layout {
         width: 100% !important;
@@ -785,13 +784,29 @@ html, body {
         box-sizing: border-box !important;
     }
 
+  .game-board-area {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        padding: 8px 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
     /* Allow smooth touch-panning for wide game boards on mobile */
     .board-viewport {
+        width: 100% !important;
+        max-width: 100% !important;
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch !important;
+        padding: 0 !important;
+        display: block !important;
     }
 
     .grid {
+        width: max-content !important;
+        min-width: max-content !important;
         display: inline-grid !important;
         margin: 0 auto !important;
     }
