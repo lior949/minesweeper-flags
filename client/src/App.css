@@ -276,6 +276,7 @@ html, body {
   background-color: transparent;
   margin: 0 auto;
   border-radius: 8px;
+  width: max-content;
 }
 
 .tile {
