@@ -919,56 +919,49 @@ html, body {
         max-width: 100% !important;
         margin: 0 !important;
         padding: 0 !important;
-        overflow-x: hidden !important;
+        overflow-x: auto !important;
     }
 
+    /* 1. Make the main layout grid span the entire screen width */
     .game-layout-grid {
         display: flex !important;
         flex-direction: column !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        padding: 4px !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        padding: 0 !important;
         margin: 0 !important;
         box-sizing: border-box !important;
     }
 
-    .left-sidebar,  
-    .observer-list-panel,  
-    .game-chat-panel,  
-    .server-chat-panel,  
-    .right-sidebar {
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-    }
-
+    /* 2. Break the game board container out of the center lane */
     .game-board-area {
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        min-width: 100vw !important;
         margin: 0 !important;
-        padding: 10px 0 !important;
+        padding: 10px 4px !important;
         box-sizing: border-box !important;
-        overflow: visible !important;
-        background: transparent !important;
+        background: rgba(15, 23, 42, 0.6) !important;
+        border-radius: 0 !important; /* Removes curved edges so it spans edge-to-edge */
+        border-left: none !important;
+        border-right: none !important;
     }
 
+    /* 3. Ensure the viewport allows smooth panning if the board is wider than the screen */
     .board-viewport {
         width: 100% !important;
         max-width: 100% !important;
-        overflow-x: visible !important;
-        overflow-y: visible !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
         padding: 0 !important;
         display: flex !important;
-        justify-content: center !important;
+        justify-content: flex-start !important; /* Lets large boards start from the left edge */
     }
 
+    /* 4. Keep the grid functional */
     .grid {
-        display: grid !important;
-        width: 100% !important;
-        min-width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        transform: none !important;
+        display: inline-grid !important;
+        width: max-content !important;
+        margin: 0 auto !important;
     }
 }
