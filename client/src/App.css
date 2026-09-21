@@ -766,7 +766,7 @@ html, body {
         overflow-x: hidden !important;
     }
 
-    /* Force all layout elements to fill the full width of the mobile device */
+    /* Unlock the wrappers so they can size naturally and center properly */
     #root,
     .app,
     .app-container,
@@ -780,18 +780,17 @@ html, body {
         min-width: 0 !important;
         margin-left: 0 !important;
         margin-right: 0 !important;
-        padding-left: 2px !important;
-        padding-right: 2px !important;
+        padding-left: 4px !important;
+        padding-right: 4px !important;
         box-sizing: border-box !important;
     }
 
-    /* Let the game board area expand and enable smooth horizontal scrolling */
-    .game-board-area {
+    /* Allow smooth touch-panning for wide game boards on mobile */
+    .board-viewport {
         overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
+        -webkit-overflow-scrolling: touch !important;
     }
 
-    /* Make sure the grid expands fully without getting squished */
     .grid {
         display: inline-grid !important;
         margin: 0 auto !important;
