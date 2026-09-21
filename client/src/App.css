@@ -707,7 +707,7 @@ html, body {
     .game-layout-grid {
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: stretch;
         width: 100%;
         max-width: 100%;
         padding: 12px;
@@ -723,7 +723,7 @@ html, body {
         grid-column: unset !important;
         grid-row: unset !important;
         width: 100% !important;
-        max-width: 420px !important;
+        max-width: 100% !important;
         box-sizing: border-box;
     }
 
@@ -758,7 +758,7 @@ html, body {
 }
 
 @media (max-width: 768px) {
-  html, body {
+    html, body {
         width: 100% !important;
         max-width: 100% !important;
         margin: 0 !important;
@@ -766,7 +766,7 @@ html, body {
         overflow-x: hidden !important;
     }
 
-    /* Unlock the wrappers so they can size naturally and center properly */
+    /* Unlock wrappers to take up the full screen width */
     #root,
     .app,
     .app-container,
@@ -779,12 +779,23 @@ html, body {
         min-width: 0 !important;
         margin-left: 0 !important;
         margin-right: 0 !important;
-        padding-left: 4px !important;
-        padding-right: 4px !important;
+        padding-left: 8px !important;
+        padding-right: 8px !important;
         box-sizing: border-box !important;
     }
 
-  .game-board-area {
+    /* Expand sidebar and chat panels to fill mobile screen width */
+    .left-sidebar,  
+    .observer-list-panel,  
+    .game-chat-panel,  
+    .server-chat-panel,  
+    .right-sidebar {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .game-board-area {
         width: 100% !important;
         max-width: 100% !important;
         min-width: 0 !important;
@@ -794,7 +805,7 @@ html, body {
         overflow: hidden !important;
     }
 
-    /* Allow smooth touch-panning for wide game boards on mobile */
+    /* Allow smooth touch-panning for wide game boards */
     .board-viewport {
         width: 100% !important;
         max-width: 100% !important;
