@@ -758,15 +758,36 @@ html, body {
 }
 
 @media (max-width: 768px) {
+  html, body {
+        align-items: stretch !important;
+        justify-content: flex-start !important;
+    }
     .grid {
         max-width: 360px;
     }
-  .app-game-container, .game-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 20px;
-  }
+  #root, 
+    .app, 
+    .app-container, 
+    .app-game-container, 
+    .game-layout-grid, .game-layout {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 8px !important;
+        box-sizing: border-box !important;
+    }
+  .game-board-area {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 8px 2px !important;
+        margin: 0 !important;
+    }
+
+    .board-viewport {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 4px !important;
+    }
 }
 
 .board-viewport {
