@@ -734,6 +734,7 @@ html, body {
         padding: 12px 4px !important;
         border-radius: 12px;
         box-sizing: border-box;
+      overflow: visible !important; /* <--- ADD THIS */
     }
 
   .board-viewport {
@@ -742,6 +743,8 @@ html, body {
         padding: 8px 0 !important;
         overflow-x: auto; /* Lets players pan sideways smoothly if the board is very large */
         -webkit-overflow-scrolling: touch;
+        display: flex !important;
+        justify-content: flex-start !important
     }
 
     .grid {
@@ -802,7 +805,7 @@ html, body {
         margin: 0 !important;
         padding: 8px 0 !important;
         box-sizing: border-box !important;
-        overflow: hidden !important;
+        overflow: visible !important; /* <--- ADD THIS */
     }
 
     /* Allow smooth touch-panning for wide game boards */
@@ -812,7 +815,8 @@ html, body {
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch !important;
         padding: 0 !important;
-        display: block !important;
+        display: flex !important;
+        justify-content: flex-start !important;
     }
 
     .grid {
