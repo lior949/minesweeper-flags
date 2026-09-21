@@ -766,28 +766,21 @@ html, body {
         max-width: 100% !important;
         margin: 0 !important;
         padding: 0 !important;
-        overflow-x: hidden !important;
+        overflow-x: auto !important;
     }
 
-    /* Unlock wrappers to take up the full screen width */
-    #root,
-    .app,
-    .app-container,
-    .app-game-container,
-    .game-layout-grid,
-    .board-viewport, 
-    .game-layout {
+    /* 1. Force the main layout grid to stack and take full width */
+    .game-layout-grid {
+        display: flex !important;
+        flex-direction: column !important;
         width: 100% !important;
         max-width: 100% !important;
-        min-width: 0 !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        padding-left: 8px !important;
-        padding-right: 8px !important;
+        padding: 4px !important;
+        margin: 0 !important;
         box-sizing: border-box !important;
     }
 
-    /* Expand sidebar and chat panels to fill mobile screen width */
+    /* 2. Unlock all sidebars and panels */
     .left-sidebar,  
     .observer-list-panel,  
     .game-chat-panel,  
@@ -798,32 +791,38 @@ html, body {
         box-sizing: border-box !important;
     }
 
+    /* 3. Stop the game board area from clipping */
     .game-board-area {
         width: 100% !important;
         max-width: 100% !important;
         min-width: 0 !important;
         margin: 0 !important;
-        padding: 8px 0 !important;
+        padding: 10px 0 !important;
         box-sizing: border-box !important;
-        overflow: visible !important; /* <--- ADD THIS */
+        overflow: visible !important;
+        background: transparent !important;
     }
 
-    /* Allow smooth touch-panning for wide game boards */
+    /* 4. Force the viewport to allow left-aligned horizontal scrolling */
     .board-viewport {
         width: 100% !important;
         max-width: 100% !important;
         overflow-x: auto !important;
+        overflow-y: hidden !important;
         -webkit-overflow-scrolling: touch !important;
         padding: 0 !important;
         display: flex !important;
         justify-content: flex-start !important;
     }
 
+    /* 5. Force the grid to maintain its size and never compress tiles */
     .grid {
+        display: inline-grid !important;
         width: max-content !important;
         min-width: max-content !important;
-        display: inline-grid !important;
-        margin: 0 auto !important;
+        max-width: none !important;
+        margin: 0 !important;
+        transform: none !important;
     }
 }
 
