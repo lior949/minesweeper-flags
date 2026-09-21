@@ -716,7 +716,6 @@ html, body {
     }
 
     .left-sidebar, 
-    .game-board-area, 
     .observer-list-panel, 
     .game-chat-panel, 
     .server-chat-panel, 
@@ -728,10 +727,11 @@ html, body {
         box-sizing: border-box;
     }
 
-  .game-board-area {
+  /* Let the game board take up the full screen width */
+    .game-board-area {
         width: 100% !important;
         max-width: 100% !important;
-        padding: 12px 4px !important; /* Reduces side padding to maximize available screen space */
+        padding: 12px 4px !important;
         border-radius: 12px;
         box-sizing: border-box;
     }
