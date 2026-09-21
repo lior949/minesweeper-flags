@@ -1,6 +1,5 @@
 /* --- GLOBAL THEME: HIGH CONTRAST ARCADE DEPTH --- */
 html, body {
-  /* Replaced generic white canvas with a deep, atmospheric dark-slate gradient */
   background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%) !important;
   color: #f8fafc !important; 
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -8,9 +7,6 @@ html, body {
   padding: 0;
   user-select: none;
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* Ensure the layout structure keeps its background transparent to look integrated */
@@ -188,15 +184,16 @@ html, body {
   cursor: pointer;
 }
 
-.app, .app-game-container {
-  max-width: 100% !important;
-  width: 100% !important;
+/* Center your main application wrappers globally */
+#root, .app, .app-container, .app-game-container {
+  width: 100%;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 20px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
 }
 
 .header {
@@ -615,12 +612,12 @@ html, body {
 
 .game-layout-grid {
     display: grid;
-    grid-template-columns: 280px 1fr;
-    grid-template-rows: auto auto;
+    grid-template-columns: 280px minmax(auto, 800px);
+    justify-content: center; /* Centers the whole grid block horizontally */
     gap: 24px;
     width: 100%;
-    max-width: 1400px;
-    margin: 0 auto;
+    max-width: 1200px;
+    margin: 40px auto;
     padding: 20px;
     box-sizing: border-box;
     align-items: start;
