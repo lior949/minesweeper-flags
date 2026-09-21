@@ -270,11 +270,11 @@ html, body {
 }
 
 .grid {
-  display: inline-grid;      /* Treats the grid like an inline element so text-align: center works */
+  display: inline-grid;
   gap: 2px;
   border: 2px solid #1e293b;
   background-color: transparent;
-  margin: 0 auto;            /* Fallback centering */
+  margin: 0 auto;
   border-radius: 8px;
 }
 
@@ -769,11 +769,10 @@ html, body {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  /* Use padding instead of margin to prevent left-side clipping on mobile overflow */
   padding: 0 16px;
   box-sizing: border-box;
   display: flex;
-  justify-content: center; /* Centers the grid if it fits on screen */
+  justify-content: center; /* Centers the board automatically if it fits on screen */
 }
 .board-viewport:active {
   cursor: grabbing;
