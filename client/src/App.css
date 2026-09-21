@@ -767,10 +767,13 @@ html, body {
 
 .board-viewport {
   width: 100%;
-  overflow-x: auto;          /* Keeps smooth horizontal scrolling for large boards */
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  text-align: center;        /* Centers the grid when it's smaller than the screen */
-  padding-bottom: 15px;
+  /* Use padding instead of margin to prevent left-side clipping on mobile overflow */
+  padding: 0 16px;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center; /* Centers the grid if it fits on screen */
 }
 .board-viewport:active {
   cursor: grabbing;
