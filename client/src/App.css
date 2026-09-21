@@ -729,14 +729,24 @@ html, body {
     }
 
   .game-board-area {
-        display: flex;
-        justify-content: center;
-        overflow-x: auto;
-        padding: 16px 8px;
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 12px 4px !important; /* Reduces side padding to maximize available screen space */
+        border-radius: 12px;
+        box-sizing: border-box;
+    }
+
+  .board-viewport {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 8px 0 !important;
+        overflow-x: auto; /* Lets players pan sideways smoothly if the board is very large */
+        -webkit-overflow-scrolling: touch;
     }
 
     .grid {
-        max-width: 100%;
+        width: max-content; /* Ensures tiles don't get squished */
+        margin: 0 auto;
     }
 
     .game-chat-container, 
