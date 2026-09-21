@@ -1000,4 +1000,39 @@ html, body {
     }
 }
 
+/* --- ABSOLUTE MOBILE OVERRIDE FOR CAGED BOARD --- */
+@media screen and (max-width: 768px) {
+  .game-layout-grid,
+  .game-board-area,
+  .board-viewport,
+  .grid {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+  }
+
+  .game-board-area {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    display: block !important;
+    padding: 10px 0 !important;
+  }
+
+  .board-viewport {
+    overflow-x: scroll !important;
+    -webkit-overflow-scrolling: touch !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+  }
+
+  .grid {
+    display: inline-grid !important;
+    width: max-content !important;
+    min-width: max-content !important;
+    margin: 0 auto !important;
+  }
+}
+
 
