@@ -1297,13 +1297,21 @@ const renderTile = (tile) => {
 
     <div className="game-controls" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
         {playerNumber !== 0 && ( 
-          !currentBombUsedStatus && 
-          currentPlayerScore < opponentPlayerOrTeamScore && 
-          !gameOver && (
-            <button className="bomb-button" onClick={handleUseBombClick} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
-                Use Bomb
-            </button>
-          ))}
+          <button 
+            className="bomb-button" 
+            onClick={handleUseBombClick} 
+            disabled={
+              !isSocketConnected || 
+              gameOver || 
+              currentBombUsedStatus || 
+              currentPlayerScore >= opponentPlayerOrTeamScore || 
+              (gameType === '1v1' && playerNumber !== turn)
+            } 
+            style={{ width: '100%', margin: 0 }}
+          >
+              Use Bomb
+          </button>
+        )}
         {playerNumber !== 0 && bombMode && (
           <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
               Cancel Bomb
