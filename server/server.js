@@ -17,12 +17,7 @@ const { getBestAIMove } = require('./ai.js');
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
-const { Firestore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
-
-// --- NEW: Corrected Firestore Session Store Imports ---
-// The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
-// It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
-const FirestoreStore = require('@google-cloud/connect-firestore')(session);
+const { FirestoreStore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
 
 
 const app = express();
