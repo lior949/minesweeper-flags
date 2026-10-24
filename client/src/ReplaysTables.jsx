@@ -70,11 +70,12 @@ export default function ReplaysTable({ onWatchReplay, onBack }) {
 
   return (
     <div style={{ padding: "24px", maxWidth: "1000px", margin: "0 auto", color: "#f8fafc", width: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", alignItems: "center", marginBottom: "20px" }}>
         <h2>Finished Games & Replay History</h2>
         <button
           className="btn-back-lobby"
-          onClick={() => (window.location.pathname = "/")}
+          onClick={onBack}
         >
           ← Back to Lobby
         </button>
@@ -160,19 +161,6 @@ export default function ReplaysTable({ onWatchReplay, onBack }) {
           </tbody>
         </table>
       )}
-    </div>
-  );
-
-  return (
-    <div style={{ padding: "24px", maxWidth: "1000px", margin: "0 auto", color: "#f8fafc", width: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", alignItems: "center", marginBottom: "20px" }}>
-        <h2>Finished Games & Replay History</h2>
-        <button className="btn-back-lobby" onClick={onBack}>
-          ← Back to Lobby
-        </button>
-      </div>
-      
-      {/* ... filter bar & table JSX ... */}
     </div>
   );
 }
