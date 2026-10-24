@@ -134,7 +134,7 @@ try {
 
   // Create a separate Firestore client instance for the session store.
   // This is how @google-cloud/connect-firestore expects it.
-  const firestoreClient = new Firestore({
+  const firestoreClient = new FirestoreStore({
     projectId: serviceAccount.project_id, // Use project_id from service account
     credentials: {
       client_email: serviceAccount.client_email,
