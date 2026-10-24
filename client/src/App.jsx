@@ -44,7 +44,94 @@ const getDeviceUuid = () => {
     return deviceUuid;
 };
 
+const generateEmptyBoard = (width = 16, height = 16) => {
+    return Array.from({ length: height }, () =>
+        Array.from({ length: width }, () => ({
+            isMine: false,
+            revealed: false,
+            adjacentMines: 0,
+            owner: null,
+            ownerTeam: null,
+        }))
+    );
+};
+
 function App() {
+
+const buildReplayBoardAtStep = useCallback((targetStep) => {
+  if (!replayData || !replayData.finalBoard) return [];
+
+  const boardCopy = replayData.finalBoard.map(row =>
+    row.map(tile => ({
+      ...tile,
+      revealed: false,
+      owner: null,
+      ownerTeam: null
+    }))
+  );
+
+  for (let i = 0; i < targetStep && i < replayData.moves.length; i++) {
+    const move = replayData.moves[i];
+    if (move.type === 'click' && boardCopy[move.y] && boardCopy[move.y][move.x]) {
+      clientRevealRecursive(boardCopy, move.x, move.y, move.playerNumber);
+    } else if (move.type === 'bomb') {
+      const cx = move.x;
+      const cy = move.y;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const bx = cx + dx;
+          const by = cy + dy;
+          if (bx >= 0 && bx < WIDTH && by >= 0 && by < HEIGHT) {
+            const bTile = boardCopy[by][bx];
+            if (bTile.isMine) {
+              bTile.revealed = true;
+              bTile.owner = move.playerNumber;
+              bTile.ownerTeam = move.team;
+            } else {
+              clientRevealRecursive(boardCopy, bx, by, move.playerNumber);
+            }
+          }
+        }
+      }
+    }
+  }
+  return boardCopy;
+}, [replayData, WIDTH, HEIGHT]);
+
+useEffect(() => {
+  if (isReplayAutoPlaying && replayData) {
+    replayTimerRef.current = setInterval(() => {
+      setReplayMoveIndex((prev) => {
+        if (prev >= replayData.moves.length) {
+          setIsReplayAutoPlaying(false);
+          clearInterval(replayTimerRef.current);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+  } else {
+    clearInterval(replayTimerRef.current);
+  }
+  return () => clearInterval(replayTimerRef.current);
+}, [isReplayAutoPlaying, replayData]);
+
+const requestGameReplay = (gameIdToReplay) => {
+  if (socketRef.current && socketRef.current.connected) {
+    socketRef.current.emit("get-game-replay", { gameId: gameIdToReplay });
+    showMessage("Fetching replay data...");
+  } else {
+    showMessage("Not connected to server.", true);
+  }
+};
+
+const closeReplay = () => {
+  setReplayData(null);
+  setReplayMoveIndex(0);
+  setIsReplayAutoPlaying(false);
+};
+
+    
   // NEW: Determine if this is the OAuth callback window
   const isAuthCallback = window.location.pathname === '/auth/callback';
 
@@ -104,6 +191,11 @@ function App() {
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
 
+const [replayData, setReplayData] = useState(null);
+const [replayMoveIndex, setReplayMoveIndex] = useState(0);
+const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
+const replayTimerRef = useRef(null);
+
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
       lobbyChatEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -158,7 +250,7 @@ function App() {
     setTimeout(() => setMessage(""), 5000);
   };
 
-const clientRevealRecursive = (boardCopy, startX, startY) => {
+const clientRevealRecursive = (boardCopy, startX, startY, playerNum = playerNumber) => {
     const height = boardCopy.length;
     const width = boardCopy[0].length;
     
@@ -167,8 +259,8 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
 
     // 1. Instantly reveal the clicked tile (even if it's a mine!)
     startTile.revealed = true;
-    startTile.owner = playerNumber;
-    startTile.ownerTeam = playerNumber; // Ensures the team color/styling renders instantly
+    startTile.owner = playerNum; // <--- UPDATE TO playerNum
+    startTile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2; // <--- UPDATE TO playerNum LOGIC
 
     // 2. If the clicked tile is a mine, it stops right here (just like the server)
     if (startTile.isMine) {
@@ -275,6 +367,25 @@ const clientRevealRecursive = (boardCopy, startX, startY) => {
                 addGameMessage("Server", "Disconnected from server.", true);
                 setIsBombHighlightActive(false);
                 setHighlightedBombArea([]);
+            });
+
+            socketRef.current.on("receive-game-replay", (data) => {
+              console.log("Received Game Replay Data:", data);
+              const initialBoard = data.board ? JSON.parse(data.board) : generateEmptyBoard();
+            
+              setReplayData({
+                gameId: data.gameId,
+                gameType: data.gameType || '1v1',
+                player1Name: data.player1Name || "Player 1",
+                player2Name: data.player2Name || "Player 2",
+                player3Name: data.player3Name || "Player 3",
+                player4Name: data.player4Name || "Player 4",
+                finalBoard: initialBoard,
+                moves: data.moves || []
+              });
+              setReplayMoveIndex(0);
+              setIsReplayAutoPlaying(false);
+              showMessage("Replay loaded successfully!");
             });
 
             socketRef.current.on('connect_error', (error) => {
@@ -1136,6 +1247,38 @@ const renderTile = (tile) => {
 
 
   return (
+      {replayData && (
+  <div className="app-game-container replay-container">
+    <h2>Replay Viewer (Game: {replayData.gameId.substring(0, 8)})</h2>
+    <p>{replayData.player1Name} vs {replayData.player2Name}</p>
+
+    <div className="replay-controls">
+      <button onClick={() => setReplayMoveIndex(0)}>⏮ Reset</button>
+      <button onClick={() => setReplayMoveIndex(prev => Math.max(0, prev - 1))}>◀ Step Back</button>
+      <button onClick={() => setIsReplayAutoPlaying(!isReplayAutoPlaying)}>
+        {isReplayAutoPlaying ? "⏸ Pause" : "▶ Play"}
+      </button>
+      <button onClick={() => setReplayMoveIndex(prev => Math.min(replayData.moves.length, prev + 1))}>Step Next ▶</button>
+      <button onClick={() => setReplayMoveIndex(replayData.moves.length)}>⏭ End</button>
+      <button className="btn-back-lobby" onClick={closeReplay}>Exit Replay</button>
+    </div>
+
+    <p style={{ marginTop: '10px' }}>Move: {replayMoveIndex} / {replayData.moves.length}</p>
+
+    <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
+      {buildReplayBoardAtStep(replayMoveIndex).flatMap((row, y) =>
+        row.map((tile, x) => (
+          <div
+            key={`replay-${x}-${y}`}
+            className={`tile ${tile.revealed ? "revealed" : "hidden"} ${tile.isMine && tile.revealed ? "mine" : ""}`}
+          >
+            {renderTile(tile)}
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+)}
     <div className="lobby">
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
@@ -1256,6 +1399,9 @@ const renderTile = (tile) => {
                                 )}
                                 - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
                                 <button onClick={() => observeGame(game.gameId)} className="bomb-button">Observe</button>
+                                <button onClick={() => requestGameReplay(game.gameId)} className="bomb-button">
+                                  Watch Replay
+                                </button>
                             </li>
                         ))}
                     </ul>
