@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-export default function ReplaysTable({ onWatchReplay }) {
+export default function ReplaysTable({ onWatchReplay, onBack }) {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -160,6 +160,19 @@ export default function ReplaysTable({ onWatchReplay }) {
           </tbody>
         </table>
       )}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "24px", maxWidth: "1000px", margin: "0 auto", color: "#f8fafc", width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", alignItems: "center", marginBottom: "20px" }}>
+        <h2>Finished Games & Replay History</h2>
+        <button className="btn-back-lobby" onClick={onBack}>
+          ← Back to Lobby
+        </button>
+      </div>
+      
+      {/* ... filter bar & table JSX ... */}
     </div>
   );
 }
