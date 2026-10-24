@@ -15,6 +15,16 @@ const bufferToHex = (buffer) => {
   return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
+const navigateToReplays = () => {
+  window.history.pushState({}, "", "/replays");
+  setCurrentView("replays");
+};
+
+const navigateToMain = () => {
+  window.history.pushState({}, "", "/");
+  setCurrentView("main");
+};
+
 const generate5DigitGuestId = async (message) => {
   try {
     const msgBuffer = new TextEncoder().encode(message);
@@ -185,6 +195,10 @@ if (isReplayPage) {
   const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
   const replayTimerRef = useRef(null);
 
+  const [currentView, setCurrentView] = useState(() => {
+  return window.location.pathname === '/replays' ? 'replays' : 'main';
+  });
+
   const buildReplayBoardAtStep = useCallback((targetStep) => {
     if (!replayData || !replayData.finalBoard) return [];
 
@@ -251,6 +265,18 @@ if (isReplayPage) {
       showMessage("Not connected to server.", true);
     }
   };
+
+  useEffect(() => {
+  const handlePopState = () => {
+    if (window.location.pathname === "/replays") {
+      setCurrentView("replays");
+    } else {
+      setCurrentView("main");
+    }
+  };
+  window.addEventListener("popstate", handlePopState);
+  return () => window.removeEventListener("popstate", handlePopState);
+}, []);
 
   const closeReplay = () => {
     setReplayData(null);
@@ -1215,6 +1241,20 @@ if (isReplayPage) {
       </div>
     );
   }
+
+  if (currentView === "replays") {
+  return (
+    <div className="app-container">
+      <ReplaysTable
+        onBack={navigateToMain}
+        onWatchReplay={(gameIdToReplay) => {
+          navigateToMain();
+          requestGameReplay(gameIdToReplay);
+        }}
+      />
+    </div>
+  );
+}
 
   let currentPlayerScore = 0;
   let opponentPlayerOrTeamScore = 0;
