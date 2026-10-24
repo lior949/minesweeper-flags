@@ -5,7 +5,7 @@ import FacebookLogin from "./FacebookLogin";
 import AuthCallback from "./AuthCallback";
 import "./App.css";
 import logoImage from './components/logo.png';
-import ReplaysTable from "./ReplaysTable";
+import ReplaysTable from "./ReplaysTables";
 
 // ==========================================
 // PURE HELPER FUNCTIONS (Outside Component)
