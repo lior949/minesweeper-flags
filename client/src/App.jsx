@@ -185,10 +185,6 @@ const [currentView, setCurrentView] = useState(() => {
   const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
   const replayTimerRef = useRef(null);
 
-  const [currentView, setCurrentView] = useState(() => {
-  return window.location.pathname === '/replays' ? 'replays' : 'main';
-  });
-
   const buildReplayBoardAtStep = useCallback((targetStep) => {
     if (!replayData || !replayData.finalBoard) return [];
 
