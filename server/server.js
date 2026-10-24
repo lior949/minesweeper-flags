@@ -7,7 +7,7 @@ const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 const passport = require("passport");
-const session = require("express-session");
+const session = require("@google-cloud/express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
@@ -22,7 +22,7 @@ const { Firestore } = require('@google-cloud/firestore'); // Required by @google
 // --- NEW: Corrected Firestore Session Store Imports ---
 // The @google-cloud/connect-firestore module exports FirestoreStore as a named export.
 // It is then instantiated with 'new', and does NOT take 'session' directly in the require call.
-const { FirestoreStore } = require('@google-cloud/connect-firestore');
+const FirestoreStore = require('@google-cloud/connect-firestore')(session);
 
 
 const app = express();
@@ -2268,7 +2268,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     if (!game.gameOver) {
         const nextPlayer = game.players.find(p => p.number === game.turn);
         if (nextPlayer && nextPlayer.isAi) {
-            processAiTest = true; // or call function directly
             processAiTurn(gameId);
         }
     }
