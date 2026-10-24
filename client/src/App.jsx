@@ -114,6 +114,21 @@ function App() {
     return <AuthCallback />;
   }
 
+  const isReplayPage = window.location.pathname === '/replays';
+
+if (isReplayPage) {
+  return (
+    <div className="app-container">
+      <ReplaysTable 
+        onWatchReplay={(gameIdToReplay) => {
+          // Redirect to main view and open replay
+          window.location.href = `/?replayGameId=${gameIdToReplay}`;
+        }} 
+      />
+    </div>
+  );
+}
+
   const WIDTH = 16;
   const HEIGHT = 16;
 
@@ -350,6 +365,14 @@ function App() {
             socketRef.current.on('connect', () => {
                 setIsSocketConnected(true);
                 socketRef.current.emit("join-lobby", currentUserName);
+
+                          // --- ADD CHECK HERE ---
+                const urlParams = new URLSearchParams(window.location.search);
+                const autoReplayId = urlParams.get("replayGameId");
+                if (autoReplayId) {
+                  requestGameReplay(autoReplayId);
+                  window.history.replaceState({}, document.title, "/");
+                }
             });
 
             socketRef.current.on('disconnect', (reason) => {
@@ -1215,6 +1238,10 @@ function App() {
     <div className="lobby">
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+
+      <button onClick={() => window.location.pathname = '/replays'} className="bomb-button" style={{ background: '#3b82f6' }}>
+      📜 Stats & Game History
+    </button>
 
         {replayData && (
           <div className="app-game-container replay-container">
