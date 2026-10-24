@@ -1846,7 +1846,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             lastClickedTile,
             messages: [],
             observers: [],
-            moves[]
+            moves: []
           };
           games[gameId] = game;
 
