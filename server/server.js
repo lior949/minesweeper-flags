@@ -2803,6 +2803,37 @@ socket.on("disconnect", async () => {
 
 });
 
+// REST Endpoint to fetch finished games for the Replays & Stats page
+app.get("/api/finished-games", async (req, res) => {
+  try {
+    const finishedSnapshot = await db.collection(GAMES_COLLECTION_PATH)
+      .where("gameOver", "==", true)
+      .limit(100)
+      .get();
+
+    const finishedGames = [];
+    finishedSnapshot.forEach((doc) => {
+      const data = doc.data();
+      finishedGames.push({
+        gameId: data.gameId,
+        gameType: data.gameType || "1v1",
+        player1Name: data.player1_name || "Player 1",
+        player2Name: data.player2_name || "Player 2",
+        player3Name: data.player3_name || null,
+        player4Name: data.player4_name || null,
+        scores: data.scores || { 1: 0, 2: 0 },
+        winnerTeam: data.winnerTeam || null,
+        lastUpdated: data.lastUpdated ? data.lastUpdated.toDate() : new Date()
+      });
+    });
+
+    res.json(finishedGames);
+  } catch (error) {
+    console.error("Error fetching finished games:", error);
+    res.status(500).json({ error: "Failed to fetch finished games." });
+  }
+});
+
 // --- Server Startup ---
 const PORT = process.env.PORT || 3001; // Use Render's PORT env var, or 3001 for local dev
 server.listen(PORT, () => {
