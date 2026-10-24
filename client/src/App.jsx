@@ -202,54 +202,6 @@ const replayTimerRef = useRef(null);
     }
   }, [lobbyMessages, loggedIn, gameId]);
 
-  const getTileCoordinates = (event) => {
-    const grid = event.currentTarget;
-    const { left, top, width, height } = grid.getBoundingClientRect();
-
-    const tileWidth = width / WIDTH;
-    const tileHeight = height / HEIGHT;
-
-    const mouseX = event.clientX - left;
-    const mouseY = event.clientY - top;
-
-    const x = Math.floor(mouseX / tileWidth);
-    const y = Math.floor(mouseY / tileHeight);
-
-    return { x, y };
-  };
-
-  const calculateBombArea = useCallback((cx, cy) => {
-    const area = [];
-    const MIN_COORD = 2;
-    const MAX_COORD_X = WIDTH - 3; 
-    const MAX_COORD_Y = HEIGHT - 3; 
-
-    if (cx < MIN_COORD || cx > MAX_COORD_X || cy < MIN_COORD || cy > MAX_COORD_Y) {
-      return []; 
-    }
-
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
-          area.push({ x, y });
-        }
-      }
-    }
-    return area;
-  }, [WIDTH, HEIGHT]); 
-
-  const showMessage = (msg, isError = false) => {
-    setMessage(msg);
-    if (isError) {
-      console.error(msg);
-    } else {
-      console.log(msg);
-    }
-    setTimeout(() => setMessage(""), 5000);
-  };
-
 const clientRevealRecursive = (boardCopy, startX, startY, playerNum = playerNumber) => {
     const height = boardCopy.length;
     const width = boardCopy[0].length;
@@ -297,6 +249,54 @@ const clientRevealRecursive = (boardCopy, startX, startY, playerNum = playerNumb
         }
       }
     }
+  };
+
+  const getTileCoordinates = (event) => {
+    const grid = event.currentTarget;
+    const { left, top, width, height } = grid.getBoundingClientRect();
+
+    const tileWidth = width / WIDTH;
+    const tileHeight = height / HEIGHT;
+
+    const mouseX = event.clientX - left;
+    const mouseY = event.clientY - top;
+
+    const x = Math.floor(mouseX / tileWidth);
+    const y = Math.floor(mouseY / tileHeight);
+
+    return { x, y };
+  };
+
+  const calculateBombArea = useCallback((cx, cy) => {
+    const area = [];
+    const MIN_COORD = 2;
+    const MAX_COORD_X = WIDTH - 3; 
+    const MAX_COORD_Y = HEIGHT - 3; 
+
+    if (cx < MIN_COORD || cx > MAX_COORD_X || cy < MIN_COORD || cy > MAX_COORD_Y) {
+      return []; 
+    }
+
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+          area.push({ x, y });
+        }
+      }
+    }
+    return area;
+  }, [WIDTH, HEIGHT]); 
+
+  const showMessage = (msg, isError = false) => {
+    setMessage(msg);
+    if (isError) {
+      console.error(msg);
+    } else {
+      console.log(msg);
+    }
+    setTimeout(() => setMessage(""), 5000);
   };
 
   const addGameMessage = useCallback((sender, text, isError = false) => {
