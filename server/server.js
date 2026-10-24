@@ -999,20 +999,6 @@ io.on("connection", (socket) => {
     console.log(`Lobby message from ${userName}: ${message}`);
   });
 
-  socket.on("request-finished-games", async () => {
-  try {
-    // Replace with your actual DB query for completed matches
-    const finishedGames = await GameModel.find({ gameOver: true })
-      .sort({ updatedAt: -1 })
-      .limit(20)
-      .select("gameId gameType player1Name player2Name player3Name player4Name scores updatedAt");
-
-    socket.emit("receive-finished-games", finishedGames);
-  } catch (err) {
-    console.error("Error fetching finished games:", err);
-  }
-});
-
 
 // Lobby Unfinished Games Request Event
   socket.on("request-unfinished-games", async () => {
@@ -1531,38 +1517,6 @@ socket.on("resume-game", async ({ gameId }) => {
     }
   });
 
-  socket.on("get-game-replay", async ({ gameId }) => {
-    try {
-        const gameDoc = await db.collection(GAMES_COLLECTION_PATH).doc(gameId).get();
-
-        if (!gameDoc.exists) {
-            socket.emit("game-error", "Replay not found.");
-            return;
-        }
-
-        const gameData = gameDoc.data();
-
-        // Emit full replay context including moves list and player details to client
-        socket.emit("receive-game-replay", {
-            gameId: gameData.gameId,
-            gameType: gameData.gameType || '1v1',
-            player1Name: gameData.player1_name,
-            player2Name: gameData.player2_name,
-            player3Name: gameData.player3_name,
-            player4Name: gameData.player4_name,
-            winnerTeam: gameData.winnerTeam,
-            finalScores: gameData.scores,
-            moves: gameData.moves || [],
-            board: gameData.board // Initial or final serialized board state
-        });
-
-        console.log(`Sent replay data for game ${gameId} to client ${socket.id}`);
-    } catch (error) {
-        console.error("Error fetching game replay:", error);
-        socket.emit("game-error", "Failed to retrieve game replay.");
-    }
-});
-
 
 socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
@@ -1607,8 +1561,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                 { userId: player2.userId, name: player2.name, number: 2, socketId: null, isAi: true, team: 2 }
             ],
             messages: [],
-            observers: [],
-            moves: []
+            observers: []
         };
 
         games[gameId] = newGame;
@@ -1859,8 +1812,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
             gameOver,
             lastClickedTile,
             messages: [],
-            observers: [],
-            moves: []
+            observers: []
           };
           games[gameId] = game;
 
@@ -2011,8 +1963,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                 gameOver,
                 lastClickedTile,
                 messages: [],
-                observers: [],
-                moves: []
+                observers: []
               };
               games[gameId] = game;
 
@@ -2255,7 +2206,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
             turn: game.turn,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile,
-            moves: game.moves,
             status: 'active',
             lastUpdated: Timestamp.now(),
             winnerTeam: null,
@@ -2286,15 +2236,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
             processAiTurn(gameId);
         }
     }
-
-  if (!game.moves) game.moves = [];
-    game.moves.push({
-        type: 'click',
-        playerNumber: player.number,
-        x,
-        y,
-        timestamp: Date.now()
-    });
 
     // =========================================================================
     // PERFORMANCE BOTTLENECK REMOVAL: JSON SERIALIZATION CACHING & MEMORY STREAMING
@@ -2535,16 +2476,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
 
     console.log(`Player ${player.name} (Team ${player.team}) used bomb at ${x},${y}. New scores: Team 1: ${game.scores[1]}, Team 2: ${game.scores[2]}`);
 
-    if (!game.moves) game.moves = [];
-    game.moves.push({
-        type: 'bomb',
-        playerNumber: player.number,
-        team: playerTeam,
-        x,
-        y,
-        timestamp: Date.now()
-    });
-
     // Update game state in Firestore
     try {
         const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
@@ -2556,7 +2487,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            moves: game.moves,
             status: newStatus, // Use the newStatus
             lastUpdated: Timestamp.now(),
             winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
