@@ -124,20 +124,10 @@ function App() {
     return <AuthCallback />;
   }
 
-  const isReplayPage = window.location.pathname === '/replays';
-
-if (isReplayPage) {
-  return (
-    <div className="app-container">
-      <ReplaysTable 
-        onWatchReplay={(gameIdToReplay) => {
-          // Redirect to main view and open replay
-          window.location.href = `/?replayGameId=${gameIdToReplay}`;
-        }} 
-      />
-    </div>
-  );
-}
+const [authLoading, setAuthLoading] = useState(true);
+const [currentView, setCurrentView] = useState(() => {
+    return window.location.pathname === '/replays' ? 'replays' : 'main';
+  });
 
   const WIDTH = 16;
   const HEIGHT = 16;
@@ -275,8 +265,6 @@ if (isReplayPage) {
     }
   };
   window.addEventListener("popstate", handlePopState);
-  return () => window.removeEventListener("popstate", handlePopState);
-}, []);
 
   const closeReplay = () => {
     setReplayData(null);
@@ -392,14 +380,13 @@ if (isReplayPage) {
                 setIsSocketConnected(true);
                 socketRef.current.emit("join-lobby", currentUserName);
 
-                          // --- ADD CHECK HERE ---
-                const urlParams = new URLSearchParams(window.location.search);
-                const autoReplayId = urlParams.get("replayGameId");
-                if (autoReplayId) {
-                  requestGameReplay(autoReplayId);
-                  window.history.replaceState({}, document.title, "/");
-                }
-            });
+                 const urlParams = new URLSearchParams(window.location.search);
+                  const autoReplayId = urlParams.get("replayGameId");
+                  if (autoReplayId) {
+                    requestGameReplay(autoReplayId);
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                  }
+                });
 
             socketRef.current.on('disconnect', (reason) => {
                 setIsSocketConnected(false);
@@ -679,7 +666,10 @@ if (isReplayPage) {
           socketRef.current = null;
           setIsSocketConnected(false);
         }
-      }
+      } finally {
+      // --- ALWAYS UNLOCK LOADING AFTER AUTH CHECK COMPLETE ---
+      setAuthLoading(false);
+    }
     };
 
     checkAuthStatusAndConnectSocket();
@@ -729,6 +719,7 @@ if (isReplayPage) {
       }
       window.removeEventListener('message', handleAuthMessage);
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener("popstate", handlePopState);
     };
   }, [loggedIn, name, addGameMessage, gameId]);
 
@@ -1212,46 +1203,80 @@ if (isReplayPage) {
     }
   };
 
-  if (!loggedIn) {
-    return (
-      <div className="lobby">
-        {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
-        <div className="login-logo-container mb-4 flex justify-center">
-          <img 
-            src={logoImage} 
-            alt="Minesweeper Flags Logo" 
-            style={{ width: '240px', height: '240px' }}
-            className="object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
-          />
-        </div>
-        <h2>Login or Play as Guest</h2>
-        <GoogleLogin
-          onLogin={() => {
-            console.log("Google Login completed via pop-up callback.");
-          }}
-        />
-        <FacebookLogin
-          onLogin={() => {
-            console.log("Facebook Login completed via pop-up callback.");
-          }}
-        />
-        <button className="guest-login-button" onClick={loginAsGuest}>
-          Play as Guest
-        </button>
-      </div>
-    );
-  }
+  if (authLoading) {
+  return (
+    <div className="lobby">
+      <h2>Loading session...</h2>
+    </div>
+  );
+}
 
-  if (currentView === "replays") {
+  if (!loggedIn) {
+  return (
+    <div className="lobby">
+      {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+      <div className="login-logo-container mb-4 flex justify-center">
+        <img 
+          src={logoImage} 
+          alt="Minesweeper Flags Logo" 
+          style={{ width: '240px', height: '240px' }}
+          className="object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+        />
+      </div>
+      <h2>Login or Play as Guest</h2>
+      <GoogleLogin onLogin={() => {}} />
+      <FacebookLogin onLogin={() => {}} />
+      <button className="guest-login-button" onClick={loginAsGuest}>
+        Play as Guest
+      </button>
+    </div>
+  );
+}
+
+  if (currentView === "replays" && !gameId) {
   return (
     <div className="app-container">
-      <ReplaysTable
-        onBack={navigateToMain}
-        onWatchReplay={(gameIdToReplay) => {
-          navigateToMain();
-          requestGameReplay(gameIdToReplay);
-        }}
-      />
+      {replayData && (
+        <div className="app-game-container replay-container">
+          <h2>Replay Viewer (Game: {replayData.gameId.substring(0, 8)})</h2>
+          <p>{replayData.player1Name} vs {replayData.player2Name}</p>
+
+          <div className="replay-controls">
+            <button onClick={() => setReplayMoveIndex(0)}>⏮ Reset</button>
+            <button onClick={() => setReplayMoveIndex(prev => Math.max(0, prev - 1))}>◀ Step Back</button>
+            <button onClick={() => setIsReplayAutoPlaying(!isReplayAutoPlaying)}>
+              {isReplayAutoPlaying ? "⏸ Pause" : "▶ Play"}
+            </button>
+            <button onClick={() => setReplayMoveIndex(prev => Math.min(replayData.moves.length, prev + 1))}>Step Next ▶</button>
+            <button onClick={() => setReplayMoveIndex(replayData.moves.length)}>⏭ End</button>
+            <button className="btn-back-lobby" onClick={closeReplay}>Exit Replay</button>
+          </div>
+
+          <p style={{ marginTop: '10px' }}>Move: {replayMoveIndex} / {replayData.moves.length}</p>
+
+          <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
+            {buildReplayBoardAtStep(replayMoveIndex).flatMap((row, y) =>
+              row.map((tile, x) => (
+                <div
+                  key={`replay-${x}-${y}`}
+                  className={`tile ${tile.revealed ? "revealed" : "hidden"} ${tile.isMine && tile.revealed ? "mine" : ""}`}
+                >
+                  {renderTile(tile)}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {!replayData && (
+        <ReplaysTable
+          onBack={navigateToMain}
+          onWatchReplay={(selectedGameId) => {
+            requestGameReplay(selectedGameId);
+          }}
+        />
+      )}
     </div>
   );
 }
