@@ -167,6 +167,7 @@ function App() {
   const [replayData, setReplayData] = useState(null);
   const [replayMoveIndex, setReplayMoveIndex] = useState(0);
   const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
+  const [finishedGames, setFinishedGames] = useState([]);
   const replayTimerRef = useRef(null);
 
   const buildReplayBoardAtStep = useCallback((targetStep) => {
@@ -359,6 +360,10 @@ function App() {
                 setHighlightedBombArea([]);
             });
 
+            socketRef.current.on("receive-finished-games", (games) => {
+              setFinishedGames(games);
+            });
+
             socketRef.current.on("receive-game-replay", (data) => {
               const initialBoard = data.board ? JSON.parse(data.board) : generateEmptyBoard();
 
@@ -412,6 +417,7 @@ function App() {
               showMessage(`Lobby joined successfully as ${userName}!`);
               socketRef.current.emit("request-unfinished-games");
               socketRef.current.emit("request-observable-games");
+              socketRef.current.emit("request-finished-games");
             });
 
             socketRef.current.on("players-list", (players) => {
