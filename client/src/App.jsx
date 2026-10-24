@@ -12,6 +12,56 @@ const bufferToHex = (buffer) => {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
+const clientRevealRecursive = (boardCopy, startX, startY, playerNum = playerNumber) => {
+    const height = boardCopy.length;
+    const width = boardCopy[0].length;
+    
+    const startTile = boardCopy[startY][startX];
+    if (!startTile || startTile.revealed) return;
+
+    // 1. Instantly reveal the clicked tile (even if it's a mine!)
+    startTile.revealed = true;
+    startTile.owner = playerNum; // <--- UPDATE TO playerNum
+    startTile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2; // <--- UPDATE TO playerNum LOGIC
+
+    // 2. If the clicked tile is a mine, it stops right here (just like the server)
+    if (startTile.isMine) {
+      return;
+    }
+
+    // 3. Otherwise, run the cascade queue for regular blank/numbered tiles
+    const queue = [{ x: startX, y: startY }];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const { x, y } = queue.shift();
+      const key = `${x},${y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      const tile = boardCopy[y][x];
+
+      if (tile.revealed || tile.isMine) continue;
+
+      tile.revealed = true;
+      tile.owner = playerNumber;
+      tile.ownerTeam = playerNumber;
+
+      // Expand if it's a blank tile
+      if (tile.adjacentMines === 0) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx !== 0 || dy !== 0) {
+              queue.push({ x: x + dx, y: y + dy });
+            }
+          }
+        }
+      }
+    }
+  };
+
+
 // Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 const generate5DigitGuestId = async (message) => {
     try {
@@ -202,54 +252,6 @@ const replayTimerRef = useRef(null);
     }
   }, [lobbyMessages, loggedIn, gameId]);
 
-const clientRevealRecursive = (boardCopy, startX, startY, playerNum = playerNumber) => {
-    const height = boardCopy.length;
-    const width = boardCopy[0].length;
-    
-    const startTile = boardCopy[startY][startX];
-    if (!startTile || startTile.revealed) return;
-
-    // 1. Instantly reveal the clicked tile (even if it's a mine!)
-    startTile.revealed = true;
-    startTile.owner = playerNum; // <--- UPDATE TO playerNum
-    startTile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2; // <--- UPDATE TO playerNum LOGIC
-
-    // 2. If the clicked tile is a mine, it stops right here (just like the server)
-    if (startTile.isMine) {
-      return;
-    }
-
-    // 3. Otherwise, run the cascade queue for regular blank/numbered tiles
-    const queue = [{ x: startX, y: startY }];
-    const visited = new Set();
-
-    while (queue.length > 0) {
-      const { x, y } = queue.shift();
-      const key = `${x},${y}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
-      const tile = boardCopy[y][x];
-
-      if (tile.revealed || tile.isMine) continue;
-
-      tile.revealed = true;
-      tile.owner = playerNumber;
-      tile.ownerTeam = playerNumber;
-
-      // Expand if it's a blank tile
-      if (tile.adjacentMines === 0) {
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx !== 0 || dy !== 0) {
-              queue.push({ x: x + dx, y: y + dy });
-            }
-          }
-        }
-      }
-    }
-  };
 
   const getTileCoordinates = (event) => {
     const grid = event.currentTarget;
