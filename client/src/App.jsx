@@ -1517,7 +1517,7 @@ function App() {
             Back to Lobby
         </button>
         {gameOver && playerNumber !== 0 && ( 
-            <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
+            <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected} style={{ width: '100%', margin: 0, display: 'none' }}>
                 Restart Game
             </button>
         )}
