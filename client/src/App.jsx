@@ -1,127 +1,65 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import io from "socket.io-client";
-import GoogleLogin from "./GoogleLogin";
-import FacebookLogin from "./FacebookLogin";
-import AuthCallback from "./AuthCallback";
-import "./App.css";
+// Removed Tone.js import as per request
+import GoogleLogin from "./GoogleLogin"; // Assuming GoogleLogin component exists
+import FacebookLogin from "./FacebookLogin"; // Corrected: Assuming FacebookLogin component exists
+import AuthCallback from "./AuthCallback"; // NEW: Import AuthCallback component
+import "./App.css"; // Ensure you have App.css for styling
 import logoImage from './components/logo.png';
 
-// ==========================================
-// PURE HELPER FUNCTIONS (Outside Component)
-// ==========================================
-
+// Helper function: Converts an ArrayBuffer to a hexadecimal string.
 const bufferToHex = (buffer) => {
-  return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
+    return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
 };
 
+// Helper function: Hashes a message using SHA-256 and converts it into a 5-digit number.
 const generate5DigitGuestId = async (message) => {
-  try {
-    const msgBuffer = new TextEncoder().encode(message);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const fullHashHex = bufferToHex(hashBuffer);
+    try {
+        const msgBuffer = new TextEncoder().encode(message); // Encode message as UTF-8
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer); // Hash the message
+        const fullHashHex = bufferToHex(hashBuffer); // Convert full hash to hex string
 
-    const hashPortion = fullHashHex.substring(0, 8);
-    const decimalValue = parseInt(hashPortion, 16);
+        const hashPortion = fullHashHex.substring(0, 8); // e.g., "a1b2c3d4"
+        const decimalValue = parseInt(hashPortion, 16); // e.g., 2712845268
 
-    const fiveDigitNumber = decimalValue % 100000;
-    return String(fiveDigitNumber).padStart(5, '0');
-  } catch (err) {
-    console.error("Error generating 5-digit guest ID:", err);
-    throw new Error("Failed to generate 5-digit guest ID from UUID.");
-  }
-};
+        const fiveDigitNumber = decimalValue % 100000;
+        return String(fiveDigitNumber).padStart(5, '0');
 
-const getDeviceUuid = () => {
-  let deviceUuid = localStorage.getItem('guestDeviceId');
-  if (!deviceUuid) {
-    deviceUuid = crypto.randomUUID(); 
-    localStorage.setItem('guestDeviceId', deviceUuid);
-    console.log("Generated new guestDeviceId:", deviceUuid);
-  } else {
-    console.log("Using existing guestDeviceId:", deviceUuid);
-  }
-  return deviceUuid;
-};
-
-const generateEmptyBoard = (width = 16, height = 16) => {
-  return Array.from({ length: height }, () =>
-    Array.from({ length: width }, () => ({
-      isMine: false,
-      revealed: false,
-      adjacentMines: 0,
-      owner: null,
-      ownerTeam: null,
-    }))
-  );
-};
-
-const clientRevealRecursive = (boardCopy, startX, startY, playerNum) => {
-  const height = boardCopy.length;
-  if (!height) return;
-  const width = boardCopy[0].length;
-  
-  if (startY < 0 || startY >= height || startX < 0 || startX >= width) return;
-  const startTile = boardCopy[startY][startX];
-  if (!startTile || startTile.revealed) return;
-
-  startTile.revealed = true;
-  startTile.owner = playerNum;
-  startTile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2;
-
-  if (startTile.isMine) {
-    return;
-  }
-
-  const queue = [{ x: startX, y: startY }];
-  const visited = new Set();
-
-  while (queue.length > 0) {
-    const { x, y } = queue.shift();
-    const key = `${x},${y}`;
-    if (visited.has(key)) continue;
-    visited.add(key);
-
-    if (x < 0 || x >= width || y < 0 || y >= height) continue;
-    const tile = boardCopy[y][x];
-
-    if (tile.revealed || tile.isMine) continue;
-
-    tile.revealed = true;
-    tile.owner = playerNum;
-    tile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2;
-
-    if (tile.adjacentMines === 0) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (dx !== 0 || dy !== 0) {
-            queue.push({ x: x + dx, y: y + dy });
-          }
-        }
-      }
+    } catch (err) {
+        console.error("Error generating 5-digit guest ID:", err);
+        throw new Error("Failed to generate 5-digit guest ID from UUID.");
     }
-  }
 };
 
-// ==========================================
-// MAIN REACT COMPONENT
-// ==========================================
+// Helper function: Generates or retrieves a persistent UUID for the device/browser.
+const getDeviceUuid = () => {
+    let deviceUuid = localStorage.getItem('guestDeviceId');
+    if (!deviceUuid) {
+        deviceUuid = crypto.randomUUID(); 
+        localStorage.setItem('guestDeviceId', deviceUuid); // Store it for future use
+        console.log("Generated new guestDeviceId:", deviceUuid);
+    } else {
+        console.log("Using existing guestDeviceId:", deviceUuid);
+    }
+    return deviceUuid;
+};
 
 function App() {
+  // NEW: Determine if this is the OAuth callback window
   const isAuthCallback = window.location.pathname === '/auth/callback';
 
   if (isAuthCallback) {
     return <AuthCallback />;
   }
 
-  const WIDTH = 16;
-  const HEIGHT = 16;
+  console.log("App component rendered (main application).");
 
   // === Lobby & Authentication State ===
   const [name, setName] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
-  const [isGuest, setIsGuest] = useState(false);
+  const [isGuest, setIsGuest] = useState(false); // NEW: Track if logged in as guest
   const [playersList, setPlayersList] = useState([]);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(""); // General message/error display
 
   const socketRef = useRef(null); 
   const [isSocketConnected, setIsSocketConnected] = useState(false); 
@@ -155,6 +93,9 @@ function App() {
   const [isBombHighlightActive, setIsBombHighlightActive] = useState(false); 
   const [highlightedBombArea, setHighlightedBombArea] = useState([]); 
 
+  const WIDTH = 16;
+  const HEIGHT = 16;
+
   // Chat states
   const [lobbyMessages, setLobbyMessages] = useState([]);
   const [gameMessages, setGameMessages] = useState([]);
@@ -162,86 +103,6 @@ function App() {
   const [lobbyMessageInput, setLobbyMessageInput] = useState("");
   const [gameMessageInput, setGameMessageInput] = useState("");
   const lobbyChatEndRef = useRef(null);
-
-  // Replay states
-  const [replayData, setReplayData] = useState(null);
-  const [replayMoveIndex, setReplayMoveIndex] = useState(0);
-  const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
-  const [finishedGames, setFinishedGames] = useState([]);
-  const replayTimerRef = useRef(null);
-
-  const buildReplayBoardAtStep = useCallback((targetStep) => {
-    if (!replayData || !replayData.finalBoard) return [];
-
-    const boardCopy = replayData.finalBoard.map(row =>
-      row.map(tile => ({
-        ...tile,
-        revealed: false,
-        owner: null,
-        ownerTeam: null
-      }))
-    );
-
-    for (let i = 0; i < targetStep && i < replayData.moves.length; i++) {
-      const move = replayData.moves[i];
-      if (move.type === 'click' && boardCopy[move.y] && boardCopy[move.y][move.x]) {
-        clientRevealRecursive(boardCopy, move.x, move.y, move.playerNumber);
-      } else if (move.type === 'bomb') {
-        const cx = move.x;
-        const cy = move.y;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            const bx = cx + dx;
-            const by = cy + dy;
-            if (bx >= 0 && bx < WIDTH && by >= 0 && by < HEIGHT) {
-              const bTile = boardCopy[by][bx];
-              if (bTile.isMine) {
-                bTile.revealed = true;
-                bTile.owner = move.playerNumber;
-                bTile.ownerTeam = move.team;
-              } else {
-                clientRevealRecursive(boardCopy, bx, by, move.playerNumber);
-              }
-            }
-          }
-        }
-      }
-    }
-    return boardCopy;
-  }, [replayData, WIDTH, HEIGHT]);
-
-  useEffect(() => {
-    if (isReplayAutoPlaying && replayData) {
-      replayTimerRef.current = setInterval(() => {
-        setReplayMoveIndex((prev) => {
-          if (prev >= replayData.moves.length) {
-            setIsReplayAutoPlaying(false);
-            clearInterval(replayTimerRef.current);
-            return prev;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    } else {
-      clearInterval(replayTimerRef.current);
-    }
-    return () => clearInterval(replayTimerRef.current);
-  }, [isReplayAutoPlaying, replayData]);
-
-  const requestGameReplay = (gameIdToReplay) => {
-    if (socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("get-game-replay", { gameId: gameIdToReplay });
-      showMessage("Fetching replay data...");
-    } else {
-      showMessage("Not connected to server.", true);
-    }
-  };
-
-  const closeReplay = () => {
-    setReplayData(null);
-    setReplayMoveIndex(0);
-    setIsReplayAutoPlaying(false);
-  };
 
   useEffect(() => {
     if (lobbyChatEndRef.current && loggedIn && !gameId) {
@@ -297,6 +158,55 @@ function App() {
     setTimeout(() => setMessage(""), 5000);
   };
 
+const clientRevealRecursive = (boardCopy, startX, startY) => {
+    const height = boardCopy.length;
+    const width = boardCopy[0].length;
+    
+    const startTile = boardCopy[startY][startX];
+    if (!startTile || startTile.revealed) return;
+
+    // 1. Instantly reveal the clicked tile (even if it's a mine!)
+    startTile.revealed = true;
+    startTile.owner = playerNumber;
+    startTile.ownerTeam = playerNumber; // Ensures the team color/styling renders instantly
+
+    // 2. If the clicked tile is a mine, it stops right here (just like the server)
+    if (startTile.isMine) {
+      return;
+    }
+
+    // 3. Otherwise, run the cascade queue for regular blank/numbered tiles
+    const queue = [{ x: startX, y: startY }];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const { x, y } = queue.shift();
+      const key = `${x},${y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      const tile = boardCopy[y][x];
+
+      if (tile.revealed || tile.isMine) continue;
+
+      tile.revealed = true;
+      tile.owner = playerNumber;
+      tile.ownerTeam = playerNumber;
+
+      // Expand if it's a blank tile
+      if (tile.adjacentMines === 0) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx !== 0 || dy !== 0) {
+              queue.push({ x: x + dx, y: y + dy });
+            }
+          }
+        }
+      }
+    }
+  };
+
   const addGameMessage = useCallback((sender, text, isError = false) => {
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMessage = { sender, text, timestamp, isError };
@@ -309,6 +219,8 @@ function App() {
   }, []);
 
   useEffect(() => {
+    console.log("App useEffect: Running initial setup.");
+
     const checkAuthStatusAndConnectSocket = async () => {
       try {
         const response = await fetch("https://minesweeper-flags-backend.onrender.com/me", {
@@ -325,6 +237,7 @@ function App() {
           try {
             const savedSession = JSON.parse(localStorage.getItem('auth_success_user'));
             if (savedSession && savedSession.user) {
+              console.warn("Safari Cookie blocked: Recovering state from localStorage fallback.");
               data = savedSession; 
             }
           } catch (e) {
@@ -337,8 +250,10 @@ function App() {
           setName(currentUserName);
           setLoggedIn(true);
           setIsGuest(data.user.id.startsWith('guest_')); 
+          console.log("App.jsx: Auth verification successful for:", currentUserName);
 
           if (!socketRef.current) {
+            console.log("Frontend: Initializing Socket.IO connection...");
             socketRef.current = io("https://minesweeper-flags-backend.onrender.com", {
               withCredentials: true,
               query: {
@@ -348,11 +263,13 @@ function App() {
             });
 
             socketRef.current.on('connect', () => {
+                console.log("Socket.IO client: Connected!");
                 setIsSocketConnected(true);
                 socketRef.current.emit("join-lobby", currentUserName);
             });
 
             socketRef.current.on('disconnect', (reason) => {
+                console.log(`Socket.IO client: Disconnected! Reason: ${reason}`);
                 setIsSocketConnected(false);
                 showMessage("Disconnected from server. Please refresh or try again.");
                 addGameMessage("Server", "Disconnected from server.", true);
@@ -360,29 +277,8 @@ function App() {
                 setHighlightedBombArea([]);
             });
 
-            socketRef.current.on("receive-finished-games", (games) => {
-              setFinishedGames(games);
-            });
-
-            socketRef.current.on("receive-game-replay", (data) => {
-              const initialBoard = data.board ? JSON.parse(data.board) : generateEmptyBoard();
-
-              setReplayData({
-                gameId: data.gameId,
-                gameType: data.gameType || '1v1',
-                player1Name: data.player1Name || "Player 1",
-                player2Name: data.player2Name || "Player 2",
-                player3Name: data.player3Name || "Player 3",
-                player4Name: data.player4Name || "Player 4",
-                finalBoard: initialBoard,
-                moves: data.moves || []
-              });
-              setReplayMoveIndex(0);
-              setIsReplayAutoPlaying(false);
-              showMessage("Replay loaded successfully!");
-            });
-
             socketRef.current.on('connect_error', (error) => {
+                console.error("Socket.IO client: Connection error!", error);
                 showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
                 addGameMessage("Server", `Connection error: ${error.message}`, true);
                 setIsSocketConnected(false);
@@ -391,10 +287,12 @@ function App() {
             });
 
             socketRef.current.on('authenticated-socket-ready', () => {
+                console.log("Frontend: Server confirmed authenticated socket ready!");
                 socketRef.current.emit("join-lobby", currentUserName);
             });
 
             socketRef.current.on("update-invites", (pendingInvitesObj) => {
+                // Convert the backend dictionary object into an array for your state
                 const invitesArray = Object.values(pendingInvitesObj || {});
                 setInvites(invitesArray);
             });
@@ -417,7 +315,6 @@ function App() {
               showMessage(`Lobby joined successfully as ${userName}!`);
               socketRef.current.emit("request-unfinished-games");
               socketRef.current.emit("request-observable-games");
-              socketRef.current.emit("request-finished-games");
             });
 
             socketRef.current.on("players-list", (players) => {
@@ -425,30 +322,33 @@ function App() {
             });
 
             socketRef.current.on("game-invite", (inviteData) => {
-              setInvites(prevInvites => {
-                if (prevInvites.some(inv => inv.inviteId === inviteData.inviteId)) {
-                  return prevInvites;
-                }
-                return [...prevInvites, inviteData];
-              });
+  setInvites(prevInvites => {
+    if (prevInvites.some(inv => inv.inviteId === inviteData.inviteId)) {
+      return prevInvites;
+    }
+    return [...prevInvites, inviteData];
+  });
 
-              if (inviteData.gameType === '2v2' && inviteData.invitedPlayersInfo) {
-                const inviterName = inviteData.senderName;
-                const otherPlayers = inviteData.invitedPlayersInfo
-                    .filter(p => p.userId !== inviteData.senderId && p.userId !== (data.user.id))
-                    .map(p => p.name);
+  if (inviteData.gameType === '2v2' && inviteData.invitedPlayersInfo) {
+    const inviterName = inviteData.senderName;
+    const otherPlayers = inviteData.invitedPlayersInfo
+        .filter(p => p.userId !== inviteData.senderId && p.userId !== (data.user.id))
+        .map(p => p.name);
 
-                let inviteMessage = `2v2 Invitation from ${inviterName}.`;
-                if (otherPlayers.length === 3) {
-                    inviteMessage += ` You, ${otherPlayers[0]}, ${otherPlayers[1]}, and ${otherPlayers[2]} are invited.`;
-                } else {
-                    inviteMessage += ` Invited players: ${otherPlayers.join(', ')}`;
-                }
-                showMessage(inviteMessage);
-              } else {
-                showMessage(`Invitation from ${inviteData.senderName}!`);
-              }
-            });
+    let inviteMessage = `2v2 Invitation from ${inviterName}.`;
+    if (otherPlayers.length === 3) {
+        const partnerName = otherPlayers[0];
+        const rival1Name = otherPlayers[1];
+        const rival2Name = otherPlayers[2];
+        inviteMessage += ` You, ${partnerName}, ${rival1Name}, and ${rival2Name} are invited.`;
+    } else {
+        inviteMessage += ` Invited players: ${otherPlayers.join(', ')}`;
+    }
+    showMessage(inviteMessage);
+  } else {
+    showMessage(`Invitation from ${inviteData.senderName}!`);
+  }
+});
 
             socketRef.current.on("invite-rejected", ({ fromName, reason }) => {
               showMessage(`${fromName} rejected your invitation. ${reason ? `Reason: ${reason}` : ''}`, true);
@@ -486,6 +386,16 @@ function App() {
             });
 
             socketRef.current.on("board-update", (game) => {
+             if (game.clickStartTime) {
+        const networkDuration = performance.now() - game.clickStartTime;
+        console.log(`⏱️ Network & Server round-trip: ${networkDuration.toFixed(2)}ms`);
+        
+        // Measure React rendering time right after state updates finish
+        requestAnimationFrame(() => {
+            const totalDuration = performance.now() - game.clickStartTime;
+            console.log(`⏱️ Total time including React paint: ${totalDuration.toFixed(2)}ms`);
+        });
+    }
               setBoard(JSON.parse(game.board));
               setTurn(game.turn);
               setScores(game.scores);
@@ -627,6 +537,7 @@ function App() {
           }
         }
       } catch (err) {
+        console.error("Frontend: Error during auth check or socket setup:", err);
         setLoggedIn(false);
         setName("");
         setIsGuest(false);
@@ -676,6 +587,7 @@ function App() {
 
     window.addEventListener('message', handleAuthMessage);
     window.addEventListener('storage', handleStorageChange);
+
 
     return () => {
       if (socketRef.current) {
@@ -887,19 +799,19 @@ function App() {
     setInvitationStage(0);
   };
 
-  const respondInvite = (inviteId, accept) => {
-    if (socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("respond-invite", { inviteId, gameIdFromClient: null, accept });
-      setInvites(prev => prev.filter(inv => inv.inviteId !== inviteId));
-      setMessage("");
-      setSelectedPartner(null);
-      setSelectedRivals([]);
-      setIs2v2Mode(false);
-      setInvitationStage(0);
-    } else if (!socketRef.current || !socketRef.current.connected) {
-        showMessage("Not connected to server. Cannot respond to invite.", true);
-    }
-  };
+const respondInvite = (inviteId, accept) => {
+  if (socketRef.current && socketRef.current.connected) {
+    socketRef.current.emit("respond-invite", { inviteId, gameIdFromClient: null, accept });
+    setInvites(prev => prev.filter(inv => inv.inviteId !== inviteId));
+    setMessage("");
+    setSelectedPartner(null);
+    setSelectedRivals([]);
+    setIs2v2Mode(false);
+    setInvitationStage(0);
+  } else if (!socketRef.current || !socketRef.current.connected) {
+      showMessage("Not connected to server. Cannot respond to invite.", true);
+  }
+};
 
   const handleClick = (x, y) => {
     if (!gameId || gameOver || !isSocketConnected || playerNumber === 0) return;
@@ -947,15 +859,19 @@ function App() {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
       const clickStartTime = performance.now(); 
 
+      // 🚀 OPTIMISTIC CASCADE UPDATE: Instantly reveal the tile AND its matching cluster
       setBoard(prevBoard => {
         const newBoard = prevBoard.map(row => row.map(tile => ({ ...tile })));
         if (newBoard[y] && newBoard[y][x]) {
-          clientRevealRecursive(newBoard, x, y, playerNumber);
+          // Run the client-side cascade matching the server behavior
+          clientRevealRecursive(newBoard, x, y);
         }
         return newBoard;
       });
 
       setLastClickedTile(prev => ({ ...prev, [playerNumber]: { x, y } }));
+
+      // Send to server
       socketRef.current.emit("tile-click", { gameId, x, y, clickStartTime });
       
     } else if (playerNumber !== turn) {
@@ -1082,7 +998,8 @@ function App() {
     }
   }, [isBombHighlightActive]);
 
-  const renderTile = (tile) => {
+const renderTile = (tile) => {
+    // If it's an unrevealed mine at game over, the outer cell handles the graphic styles
     if (gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam) {
       return "";
     }
@@ -1168,27 +1085,28 @@ function App() {
     }
   };
 
+
   if (!loggedIn) {
     return (
       <div className="lobby">
         {message && <p className="app-message" style={{color: 'red'}}>{message}</p>}
         <div className="login-logo-container mb-4 flex justify-center">
-          <img 
-            src={logoImage} 
-            alt="Minesweeper Flags Logo" 
-            style={{ width: '240px', height: '240px' }}
-            className="object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
-          />
-        </div>
+  <img 
+    src={logoImage} 
+    alt="Minesweeper Flags Logo" 
+    style={{ width: '240px', height: '240px' }}
+    className="object-contain drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+  />
+</div>
         <h2>Login or Play as Guest</h2>
         <GoogleLogin
-          onLogin={() => {
-            console.log("Google Login completed via pop-up callback.");
+          onLogin={(googleName) => {
+            console.log("Google Login completed via pop-up callback. State will update.");
           }}
         />
         <FacebookLogin
-          onLogin={() => {
-            console.log("Facebook Login completed via pop-up callback.");
+          onLogin={(facebookName) => {
+            console.log("Facebook Login completed via pop-up callback. State will update.");
           }}
         />
         <button className="guest-login-button" onClick={loginAsGuest}>
@@ -1216,45 +1134,13 @@ function App() {
       }
   }
 
+
   return (
     <div className="lobby">
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
         {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
-        {replayData && (
-          <div className="app-game-container replay-container">
-            <h2>Replay Viewer (Game: {replayData.gameId.substring(0, 8)})</h2>
-            <p>{replayData.player1Name} vs {replayData.player2Name}</p>
-
-            <div className="replay-controls">
-              <button onClick={() => setReplayMoveIndex(0)}>⏮ Reset</button>
-              <button onClick={() => setReplayMoveIndex(prev => Math.max(0, prev - 1))}>◀ Step Back</button>
-              <button onClick={() => setIsReplayAutoPlaying(!isReplayAutoPlaying)}>
-                {isReplayAutoPlaying ? "⏸ Pause" : "▶ Play"}
-              </button>
-              <button onClick={() => setReplayMoveIndex(prev => Math.min(replayData.moves.length, prev + 1))}>Step Next ▶</button>
-              <button onClick={() => setReplayMoveIndex(replayData.moves.length)}>⏭ End</button>
-              <button className="btn-back-lobby" onClick={closeReplay}>Exit Replay</button>
-            </div>
-
-            <p style={{ marginTop: '10px' }}>Move: {replayMoveIndex} / {replayData.moves.length}</p>
-
-            <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
-              {buildReplayBoardAtStep(replayMoveIndex).flatMap((row, y) =>
-                row.map((tile, x) => (
-                  <div
-                    key={`replay-${x}-${y}`}
-                    className={`tile ${tile.revealed ? "revealed" : "hidden"} ${tile.isMine && tile.revealed ? "mine" : ""}`}
-                  >
-                    {renderTile(tile)}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {!gameId && !replayData && ( 
+        {!gameId && ( 
             <>
             <h2>Lobby - Online Players</h2>
             <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
@@ -1370,9 +1256,6 @@ function App() {
                                 )}
                                 - Score: {game.scores?.[1] || 0} : {game.scores?.[2] || 0} - Active participants: {game.activeParticipants}
                                 <button onClick={() => observeGame(game.gameId)} className="bomb-button">Observe</button>
-                                <button onClick={() => requestGameReplay(game.gameId)} className="bomb-button">
-                                  Watch Replay
-                                </button>
                             </li>
                         ))}
                     </ul>
@@ -1405,7 +1288,7 @@ function App() {
             </>
         )}
 
-        {gameId && !replayData && (
+        {gameId && (
             <div className="app-game-container">
                 <div className="game-layout-grid"> 
                     <div className="observer-panel left-sidebar">
@@ -1531,6 +1414,7 @@ function App() {
                                     (coord) => coord.x === x && coord.y === y
                                 );
                                 
+                                // Determine if this cell should show up as a revealed mine at the end of the match
                                 const isUnrevealedEndGameMine = gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam;
 
                                 return (
@@ -1615,7 +1499,7 @@ function App() {
                 </div> 
             </div>
         )}
-
+        {/* 🌟 PLACE IT HERE: Right before the root component closes, covering everything */}
        {invites.length > 0 && (
           <div className="invite-modal-overlay">
             <div className="invite-modal-card" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
@@ -1660,5 +1544,7 @@ function App() {
     </div>
   );
 }
+
+
 
 export default App;
