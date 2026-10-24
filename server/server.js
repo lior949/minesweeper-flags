@@ -999,6 +999,20 @@ io.on("connection", (socket) => {
     console.log(`Lobby message from ${userName}: ${message}`);
   });
 
+  socket.on("request-finished-games", async () => {
+  try {
+    // Replace with your actual DB query for completed matches
+    const finishedGames = await GameModel.find({ gameOver: true })
+      .sort({ updatedAt: -1 })
+      .limit(20)
+      .select("gameId gameType player1Name player2Name player3Name player4Name scores updatedAt");
+
+    socket.emit("receive-finished-games", finishedGames);
+  } catch (err) {
+    console.error("Error fetching finished games:", err);
+  }
+});
+
 
 // Lobby Unfinished Games Request Event
   socket.on("request-unfinished-games", async () => {
