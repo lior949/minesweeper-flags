@@ -17,7 +17,7 @@ const { getBestAIMove } = require('./ai.js');
 // --- Firebase Admin SDK Imports ---
 const admin = require('firebase-admin');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
-const { FirestoreStore } = require('@google-cloud/firestore'); // Required by @google-cloud/connect-firestore
+const { FirestoreStore } = require('@google-cloud/connect-firestore');
 
 
 const app = express();
@@ -120,58 +120,40 @@ const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`
 
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-  // Add detailed logging for service account parsing
   console.log(`[Firebase Init] Service Account Project ID: ${serviceAccount.project_id}`);
   const privateKeyCleaned = serviceAccount.private_key.replace(/\\n/g, '\n');
-  console.log(`[Firebase Init] Private Key (first 20 chars): ${privateKeyCleaned.substring(0, 20)}...`);
-  console.log(`[Firebase Init] Private Key Length: ${privateKeyCleaned.length}`);
-
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
   db = getFirestore(); // Initialize db for Admin SDK operations
 
-  // Create a separate Firestore client instance for the session store.
-  // This is how @google-cloud/connect-firestore expects it.
-  const firestoreClient = new FirestoreStore({
-    projectId: serviceAccount.project_id, // Use project_id from service account
-    credentials: {
-      client_email: serviceAccount.client_email,
-      // Ensure private_key handles actual newlines, as required by @google-cloud/firestore client
-      private_key: privateKeyCleaned, // Use the cleaned private key
-    },
-    // Explicitly target the default database to avoid potential issues
-    databaseId: '(default)',
-  });
-
-  // === Define the session middleware instance with FirestoreStore ===
-  sessionMiddleware = session({ // Assign to the already declared variable
-    secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev", // Use env var, fallback for local dev
-    resave: false, // Changed to false: generally recommended to only resave modified sessions
-    saveUninitialized: false, // Prevents storing empty sessions in Firestore
-    store: new FirestoreStore({ // Instantiate FirestoreStore with 'new'
-      dataset: firestoreClient, // Pass the Firestore client instance
-      kind: 'express-sessions', // Optional: collection name for sessions, defaults to 'express-sessions'
+  // Define the session middleware instance using FirestoreStore
+  sessionMiddleware = session({
+    secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev",
+    resave: false,
+    saveUninitialized: false,
+    store: new FirestoreStore({
+      dataset: db, // Pass your initialized Firestore admin instance directly here
+      kind: 'express-sessions', // Optional: collection name for session storage
     }),
     cookie: {
       sameSite: "none",
       secure: true,
-      maxAge: 1000 * 60 * 60 * 24, // 24 hours (example)
-      proxy: true, // IMPORTANT: Inform express-session that it's behind a proxy
+      maxAge: 1000 * 60 * 60 * 24, // 24 hours
+      proxy: true,
     },
   });
 
-  // === Apply session middleware to Express ===
+  // Apply session middleware to Express
   app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
   console.log("Firebase Admin SDK and FirestoreStore initialized.");
 
-
   // Configure Socket.IO with CORS
-  io = new Server(server, { // Assign to the already declared 'io' variable
+  io = new Server(server, {
     cors: {
       origin: [
         "https://minesweeper-flags-frontend.onrender.com",
@@ -180,58 +162,56 @@ try {
         "http://localhost"
       ],
       methods: ["GET", "POST"],
-      credentials: true, // Allow cookies for Socket.IO handshake
+      credentials: true,
     },
   });
 
-// --- Locate and update this authentication middleware in server.js ---
-io.use((socket, next) => {
-  const session = socket.request.session;
+  // Wrap express-session for Socket.IO handshake access
+  io.use((socket, next) => {
+    sessionMiddleware(socket.request, {}, next);
+  });
 
-  // 1. STANDARD PASSING: Check if a passport user session exists (Google/Facebook Logins)
-  if (session && session.passport && session.passport.user) {
-    // If it's a passport object tracking setup, extract the user profile context safely
-    if (typeof session.passport.user === 'object') {
-      socket.request.user = session.passport.user;
+  // Socket Auth Middleware
+  io.use((socket, next) => {
+    const session = socket.request.session;
+
+    if (session && session.passport && session.passport.user) {
+      if (typeof session.passport.user === 'object') {
+        socket.request.user = session.passport.user;
+      }
+      return next();
     }
-    return next();
-  }
 
-  // 2. GUEST COOKIE PASSING: Check if a standard custom guest session wrapper exists
-  if (session && session.user) {
-    socket.request.user = session.user;
-    return next();
-  }
+    if (session && session.user) {
+      socket.request.user = session.user;
+      return next();
+    }
 
-  // 3. SAFARI ITP FALLBACK: Read from query variables if browser cookies are completely blocked
-  const { fallbackUserId, fallbackName } = socket.handshake.query;
-  
-  if (fallbackUserId && fallbackName) {
-    console.log(`[Socket Fallback Auth] Authenticating Safari client: ${fallbackName} (${fallbackUserId})`);
-    
-    // Inject custom credentials context manually into the handshake socket scope
-    socket.request.user = {
-      id: fallbackUserId,
-      displayName: fallbackName,
-      name: fallbackName
-    };
-    
-    // Reconstruct the structural session footprint so downstream event handlers don't crash
-    if (!socket.request.session) socket.request.session = {};
-    if (!socket.request.session.passport) socket.request.session.passport = {};
-    socket.request.session.passport.user = fallbackUserId;
-    
-    return next();
-  }
+    const { fallbackUserId, fallbackName } = socket.handshake.query;
 
-  // 4. Deny access if no credentials match
-  console.log("[Socket Auth Error] Connection rejected: No session verification vectors found.");
-  return next(new Error("Authentication required"));
-});
+    if (fallbackUserId && fallbackName) {
+      console.log(`[Socket Fallback Auth] Authenticating Safari client: ${fallbackName} (${fallbackUserId})`);
+
+      socket.request.user = {
+        id: fallbackUserId,
+        displayName: fallbackName,
+        name: fallbackName
+      };
+
+      if (!socket.request.session) socket.request.session = {};
+      if (!socket.request.session.passport) socket.request.session.passport = {};
+      socket.request.session.passport.user = fallbackUserId;
+
+      return next();
+    }
+
+    console.log("[Socket Auth Error] Connection rejected: No session verification vectors found.");
+    return next(new Error("Authentication required"));
+  });
 
 } catch (error) {
   console.error("Failed to initialize Firebase Admin SDK or FirestoreStore.", error);
-  process.exit(1); // Exit process if initialization fails
+  process.exit(1);
 }
 
 
