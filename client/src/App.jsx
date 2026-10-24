@@ -1247,7 +1247,12 @@ const renderTile = (tile) => {
 
 
   return (
-      {replayData && (
+      
+    <div className="lobby">
+        {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
+        {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
+
+        {replayData && (
   <div className="app-game-container replay-container">
     <h2>Replay Viewer (Game: {replayData.gameId.substring(0, 8)})</h2>
     <p>{replayData.player1Name} vs {replayData.player2Name}</p>
@@ -1279,9 +1284,6 @@ const renderTile = (tile) => {
     </div>
   </div>
 )}
-    <div className="lobby">
-        {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
-        {message && message.includes("Error") && <p className="app-message" style={{color: 'red'}}>{message}</p>}
 
         {!gameId && ( 
             <>
