@@ -500,6 +500,27 @@ const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
   }
 };
 
+function sanitizeBoardForPlayer(board, isGameOver = false) {
+  if (!board || !Array.isArray(board)) return [];
+  
+  return board.map(row =>
+    row.map(tile => {
+      // If the game ended or the tile is already revealed, send full information
+      if (isGameOver || tile.revealed) {
+        return tile;
+      }
+      
+      // If the tile is hidden during active play, obscure mine status & adjacent counts
+      return {
+        revealed: false,
+        isMine: false,         // Hide mine status
+        adjacentMines: 0,      // Hide adjacent mine count
+        owner: null,
+        ownerTeam: null,
+      };
+    })
+  );
+
 function clearAllRelatedInvitesForUsers(userIds, currentInviteId) {
     // 1. Loop through all users who have entries in pendingInvites
     Object.keys(pendingInvites).forEach(targetUserId => {
@@ -587,9 +608,10 @@ async function processAiTurn(gameId) {
         const cachedBoardString = JSON.stringify(game.board);
 
         // Emit update to clients
+        const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
         io.to(gameId).emit("board-update", {
             gameId: game.gameId,
-            board: cachedBoardString,
+            board: safeBoardString,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -794,11 +816,12 @@ io.on("connection", (socket) => {
                         const playerInGame = game.players.find(p => p.userId === userId);
                         if (playerInGame) {
                             socket.join(gameId); // Join game room on resume
+                            const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
                             io.to(playerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
                                 gameId: game.gameId,
                                 gameType: game.gameType,
                                 playerNumber: playerInGame.number,
-                                board: JSON.stringify(game.board),
+                                board: safeBoardString,
                                 turn: game.turn,
                                 scores: game.scores,
                                 bombsUsed: game.bombsUsed,
@@ -832,11 +855,12 @@ io.on("connection", (socket) => {
                             observerInGame.socketId = socket.id; // Update existing observer's socketId
                         }
                         socket.join(gameId); // Join game room
+                        const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
                         io.to(socket.id).emit("game-start", {
                             gameId: game.gameId,
                             gameType: game.gameType,
                             playerNumber: 0, // Indicate observer role
-                            board: JSON.stringify(game.board),
+                            board: safeBoardString,
                             turn: game.turn,
                             scores: game.scores,
                             bombsUsed: game.bombsUsed,
@@ -867,11 +891,12 @@ io.on("connection", (socket) => {
                 if (playerInGame) {
                     playerInGame.socketId = socket.id;
                     socket.join(gameId);
+                    const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
                     io.to(socket.id).emit("game-start", {
                         gameId: game.gameId,
                         gameType: game.gameType,
                         playerNumber: playerInGame.number,
-                        board: JSON.stringify(game.board),
+                        board: safeBoardString,
                         turn: game.turn,
                         scores: game.scores,
                         bombsUsed: game.bombsUsed,
@@ -897,11 +922,12 @@ io.on("connection", (socket) => {
                 if (observerInGame) {
                     observerInGame.socketId = socket.id;
                     socket.join(gameId);
+                    const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
                     io.to(socket.id).emit("game-start", {
                         gameId: game.gameId,
                         gameType: game.gameType,
                         playerNumber: 0, // Indicate observer role
-                        board: JSON.stringify(game.board),
+                        board: safeBoardString,
                         turn: game.turn,
                         scores: game.scores,
                         bombsUsed: game.bombsUsed,
@@ -1207,11 +1233,12 @@ socket.on("resume-game", async ({ gameId }) => {
           userGameMap[userId] = { gameId, role: 'player' };
 
           // Emit the game state to the resuming player
+          const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(existingGame.board, existingGame.gameOver));
           io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
               gameId: existingGame.gameId,
               gameType: existingGame.gameType,
               playerNumber: currentPlayerNumber, // Use the derived number
-              board: JSON.stringify(existingGame.board),
+              board: safeBoardString,
               turn: existingGame.turn,
               scores: existingGame.scores,
               bombsUsed: existingGame.bombsUsed,
@@ -1308,11 +1335,12 @@ socket.on("resume-game", async ({ gameId }) => {
 
     if (currentPlayerInGame && currentPlayerInGame.socketId) {
       socket.join(gameId); // IMPORTANT: Join the game room for the resuming player
+      const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
       io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
         gameId: game.gameId,
         gameType: game.gameType,
         playerNumber: currentPlayerInGame.number,
-        board: JSON.stringify(game.board), // Send serialized board
+        board: safeBoardString, // Send serialized board
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
@@ -1464,11 +1492,12 @@ socket.on("resume-game", async ({ gameId }) => {
         userGameMap[userId] = { gameId, role: 'observer' };
 
         // Emit game-start to the new observer
+        const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
         io.to(socket.id).emit("game-start", {
             gameId: game.gameId,
             gameType: game.gameType,
             playerNumber: 0, // 0 indicates an observer
-            board: JSON.stringify(game.board),
+            board: safeBoardString,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
@@ -1594,11 +1623,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         }).catch(err => console.error("Error saving AI game to Firestore:", err));
 
         socket.join(gameId);
+        const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(newGame.board, newGame.gameOver));
         socket.emit("game-start", {
             gameId,
             gameType: '1v1',
             playerNumber: 1,
-            board: JSON.stringify(board),
+            board: safeBoardString,
             turn: 1,
             scores: newGame.scores,
             bombsUsed: newGame.bombsUsed,
@@ -1876,12 +1906,13 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
 
           // Emit game-start to all players
+          const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
           gamePlayers.forEach(p => {
             io.to(p.socketId).emit("game-start", {
                 gameId: game.gameId,
                 gameType: game.gameType,
                 playerNumber: p.number,
-                board: JSON.stringify(game.board),
+                board: safeBoardString,
                 turn: game.turn,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
@@ -2028,12 +2059,13 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
               socket.emit("request-observable-games");
 
               // Emit game-start to all players
+              const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
               gamePlayers.forEach(p => {
                 io.to(p.socketId).emit("game-start", {
                     gameId: game.gameId,
                     gameType: game.gameType,
                     playerNumber: p.number,
-                    board: JSON.stringify(game.board),
+                    board: safeBoardString,
                     turn: game.turn,
                     scores: game.scores,
                     bombsUsed: game.bombsUsed,
@@ -2185,8 +2217,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         game.gameOver = false;
         game.lastClickedTile = {};
         game.messages = [];
-
-        const serializedBoard = JSON.stringify(game.board);
+        const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
         if (!game.moves) game.moves = [];
         game.moves.push({
             type: 'restart',
@@ -2200,11 +2231,12 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
 
         // INSTANTLY emit game restart to avoid waiting for Firestore write
         game.players.forEach(p => {
+            
             io.to(p.socketId).emit("game-restarted", {
                 gameId: game.gameId,
                 gameType: game.gameType,
                 playerNumber: p.number,
-                board: serializedBoard,
+                board: safeBoardString,
                 turn: game.turn,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
@@ -2285,9 +2317,10 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     const cachedBoardString = JSON.stringify(game.board);
 
     // 1. Instantly emit state updates to eliminate interaction delay
+    const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
     io.to(gameId).emit("board-update", {
         gameId: game.gameId,
-        board: cachedBoardString,
+        board: safeBoardString,
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
@@ -2551,9 +2584,10 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     }
 
     // Emit board-update to all players AND observers in the game room
+    const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
     io.to(gameId).emit("board-update", {
         gameId: game.gameId,
-        board: JSON.stringify(game.board), // Send serialized board to client
+        board: safeBoardString, // Send serialized board to client
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
@@ -2613,12 +2647,13 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     }
 
     // Emit to all players AND observers in the game room
+    const safeBoardString = JSON.stringify(sanitizeBoardForPlayer(game.board, game.gameOver));
     game.players.forEach(p => {
         io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
             gameId: game.gameId,
             gameType: game.gameType,
             playerNumber: p.number, // This will be the player's own number, not observer's 0
-            board: JSON.stringify(game.board),
+            board: safeBoardString,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
