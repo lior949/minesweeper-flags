@@ -436,15 +436,18 @@ function sanitizeBoardForPlayer(board, isGameOver = false) {
   
   return board.map(row =>
     row.map(tile => {
+      // If revealed or game over, keep original tile data
       if (isGameOver || tile.revealed) {
         return tile;
       }
+      
+      // Mask hidden tiles cleanly
       return {
         revealed: false,
         isMine: false,
         adjacentMines: 0,
-        owner: null,
-        ownerTeam: null,
+        owner: tile.owner || null,
+        ownerTeam: tile.ownerTeam || null,
       };
     })
   );
