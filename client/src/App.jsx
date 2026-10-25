@@ -8,7 +8,7 @@ import logoImage from './components/logo.png';
 import ReplaysTable from "./ReplaysTable";
 
 // ==========================================
-// PURE HELPER FUNCTIONS (Outside Component)
+// PURE HELPER FUNCTIONS
 // ==========================================
 
 const bufferToHex = (buffer) => {
@@ -62,9 +62,10 @@ const clientRevealRecursive = (boardCopy, startX, startY, playerNum) => {
   const startTile = boardCopy[startY][startX];
   if (!startTile || startTile.revealed) return;
 
+  const team = (playerNum === 1 || playerNum === 2) ? 1 : 2;
   startTile.revealed = true;
   startTile.owner = playerNum;
-  startTile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2;
+  startTile.ownerTeam = team;
 
   if (startTile.isMine) {
     return;
@@ -82,11 +83,11 @@ const clientRevealRecursive = (boardCopy, startX, startY, playerNum) => {
     if (x < 0 || x >= width || y < 0 || y >= height) continue;
     const tile = boardCopy[y][x];
 
-    if (tile.revealed || tile.isMine) continue;
+    if (tile.isMine) continue;
 
     tile.revealed = true;
     tile.owner = playerNum;
-    tile.ownerTeam = (playerNum === 1 || playerNum === 2) ? 1 : 2;
+    tile.ownerTeam = team;
 
     if (tile.adjacentMines === 0) {
       for (let dy = -1; dy <= 1; dy++) {
@@ -188,10 +189,10 @@ function App() {
     setIsReplayAutoPlaying(false);
   };
 
-  const buildReplayBoardAtStep = useCallback((targetStep) => {
-    if (!replayData || !replayData.finalBoard) return [];
+  const buildReplayStateAtStep = useCallback((targetStep) => {
+    if (!replayData || !replayData.finalBoard) return { currentBoard: [], currentScores: { 1: 0, 2: 0 } };
 
-    const boardCopy = replayData.finalBoard.map(row =>
+    let boardCopy = replayData.finalBoard.map(row =>
       row.map(tile => ({
         ...tile,
         revealed: false,
@@ -200,10 +201,39 @@ function App() {
       }))
     );
 
+    const currentScores = { 1: 0, 2: 0 };
+
     for (let i = 0; i < targetStep && i < replayData.moves.length; i++) {
       const move = replayData.moves[i];
-      if (move.type === 'click' && boardCopy[move.y] && boardCopy[move.y][move.x]) {
-        clientRevealRecursive(boardCopy, move.x, move.y, move.playerNumber);
+
+      if (move.type === 'restart') {
+        boardCopy = (move.board ? JSON.parse(move.board) : replayData.finalBoard).map(row =>
+          row.map(tile => ({
+            ...tile,
+            revealed: false,
+            owner: null,
+            ownerTeam: null
+          }))
+        );
+        currentScores[1] = 0;
+        currentScores[2] = 0;
+        continue;
+      }
+
+      const team = move.team || ((move.playerNumber === 1 || move.playerNumber === 2) ? 1 : 2);
+
+      if (move.type === 'click') {
+        if (boardCopy[move.y] && boardCopy[move.y][move.x]) {
+          const targetTile = boardCopy[move.y][move.x];
+          if (targetTile.isMine && !targetTile.revealed) {
+            targetTile.revealed = true;
+            targetTile.owner = move.playerNumber;
+            targetTile.ownerTeam = team;
+            currentScores[team] = (currentScores[team] || 0) + 1;
+          } else {
+            clientRevealRecursive(boardCopy, move.x, move.y, move.playerNumber);
+          }
+        }
       } else if (move.type === 'bomb') {
         const cx = move.x;
         const cy = move.y;
@@ -213,19 +243,22 @@ function App() {
             const by = cy + dy;
             if (bx >= 0 && bx < WIDTH && by >= 0 && by < HEIGHT) {
               const bTile = boardCopy[by][bx];
-              if (bTile.isMine) {
-                bTile.revealed = true;
-                bTile.owner = move.playerNumber;
-                bTile.ownerTeam = move.team;
-              } else {
-                clientRevealRecursive(boardCopy, bx, by, move.playerNumber);
+              if (!bTile.revealed) {
+                if (bTile.isMine) {
+                  bTile.revealed = true;
+                  bTile.owner = move.playerNumber;
+                  bTile.ownerTeam = team;
+                  currentScores[team] = (currentScores[team] || 0) + 1;
+                } else {
+                  clientRevealRecursive(boardCopy, bx, by, move.playerNumber);
+                }
               }
             }
           }
         }
       }
     }
-    return boardCopy;
+    return { currentBoard: boardCopy, currentScores };
   }, [replayData, WIDTH, HEIGHT]);
 
   useEffect(() => {
@@ -301,11 +334,6 @@ function App() {
 
   const showMessage = (msg, isError = false) => {
     setMessage(msg);
-    if (isError) {
-      console.error(msg);
-    } else {
-      console.log(msg);
-    }
     setTimeout(() => setMessage(""), 5000);
   };
 
@@ -314,9 +342,9 @@ function App() {
     const newMessage = { sender, text, timestamp, isError };
 
     if (sender === "Server") { 
-        setServerMessages(prevMessages => [...prevMessages, newMessage]);
+      setServerMessages(prevMessages => [...prevMessages, newMessage]);
     } else { 
-        setGameMessages(prevMessages => [...prevMessages, newMessage]);
+      setGameMessages(prevMessages => [...prevMessages, newMessage]);
     }
   }, []);
 
@@ -371,12 +399,12 @@ function App() {
               }
             });
 
-            socketRef.current.on('disconnect', (reason) => {
-                setIsSocketConnected(false);
-                showMessage("Disconnected from server. Please refresh or try again.");
-                addGameMessage("Server", "Disconnected from server.", true);
-                setIsBombHighlightActive(false);
-                setHighlightedBombArea([]);
+            socketRef.current.on('disconnect', () => {
+              setIsSocketConnected(false);
+              showMessage("Disconnected from server. Please refresh or try again.");
+              addGameMessage("Server", "Disconnected from server.", true);
+              setIsBombHighlightActive(false);
+              setHighlightedBombArea([]);
             });
 
             socketRef.current.on("receive-game-replay", (data) => {
@@ -398,20 +426,20 @@ function App() {
             });
 
             socketRef.current.on('connect_error', (error) => {
-                showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
-                addGameMessage("Server", `Connection error: ${error.message}`, true);
-                setIsSocketConnected(false);
-                setIsBombHighlightActive(false);
-                setHighlightedBombArea([]);
+              showMessage(`Socket connection error: ${error.message}. Please check server logs.`, true);
+              addGameMessage("Server", `Connection error: ${error.message}`, true);
+              setIsSocketConnected(false);
+              setIsBombHighlightActive(false);
+              setHighlightedBombArea([]);
             });
 
             socketRef.current.on('authenticated-socket-ready', () => {
-                socketRef.current.emit("join-lobby", currentUserName);
+              socketRef.current.emit("join-lobby", currentUserName);
             });
 
             socketRef.current.on("update-invites", (pendingInvitesObj) => {
-                const invitesArray = Object.values(pendingInvitesObj || {});
-                setInvites(invitesArray);
+              const invitesArray = Object.values(pendingInvitesObj || {});
+              setInvites(invitesArray);
             });
 
             socketRef.current.on("join-error", (msg) => {
@@ -1225,12 +1253,16 @@ function App() {
   }
 
   if (currentView === "replays" && !gameId) {
+    const activeReplayState = replayData ? buildReplayStateAtStep(replayMoveIndex) : null;
     return (
       <div className="app-container">
         {replayData && (
           <div className="app-game-container replay-container">
             <h2>Replay Viewer (Game: {replayData.gameId.substring(0, 8)})</h2>
             <p>{replayData.player1Name} vs {replayData.player2Name}</p>
+            <div style={{ margin: "10px 0", fontSize: "1.1rem", fontWeight: "bold" }}>
+              Score: <span style={{ color: "red" }}>Team 1: {activeReplayState.currentScores[1]}</span> | <span style={{ color: "blue" }}>Team 2: {activeReplayState.currentScores[2]}</span>
+            </div>
 
             <div className="replay-controls">
               <button onClick={() => setReplayMoveIndex(0)}>⏮ Reset</button>
@@ -1246,7 +1278,7 @@ function App() {
             <p style={{ marginTop: '10px' }}>Move: {replayMoveIndex} / {replayData.moves.length}</p>
 
             <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
-              {buildReplayBoardAtStep(replayMoveIndex).flatMap((row, y) =>
+              {activeReplayState.currentBoard.flatMap((row, y) =>
                 row.map((tile, x) => (
                   <div
                     key={`replay-${x}-${y}`}
@@ -1290,6 +1322,8 @@ function App() {
       }
   }
 
+  const activeReplayStateInLobby = replayData ? buildReplayStateAtStep(replayMoveIndex) : null;
+
   return (
     <div className="lobby">
         {message && !message.includes("Error") && <p className="app-message" style={{color: 'green'}}>{message}</p>}
@@ -1299,6 +1333,9 @@ function App() {
           <div className="app-game-container replay-container">
             <h2>Replay Viewer (Game: {replayData.gameId.substring(0, 8)})</h2>
             <p>{replayData.player1Name} vs {replayData.player2Name}</p>
+            <div style={{ margin: "10px 0", fontSize: "1.1rem", fontWeight: "bold" }}>
+              Score: <span style={{ color: "red" }}>Team 1: {activeReplayStateInLobby.currentScores[1]}</span> | <span style={{ color: "blue" }}>Team 2: {activeReplayStateInLobby.currentScores[2]}</span>
+            </div>
 
             <div className="replay-controls">
               <button onClick={() => setReplayMoveIndex(0)}>⏮ Reset</button>
@@ -1314,7 +1351,7 @@ function App() {
             <p style={{ marginTop: '10px' }}>Move: {replayMoveIndex} / {replayData.moves.length}</p>
 
             <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
-              {buildReplayBoardAtStep(replayMoveIndex).flatMap((row, y) =>
+              {activeReplayStateInLobby.currentBoard.flatMap((row, y) =>
                 row.map((tile, x) => (
                   <div
                     key={`replay-${x}-${y}`}
@@ -1380,7 +1417,7 @@ function App() {
                         e.stopPropagation(); 
                         handlePlayerClick(p);
                       }}
-                      disabled={is2v2Mode && (invitationStage === 1 && selectedPartner) || (invitationStage === 2 && selectedRivals.length === 2)}
+                      disabled={is2v2Mode && ((invitationStage === 1 && selectedPartner) || (invitationStage === 2 && selectedRivals.length === 2))}
                     >
                       {is2v2Mode ? "Select" : "Invite"}
                     </button>
