@@ -993,8 +993,3 @@ html, body {
 .replay-controls .btn-back-lobby:hover {
   background: #dc2626 !important;
 }
-
-.tile.hidden {
-  will-change: transform;
-  transform: translateZ(0); /* Enables hardware acceleration to eliminate redraw flicker */
-}
