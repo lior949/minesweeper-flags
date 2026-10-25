@@ -8,113 +8,6 @@ import logoImage from './components/logo.png';
 import ReplaysTable from "./ReplaysTable";
 
 // ==========================================
-// MEMOIZED TILE COMPONENT (PREVENTS FLICKER)
-// ==========================================
-
-const Tile = React.memo(({ 
-  tile, 
-  x, 
-  y, 
-  gameOver, 
-  gameType, 
-  lastClickedTile, 
-  isHighlighted, 
-  playerNumber, 
-  onClick 
-}) => {
-  const isUnrevealedEndGameMine = gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam;
-
-  const renderTileContent = () => {
-    if (gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam) {
-      return "";
-    }
-
-    if (!tile.revealed) return "";
-
-    if (tile.isMine && tile.ownerTeam) {
-      return (
-        <div className="tile hidden">
-          {tile.ownerTeam === 1 && (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
-              <path d="M0 0h24v24H0z" fill="none"/>
-              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-            </svg>
-          )}
-          {tile.ownerTeam === 2 && (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
-              <path d="M0 0h24v24H0z" fill="none"/>
-              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-            </svg>
-          )}
-        </div>
-      );
-    }
-
-    if (tile.adjacentMines > 0) {
-      return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
-    }
-    return "";
-  };
-
-  const isLastP1 = lastClickedTile?.[1]?.x === x && lastClickedTile?.[1]?.y === y;
-  const isLastP2 = lastClickedTile?.[2]?.x === x && lastClickedTile?.[2]?.y === y;
-  const isLastP3 = gameType === '2v2' && lastClickedTile?.[3]?.x === x && lastClickedTile?.[3]?.y === y;
-  const isLastP4 = gameType === '2v2' && lastClickedTile?.[4]?.x === x && lastClickedTile?.[4]?.y === y;
-
-  return (
-    <div
-      className={`tile ${
-        isUnrevealedEndGameMine 
-          ? "unrevealed-mine-cell" 
-          : tile.revealed ? "revealed" : "hidden"
-      } ${tile.isMine && tile.revealed ? "mine" : ""} ${
-        isLastP1 ? "last-clicked-p1" : ""
-      } ${
-        isLastP2 ? "last-clicked-p2" : ""
-      } ${
-        isLastP3 ? "last-clicked-p3" : ""
-      } ${
-        isLastP4 ? "last-clicked-p4" : ""
-      } ${isHighlighted ? "highlighted-bomb-area" : ""}`}
-      onClick={playerNumber !== 0 ? onClick : null}
-    >
-      {renderTileContent()}
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  // Return true if tile state has NOT changed (skips re-render)
-  const prevTile = prevProps.tile;
-  const nextTile = nextProps.tile;
-
-  const prevIsLastP1 = prevProps.lastClickedTile?.[1]?.x === prevProps.x && prevProps.lastClickedTile?.[1]?.y === prevProps.y;
-  const nextIsLastP1 = nextProps.lastClickedTile?.[1]?.x === nextProps.x && nextProps.lastClickedTile?.[1]?.y === nextProps.y;
-
-  const prevIsLastP2 = prevProps.lastClickedTile?.[2]?.x === prevProps.x && prevProps.lastClickedTile?.[2]?.y === prevProps.y;
-  const nextIsLastP2 = nextProps.lastClickedTile?.[2]?.x === nextProps.x && nextProps.lastClickedTile?.[2]?.y === nextProps.y;
-
-  const prevIsLastP3 = prevProps.gameType === '2v2' && prevProps.lastClickedTile?.[3]?.x === prevProps.x && prevProps.lastClickedTile?.[3]?.y === prevProps.y;
-  const nextIsLastP3 = nextProps.gameType === '2v2' && nextProps.lastClickedTile?.[3]?.x === nextProps.x && nextProps.lastClickedTile?.[3]?.y === nextProps.y;
-
-  const prevIsLastP4 = prevProps.gameType === '2v2' && prevProps.lastClickedTile?.[4]?.x === prevProps.x && prevProps.lastClickedTile?.[4]?.y === prevProps.y;
-  const nextIsLastP4 = nextProps.gameType === '2v2' && nextProps.lastClickedTile?.[4]?.x === nextProps.x && nextProps.lastClickedTile?.[4]?.y === nextProps.y;
-
-  return (
-    prevTile.revealed === nextTile.revealed &&
-    prevTile.isMine === nextTile.isMine &&
-    prevTile.owner === nextTile.owner &&
-    prevTile.ownerTeam === nextTile.ownerTeam &&
-    prevTile.adjacentMines === nextTile.adjacentMines &&
-    prevProps.isHighlighted === nextProps.isHighlighted &&
-    prevProps.gameOver === nextProps.gameOver &&
-    prevProps.playerNumber === nextProps.playerNumber &&
-    prevIsLastP1 === nextIsLastP1 &&
-    prevIsLastP2 === nextIsLastP2 &&
-    prevIsLastP3 === nextIsLastP3 &&
-    prevIsLastP4 === nextIsLastP4
-  );
-});
-
-// ==========================================
 // PURE HELPER FUNCTIONS
 // ==========================================
 
@@ -1108,7 +1001,6 @@ function App() {
       addGameMessage("Server", `Tile clicked at (${x},${y}).`, false); 
       const clickStartTime = performance.now(); 
 
-      // Optimistic reveal locally
       setBoard(prevBoard => {
         const newBoard = prevBoard.map(row => row.map(tile => ({ ...tile })));
         if (newBoard[y] && newBoard[y][x]) {
@@ -1244,6 +1136,38 @@ function App() {
     }
   }, [isBombHighlightActive]);
 
+  const renderTile = (tile) => {
+    if (gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam) {
+      return "";
+    }
+
+    if (!tile.revealed) return "";
+    
+    if (tile.isMine && tile.ownerTeam) {
+      return (
+        <div className="tile hidden"> 
+          {tile.ownerTeam === 1 && (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
+              <path d="M0 0h24v24H0z" fill="none"/>
+              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+            </svg>
+          )}
+          {tile.ownerTeam === 2 && (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
+              <path d="M0 0h24v24H0z" fill="none"/>
+              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+            </svg>
+          )}
+        </div>
+      );
+    }
+    
+    if (tile.adjacentMines > 0) {
+      return <span className={`number-${tile.adjacentMines}`}>{tile.adjacentMines}</span>;
+    }
+    return "";
+  };
+
   const resumeGame = (gameIdToResume) => {
     if (gameIdToResume && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("resume-game", { gameId: gameIdToResume });
@@ -1356,18 +1280,12 @@ function App() {
             <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
               {activeReplayState.currentBoard.flatMap((row, y) =>
                 row.map((tile, x) => (
-                  <Tile
+                  <div
                     key={`replay-${x}-${y}`}
-                    tile={tile}
-                    x={x}
-                    y={y}
-                    gameOver={false}
-                    gameType={replayData.gameType}
-                    lastClickedTile={{}}
-                    isHighlighted={false}
-                    playerNumber={0}
-                    onClick={null}
-                  />
+                    className={`tile ${tile.revealed ? "revealed" : "hidden"} ${tile.isMine && tile.revealed ? "mine" : ""}`}
+                  >
+                    {renderTile(tile)}
+                  </div>
                 ))
               )}
             </div>
@@ -1435,18 +1353,12 @@ function App() {
             <div className="grid" style={{ gridTemplateColumns: `repeat(${WIDTH}, 40px)` }}>
               {activeReplayStateInLobby.currentBoard.flatMap((row, y) =>
                 row.map((tile, x) => (
-                  <Tile
+                  <div
                     key={`replay-${x}-${y}`}
-                    tile={tile}
-                    x={x}
-                    y={y}
-                    gameOver={false}
-                    gameType={replayData.gameType}
-                    lastClickedTile={{}}
-                    isHighlighted={false}
-                    playerNumber={0}
-                    onClick={null}
-                  />
+                    className={`tile ${tile.revealed ? "revealed" : "hidden"} ${tile.isMine && tile.revealed ? "mine" : ""}`}
+                  >
+                    {renderTile(tile)}
+                  </div>
                 ))
               )}
             </div>
@@ -1735,19 +1647,29 @@ function App() {
                                     (coord) => coord.x === x && coord.y === y
                                 );
                                 
+                                const isUnrevealedEndGameMine = gameOver && tile.isMine && !tile.revealed && !tile.ownerTeam;
+
                                 return (
-                                  <Tile
+                                  <div
                                     key={`${x}-${y}`}
-                                    tile={tile}
-                                    x={x}
-                                    y={y}
-                                    gameOver={gameOver}
-                                    gameType={gameType}
-                                    lastClickedTile={lastClickedTile}
-                                    isHighlighted={isHighlighted}
-                                    playerNumber={playerNumber}
-                                    onClick={() => handleClick(x, y)}
-                                  />
+                                    className={`tile ${
+                                      isUnrevealedEndGameMine 
+                                        ? "unrevealed-mine-cell" 
+                                        : tile.revealed ? "revealed" : "hidden"
+                                    } ${tile.isMine && tile.revealed ? "mine" : ""} ${
+                                      lastClickedTile[1]?.x === x && lastClickedTile[1]?.y === y ? "last-clicked-p1" : ""
+                                    } ${
+                                      lastClickedTile[2]?.x === x && lastClickedTile[2]?.y === y ? "last-clicked-p2" : ""
+                                    } ${
+                                      gameType === '2v2' && lastClickedTile[3]?.x === x && lastClickedTile[3]?.y === y ? "last-clicked-p3" : ""
+                                    } ${
+                                      gameType === '2v2' && lastClickedTile[4]?.x === x && lastClickedTile[4]?.y === y ? "last-clicked-p4" : ""
+                                    } ${isHighlighted ? "highlighted-bomb-area" : ""
+                                    }`}
+                                    onClick={playerNumber !== 0 ? () => handleClick(x, y) : null} 
+                                  >
+                                    {renderTile(tile)}
+                                  </div>
                                 );
                               })
                             )}
