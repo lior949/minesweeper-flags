@@ -2799,24 +2799,26 @@ app.get("/api/finished-games", async (req, res) => {
   try {
     const finishedSnapshot = await db.collection(GAMES_COLLECTION_PATH)
       .where("status", "==", "completed")
-      .limit(100)
       .get();
 
     const finishedGames = [];
     finishedSnapshot.forEach((doc) => {
       const data = doc.data();
       finishedGames.push({
-        gameId: data.gameId,
+        gameId: data.gameId || doc.id,
         gameType: data.gameType || "1v1",
-        player1Name: data.player1_name || "Player 1",
-        player2Name: data.player2_name || "Player 2",
-        player3Name: data.player3_name || null,
-        player4Name: data.player4_name || null,
+        player1Name: data.player1_name || data.player1Name || "Player 1",
+        player2Name: data.player2_name || data.player2Name || "Player 2",
+        player3Name: data.player3_name || data.player3Name || null,
+        player4Name: data.player4_name || data.player4Name || null,
         scores: data.scores || { 1: 0, 2: 0 },
-        winnerTeam: data.winnerTeam || null,
-        lastUpdated: data.lastUpdated ? data.lastUpdated.toDate() : new Date()
+        winnerTeam: data.winnerTeam !== undefined ? data.winnerTeam : null,
+        lastUpdated: data.lastUpdated ? (data.lastUpdated.toDate ? data.lastUpdated.toDate() : data.lastUpdated) : new Date()
       });
     });
+
+    // Sort descending by lastUpdated in memory to avoid needing a custom Firestore composite index
+    finishedGames.sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
 
     res.json(finishedGames);
   } catch (error) {
