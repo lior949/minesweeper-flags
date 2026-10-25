@@ -608,6 +608,7 @@ async function processAiTurn(gameId) {
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             status: newStatus,
+            moves: game.moves,
             lastUpdated: Timestamp.now(),
             winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
             loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null
@@ -743,6 +744,7 @@ io.on("connection", (socket) => {
                         scores: gameData.scores,
                         bombsUsed: gameData.bombsUsed,
                         turn: gameData.turn,
+                        moves: game.moves,
                         gameOver: gameData.gameOver,
                         lastClickedTile: gameData.lastClickedTile || {},
                         players: [], // Will be populated with proper player objects
@@ -1848,6 +1850,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                   player3_userId: null, player3_name: null,
                   player4_userId: null, player4_name: null,
                   turn: game.turn,
+                  moves: game.moves,
                   scores: game.scores,
                   bombsUsed: game.bombsUsed,
                   gameOver: game.gameOver,
@@ -1998,6 +2001,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                       player3_userId: player3_userId, player3_name: player3Name,
                       player4_userId: player4_userId, player4_name: player4Name,
                       turn: game.turn,
+                      moves: game.moves,
                       scores: game.scores,
                       bombsUsed: game.bombsUsed,
                       gameOver: game.gameOver,
@@ -2303,6 +2307,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile,
         status: newStatus,
+        moves: game.moves,
         lastUpdated: Timestamp.now(),
         winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
         loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
@@ -2592,6 +2597,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             turn: game.turn,
+            moves: game.moves,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile, // Save lastClickedTile
             status: 'active', // Game is active after restart
