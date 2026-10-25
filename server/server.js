@@ -2182,6 +2182,14 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         game.lastClickedTile = {};
         game.messages = [];
 
+        const serializedBoard = JSON.stringify(game.board);
+        if (!game.moves) game.moves = [];
+        game.moves.push({
+            type: 'restart',
+            board: serializedBoard,
+            timestamp: Date.now()
+        });
+
         game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
         game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
         emitLobbyPlayersList();
@@ -2192,7 +2200,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
                 gameId: game.gameId,
                 gameType: game.gameType,
                 playerNumber: p.number,
-                board: JSON.stringify(game.board),
+                board: serializedBoard,
                 turn: game.turn,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
@@ -2208,7 +2216,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
             });
         });
 
-        const serializedBoard = JSON.stringify(game.board);
         db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             board: serializedBoard,
             scores: game.scores,
@@ -2238,6 +2245,16 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         game.turn = getNext2v2Turn(game.turn);
       }
     }
+
+  if (!game.moves) game.moves = [];
+    game.moves.push({
+        type: 'click',
+        playerNumber: player.number,
+        team: player.team,
+        x,
+        y,
+        timestamp: Date.now()
+    });
 
 // AI Adversary Turn Loop Integration
     if (!game.gameOver) {
@@ -2781,7 +2798,7 @@ socket.on("disconnect", async () => {
 app.get("/api/finished-games", async (req, res) => {
   try {
     const finishedSnapshot = await db.collection(GAMES_COLLECTION_PATH)
-      .where("gameOver", "==", true)
+      .where("status", "==", "completed")
       .limit(100)
       .get();
 
