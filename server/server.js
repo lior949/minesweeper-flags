@@ -48,10 +48,30 @@ function distributeMinesForParsedBoard(board) {
     return count;
   };
 
-  // 1. Strict constraint pass: Iteratively satisfy each number
+  // Helper: check if placing a mine at (px, py) violates any number constraint
+  const wouldViolateConstraints = (px, py) => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = px + dx;
+        const ny = py + dy;
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          const adj = board[ny][nx];
+          if (adj.revealed && adj.adjacentMines > 0) {
+            // If this neighbor already has or will exceed its allowed mines
+            if (countMinesAround(nx, ny) >= adj.adjacentMines) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  // 1. Strict constraint pass: Iteratively satisfy each number safely
   let changed = true;
   let iterations = 0;
-  while (changed && iterations < 30) { // Increased iterations for deep propagation
+  while (changed && iterations < 30) {
     changed = false;
     iterations++;
 
@@ -82,11 +102,9 @@ function distributeMinesForParsedBoard(board) {
 
             if (unrevealedNeighbors.length > 0) {
               unrevealedNeighbors.sort(() => Math.random() - 0.5);
-              const slotsToFill = Math.min(needed, unrevealedNeighbors.length);
-              
-              for (let i = 0; i < slotsToFill; i++) {
-                const pos = unrevealedNeighbors[i];
-                if (!board[pos.y][pos.x].isMine) {
+              for (let pos of unrevealedNeighbors) {
+                if (countMinesAround(x, y) >= tile.adjacentMines) break;
+                if (!board[pos.y][pos.x].isMine && !wouldViolateConstraints(pos.x, pos.y)) {
                   board[pos.y][pos.x].isMine = true;
                   changed = true;
                 }
@@ -98,8 +116,7 @@ function distributeMinesForParsedBoard(board) {
     }
   }
 
-  // 2. ABSOLUTE GUARANTEE PASS: Sweep every revealed number one last time.
-  // If any number still has a deficit, force-place mines into its unrevealed neighbors.
+  // 2. Controlled Guarantee Pass: Fix any remaining deficits WITHOUT breaking upper limits (like a '1' touching 2)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const tile = board[y][x];
@@ -116,8 +133,11 @@ function distributeMinesForParsedBoard(board) {
               if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
                 const neighbor = board[ny][nx];
                 if (!neighbor.revealed && !neighbor.isMine && neighbor.ownerTeam === null) {
-                  neighbor.isMine = true;
-                  needed--;
+                  // ONLY place if it doesn't cause any neighbor to exceed its max limit
+                  if (!wouldViolateConstraints(nx, ny)) {
+                    neighbor.isMine = true;
+                    needed--;
+                  }
                 }
               }
             }
