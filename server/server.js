@@ -30,19 +30,16 @@ const server = http.createServer(app);
 const Jimp = require("jimp");
 
 async function parseScreenshotToBoard(base64Image) {
-  // 1. Remove base64 data prefix
   const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
   const imageBuffer = Buffer.from(base64Data, 'base64');
   
-  // 2. Load Image with Jimp
   const image = await Jimp.read(imageBuffer);
   
   const width = 16;
   const height = 16;
-  const cellWidth = Math.floor(image.bitmap.width / width);
-  const cellHeight = Math.floor(image.bitmap.height / height);
+  const cellWidth = image.bitmap.width / width;
+  const cellHeight = image.bitmap.height / height;
 
-  // 3. Initialize empty board matrix
   const board = Array.from({ length: height }, () =>
     Array.from({ length: width }, () => ({
       isMine: false,
@@ -53,35 +50,67 @@ async function parseScreenshotToBoard(base64Image) {
     }))
   );
 
-  // 4. Sample each cell's center pixel color
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      // Get color at the center of the tile
-      const sampleX = Math.floor(x * cellWidth + cellWidth / 2);
-      const sampleY = Math.floor(y * cellHeight + cellHeight / 2);
-      const hexColor = image.getPixelColor(sampleX, sampleY); 
-      const rgba = Jimp.intToRGBA(hexColor);
+      const tileX = Math.floor(x * cellWidth);
+      const tileY = Math.floor(y * cellHeight);
+      const cW = Math.floor(cellWidth);
+      const cH = Math.floor(cellHeight);
 
-      // Example detection logic based on dominant RGB colors:
-      // Red flag / team 1
-      if (rgba.r > 200 && rgba.g < 50 && rgba.b < 50) { 
+      // Sample background color (top-left inner padding of the tile)
+      const bgHex = image.getPixelColor(tileX + Math.floor(cW * 0.2), tileY + Math.floor(cH * 0.2));
+      const bgRgba = Jimp.intToRGBA(bgHex);
+
+      // Is it a revealed yellow tile background?
+      const isYellowTile = bgRgba.r > 200 && bgRgba.g > 150 && bgRgba.b < 100;
+
+      if (isYellowTile) {
         board[y][x].revealed = true;
-        board[y][x].isMine = true;
-        board[y][x].ownerTeam = 1;
-      } 
-      // Blue flag / team 2
-      else if (rgba.b > 200 && rgba.r < 50) { 
-        board[y][x].revealed = true;
-        board[y][x].isMine = true;
-        board[y][x].ownerTeam = 2;
-      } 
-      // Number 3 (Yellow background / Red text in your screenshots)
-      else if (rgba.r > 200 && rgba.g > 180 && rgba.b < 50) { 
-        board[y][x].revealed = true;
-        board[y][x].adjacentMines = 3;
-      }
-      // Hidden unrevealed tiles (Default background texture)
-      else {
+
+        // Scan the central 50% area of the tile to check text/flag colors
+        let bluePixels = 0;
+        let greenPixels = 0;
+        let redPixels = 0;
+        let darkFlagPixels = 0;
+
+        const startX = tileX + Math.floor(cW * 0.25);
+        const endX = tileX + Math.floor(cW * 0.75);
+        const startY = tileY + Math.floor(cH * 0.25);
+        const endY = tileY + Math.floor(cH * 0.75);
+
+        for (let py = startY; py < endY; py++) {
+          for (let px = startX; px < endX; px++) {
+            const pixelHex = image.getPixelColor(px, py);
+            const { r, g, b } = Jimp.intToRGBA(pixelHex);
+
+            // Blue text (Number 1)
+            if (b > 180 && r < 80 && g < 120) bluePixels++;
+            // Green text (Number 2)
+            else if (g > 150 && r < 80 && b < 80) greenPixels++;
+            // Red text (Number 3) or Red Flag
+            else if (r > 180 && g < 60 && b < 60) redPixels++;
+            // Dark pole/flag body
+            else if (r < 50 && g < 50 && b < 50) darkFlagPixels++;
+          }
+        }
+
+        // Differentiate based on dominant inner color
+        if (darkFlagPixels > 8) {
+          // Flag tile (Team 1 or 2 based on red vs blue accent)
+          board[y][x].isMine = true;
+          board[y][x].ownerTeam = redPixels > 5 ? 1 : 2;
+        } else if (bluePixels > 8) {
+          board[y][x].adjacentMines = 1;
+        } else if (greenPixels > 8) {
+          board[y][x].adjacentMines = 2;
+        } else if (redPixels > 8) {
+          board[y][x].adjacentMines = 3;
+        } else {
+          // Blank yellow tile (0 adjacent mines)
+          board[y][x].adjacentMines = 0;
+        }
+      } else {
+        // Unrevealed blue tile
         board[y][x].revealed = false;
       }
     }
