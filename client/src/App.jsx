@@ -188,7 +188,6 @@ const [screenshotFile, setScreenshotFile] = useState(null);
     return;
   }
 
-  // Convert uploaded image file to Base64 (if provided)
   const sendInvite = (base64Image) => {
     socketRef.current.emit("invite-midgame-setup", {
       targetSocketId: midGameOpponentId,
@@ -197,7 +196,16 @@ const [screenshotFile, setScreenshotFile] = useState(null);
       bombsUsed: { 1: p1BombUsed, 2: p2BombUsed },
       screenshot: base64Image
     });
+
+    // Reset Form Fields
     setShowMidGameModal(false);
+    setMidGameOpponentId("");
+    setMidGameTurn("1");
+    setMidGameMyColor("red");
+    setP1BombUsed(false);
+    setP2BombUsed(false);
+    setScreenshotFile(null);
+
     showMessage("Mid-game setup invitation sent!");
   };
 
