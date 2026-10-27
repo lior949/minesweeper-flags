@@ -173,6 +173,17 @@ function App() {
   const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
   const replayTimerRef = useRef(null);
 
+  const handleCustomFeature = () => {
+    if (socketRef.current && socketRef.current.connected && gameId) {
+      socketRef.current.emit("custom-feature-action", {
+        gameId,
+        payload: "example_data",
+      });
+    } else {
+      addGameMessage("Server", "Cannot trigger action: Not connected or not in a game.", true);
+    }
+  };
+
   const navigateToReplays = () => {
     window.history.pushState({}, "", "/replays");
     setCurrentView("replays");
@@ -717,17 +728,6 @@ function App() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
-
-    const handleCustomFeature = () => {
-    if (socketRef.current && socketRef.current.connected && gameId) {
-        socketRef.current.emit("custom-feature-action", { 
-            gameId, 
-            payload: "example_data" 
-        });
-    } else {
-        addGameMessage("Server", "Cannot trigger action: Not connected or not in a game.", true);
-    }
-};
 
     const handleStorageChange = (event) => {
       if (event.key === 'auth_success_user' && event.newValue) {
@@ -1390,6 +1390,16 @@ function App() {
               <button onClick={navigateToReplays} className="bomb-button" style={{ background: '#3b82f6' }}>
                 📜 Stats & Game History
               </button>
+              {playerNumber !== 0 && (
+              <button 
+                className="bomb-button"
+                onClick={handleCustomFeature}
+                disabled={!isSocketConnected || gameOver}
+                style={{ width: '100%', margin: '8px 0 0 0', background: '#8b5cf6' }}
+              >
+                  Custom Feature
+              </button>
+            )}
             </div>
 
             <div className="game-mode-selection">
@@ -1545,56 +1555,39 @@ function App() {
     {playerNumber === 0 && <div className="observing-badge">Observing</div>}
 
     <div className="game-controls" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
-        {playerNumber !== 0 && ( 
-          <button 
-            className="bomb-button" 
-            onClick={handleUseBombClick} 
-            disabled={
-              !isSocketConnected || 
-              gameOver || 
-              currentBombUsedStatus || 
-              currentPlayerScore >= opponentPlayerOrTeamScore || 
-              (gameType === '1v1' && playerNumber !== turn)
-            } 
-            style={{ width: '100%', margin: 0 }}
-          >
-              Use Bomb
-          </button>
-        )}
-      {playerNumber !== 0 && (
-  <button 
-    className="bomb-button"
-    onClick={handleCustomFeature}
-    disabled={!isSocketConnected || gameOver}
-    style={{ width: '100%', margin: '8px 0 0 0', background: '#8b5cf6' }}
-  >
-      Custom Feature
-  </button>
-)}
+    {playerNumber !== 0 && ( 
+      <button 
+        className="bomb-button" 
+        onClick={handleUseBombClick} 
+        disabled={
+          !isSocketConnected || 
+          gameOver || 
+          currentBombUsedStatus || 
+          currentPlayerScore >= opponentPlayerOrTeamScore || 
+          (gameType === '1v1' && playerNumber !== turn)
+        } 
+        style={{ width: '100%', margin: 0 }}
+      >
+          Use Bomb
+      </button>
+    )}
 
-{playerNumber !== 0 && bombMode && (
-  <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
-      Cancel Bomb
-  </button>
-)}
+    {playerNumber !== 0 && bombMode && (
+      <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
+          Cancel Bomb
+      </button>
+    )}
 
-<button className="btn-back-lobby" onClick={backToLobby} disabled={!isSocketConnected} style={{ width: '100%' }}>
-    Back to Lobby
-</button>
-        {playerNumber !== 0 && bombMode && (
-          <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
-              Cancel Bomb
-          </button>
-        )}
-        <button className="btn-back-lobby" onClick={backToLobby} disabled={!isSocketConnected} style={{ width: '100%' }}>
-            Back to Lobby
+    <button className="btn-back-lobby" onClick={backToLobby} disabled={!isSocketConnected} style={{ width: '100%' }}>
+        Back to Lobby
+    </button>
+
+    {gameOver && playerNumber !== 0 && ( 
+        <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected} style={{ width: '100%', margin: 0, display: 'none' }}>
+            Restart Game
         </button>
-        {gameOver && playerNumber !== 0 && ( 
-            <button className="bomb-button" onClick={() => socketRef.current.emit("restart-game", { gameId })} disabled={!isSocketConnected} style={{ width: '100%', margin: 0, display: 'none' }}>
-                Restart Game
-            </button>
-        )}
-    </div>
+    )}
+</div>
 
     <div style={{ fontSize: '0.9rem', color: '#94a3b8', textAlign: 'center' }}>
         {playerNumber === 0 ? "You are Observing" : `You are Player ${playerNumber}`}
