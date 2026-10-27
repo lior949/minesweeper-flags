@@ -284,17 +284,17 @@ async function parseScreenshotToBoard(base64Image) {
         }
       }
 
-      if (isYellowBg) {
+      iif (isYellowBg) {
         board[y][x].revealed = true;
 
         if (olivePx >= 3) board[y][x].adjacentMines = 8;
         else if (blackPx >= 3) board[y][x].adjacentMines = 7;
         else if (cyanPx >= 3) board[y][x].adjacentMines = 6;
         else if (brownPx >= 3) board[y][x].adjacentMines = 5;
-        else if (darkBluePx >= 3) board[y][x].adjacentMines = 4; // <--- Darker blue (0,0,154)
+        else if (pureBluePx >= 3) board[y][x].adjacentMines = 1;  // <--- CHECK 1 FIRST! If it has bright blue, it's 1.
+        else if (darkBluePx >= 8) board[y][x].adjacentMines = 4;  // <--- CHECK 4 AFTERWARDS, requiring higher pixel density (8+)
         else if (redPx >= 3) board[y][x].adjacentMines = 3;
         else if (greenPx >= 3) board[y][x].adjacentMines = 2;
-        else if (pureBluePx >= 3) board[y][x].adjacentMines = 1; // <--- Bright blue (0,0,255)
         else board[y][x].adjacentMines = 0;
       } else {
         board[y][x].revealed = false;
