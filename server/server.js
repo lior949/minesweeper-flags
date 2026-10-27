@@ -2193,7 +2193,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
 
   socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
-    socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     const game = games[gameId];
     if (!game || game.gameOver) {
       return;
