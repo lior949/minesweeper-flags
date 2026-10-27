@@ -2208,16 +2208,43 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     if (!isMidGameSetup && !mineRevealed) {
       const clickedTile = game.board[y][x];
       if (clickedTile.adjacentMines === 0 && !clickedTile.isMine) {
-        let safety = 0;
-        while (safety < 200) {
-          safety++;
-          game.board = generateBoard();
-          const freshTile = game.board[y][x];
-          // Stop regenerating when the clicked tile is a mine or a numbered tile (> 0)
-          if (freshTile.isMine || freshTile.adjacentMines > 0) {
-            break;
-          }
-        }
+        // Regenerate the board
+        game.board = generateBoard();
+        
+        // Reset basic game trackers for a clean restart
+        game.scores = { 1: 0, 2: 0 };
+        game.turn = 1;
+        game.moves = [];
+        game.lastClickedTile = {};
+
+        const cachedBoardString = JSON.stringify(game.board);
+
+        // Sync restart to Firestore
+        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+          board: cachedBoardString,
+          turn: game.turn,
+          scores: game.scores,
+          moves: game.moves,
+          lastClickedTile: game.lastClickedTile,
+          lastUpdated: Timestamp.now()
+        }, { merge: true }).catch(error => {
+          console.error("Error updating restarted game in Firestore:", error);
+        });
+
+        // Broadcast the fresh board to the frontend so players see the reset
+        io.to(gameId).emit("board-update", {
+          gameId: game.gameId,
+          board: cachedBoardString,
+          turn: game.turn,
+          scores: game.scores,
+          bombsUsed: game.bombsUsed,
+          gameOver: game.gameOver,
+          lastClickedTile: game.lastClickedTile,
+          observers: game.observers,
+          clickStartTime: clickStartTime
+        });
+
+        return; // Return early so the click isn't executed on the new board
       }
     }
 
