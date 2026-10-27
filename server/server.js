@@ -284,7 +284,7 @@ async function parseScreenshotToBoard(base64Image) {
         }
       }
 
-      iif (isYellowBg) {
+      if (isYellowBg) {
         board[y][x].revealed = true;
 
         if (olivePx >= 3) board[y][x].adjacentMines = 8;
