@@ -191,6 +191,7 @@ async function parseScreenshotToBoard(base64Image) {
 
   return { board, initialScores };
 }
+
 // New global data structures for robust player tracking across reconnections
 const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID, Guest ID)
 // userGameMap maps userId to an object { gameId: string, role: 'player' | 'observer' }
@@ -992,48 +993,48 @@ io.on("connection", (socket) => {
     }
   }
 
- socket.on("invite-midgame-setup", async (data) => {
-  const inviterUser = socket.request.session?.passport?.user || socket.request.user || null;
-  const inviterUserId = inviterUser ? (inviterUser.id || socket.request.user?.id) : null;
-  const inviterPlayer = players.find((p) => p.userId === inviterUserId);
+  socket.on("invite-midgame-setup", async (data) => {
+    const inviterUser = socket.request.session?.passport?.user || socket.request.user || null;
+    const inviterUserId = inviterUser ? (inviterUser.id || socket.request.user?.id) : null;
+    const inviterPlayer = players.find((p) => p.userId === inviterUserId);
 
-  const targetPlayer = players.find((p) => p.id === data.targetSocketId);
-  if (!targetPlayer) {
-    socket.emit("game-error", "Target player no longer connected.");
-    return;
-  }
-
-  let parsedData = { board: null, initialScores: { 1: 0, 2: 0 } };
-  if (data.screenshot) {
-    try {
-      parsedData = await parseScreenshotToBoard(data.screenshot);
-    } catch (err) {
-      console.error("Failed to parse screenshot:", err);
+    const targetPlayer = players.find((p) => p.id === data.targetSocketId);
+    if (!targetPlayer) {
+      socket.emit("game-error", "Target player no longer connected.");
+      return;
     }
-  }
 
-  const inviteId = crypto.randomUUID();
+    let parsedData = { board: null, initialScores: { 1: 0, 2: 0 } };
+    if (data.screenshot) {
+      try {
+        parsedData = await parseScreenshotToBoard(data.screenshot);
+      } catch (err) {
+        console.error("Failed to parse screenshot:", err);
+      }
+    }
 
-  if (!pendingInvites[targetPlayer.userId]) {
-    pendingInvites[targetPlayer.userId] = {};
-  }
+    const inviteId = crypto.randomUUID();
 
-  pendingInvites[targetPlayer.userId][inviteId] = {
-    inviteId,
-    senderId: inviterUserId,
-    senderName: inviterPlayer ? inviterPlayer.name : "Opponent",
-    targetSocketId: data.targetSocketId,
-    gameType: '1v1_midgame',
-    turn: data.turn,
-    myColor: data.myColor,
-    bombsUsed: data.bombsUsed,
-    screenshot: data.screenshot,
-    initialBoard: parsedData.board,
-    initialScores: parsedData.initialScores
-  };
+    if (!pendingInvites[targetPlayer.userId]) {
+      pendingInvites[targetPlayer.userId] = {};
+    }
 
-  io.to(data.targetSocketId).emit("game-invite", pendingInvites[targetPlayer.userId][inviteId]);
-});
+    pendingInvites[targetPlayer.userId][inviteId] = {
+      inviteId,
+      senderId: inviterUserId,
+      senderName: inviterPlayer ? inviterPlayer.name : "Opponent",
+      targetSocketId: data.targetSocketId,
+      gameType: '1v1_midgame',
+      turn: data.turn,
+      myColor: data.myColor,
+      bombsUsed: data.bombsUsed,
+      screenshot: data.screenshot,
+      initialBoard: parsedData.board,
+      initialScores: parsedData.initialScores
+    };
+
+    io.to(data.targetSocketId).emit("game-invite", pendingInvites[targetPlayer.userId][inviteId]);
+  });
 
   socket.on("join-lobby", (name) => {
     const user = socket.request.session?.passport?.user || socket.request.user || null;
@@ -1771,85 +1772,85 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
     if (accept) {
         if (originalInvite.gameType === '1v1' || originalInvite.gameType === '1v1_midgame') {
-    const newGameId = uuidv4();
+            const newGameId = uuidv4();
 
-    const newBoard = (originalInvite.gameType === '1v1_midgame' && originalInvite.initialBoard)
-      ? originalInvite.initialBoard
-      : generateBoard();
+            const newBoard = (originalInvite.gameType === '1v1_midgame' && originalInvite.initialBoard)
+              ? originalInvite.initialBoard
+              : generateBoard();
 
-    const initialScores = originalInvite.initialScores || { 1: 0, 2: 0 };
+            const initialScores = originalInvite.initialScores || { 1: 0, 2: 0 };
 
-    const inviterIsP1 = originalInvite.myColor !== 'blue';
-    const p1User = inviterIsP1 ? inviterPlayer : respondingPlayer;
-    const p2User = inviterIsP1 ? respondingPlayer : inviterPlayer;
+            const inviterIsP1 = originalInvite.myColor !== 'blue';
+            const p1User = inviterIsP1 ? inviterPlayer : respondingPlayer;
+            const p2User = inviterIsP1 ? respondingPlayer : inviterPlayer;
 
-    const gamePlayers = [
-      { userId: p1User.userId, name: p1User.name, number: 1, socketId: userSocketMap[p1User.userId], team: 1 },
-      { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
-    ];
+            const gamePlayers = [
+              { userId: p1User.userId, name: p1User.name, number: 1, socketId: userSocketMap[p1User.userId], team: 1 },
+              { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
+            ];
 
-    const game = {
-      gameId: newGameId,
-      gameType: '1v1',
-      board: newBoard,
-      players: gamePlayers,
-      turn: originalInvite.turn || 1,
-      scores: initialScores,
-      bombsUsed: originalInvite.bombsUsed || { 1: false, 2: false },
-      screenshot: originalInvite.screenshot || null,
-      gameOver: checkGameOver(initialScores),
-      lastClickedTile: { 1: null, 2: null },
-      messages: [],
-      observers: [],
-      moves: []
-    };
+            const game = {
+              gameId: newGameId,
+              gameType: '1v1',
+              board: newBoard,
+              players: gamePlayers,
+              turn: originalInvite.turn || 1,
+              scores: initialScores,
+              bombsUsed: originalInvite.bombsUsed || { 1: false, 2: false },
+              screenshot: originalInvite.screenshot || null,
+              gameOver: checkGameOver(initialScores),
+              lastClickedTile: { 1: null, 2: null },
+              messages: [],
+              observers: [],
+              moves: []
+            };
 
-    games[newGameId] = game;
-    gamePlayers.forEach(p => userGameMap[p.userId] = { gameId: newGameId, role: 'player' });
+            games[newGameId] = game;
+            gamePlayers.forEach(p => userGameMap[p.userId] = { gameId: newGameId, role: 'player' });
 
-    const serializedBoard = JSON.stringify(game.board);
-    await db.collection(GAMES_COLLECTION_PATH).doc(newGameId).set({
-      gameId: game.gameId,
-      gameType: game.gameType,
-      board: serializedBoard,
-      player1_userId: p1User.userId, player1_name: p1User.name,
-      player2_userId: p2User.userId, player2_name: p2User.name,
-      turn: game.turn,
-      scores: game.scores,
-      bombsUsed: game.bombsUsed,
-      screenshot: game.screenshot,
-      gameOver: game.gameOver,
-      status: 'active',
-      lastUpdated: Timestamp.now()
-    }, { merge: true });
+            const serializedBoard = JSON.stringify(game.board);
+            await db.collection(GAMES_COLLECTION_PATH).doc(newGameId).set({
+              gameId: game.gameId,
+              gameType: game.gameType,
+              board: serializedBoard,
+              player1_userId: p1User.userId, player1_name: p1User.name,
+              player2_userId: p2User.userId, player2_name: p2User.name,
+              turn: game.turn,
+              scores: game.scores,
+              bombsUsed: game.bombsUsed,
+              screenshot: game.screenshot,
+              gameOver: game.gameOver,
+              status: 'active',
+              lastUpdated: Timestamp.now()
+            }, { merge: true });
 
-    clearAllRelatedInvitesForUsers([inviterPlayer.userId, respondingPlayer.userId], inviteId);
+            clearAllRelatedInvitesForUsers([inviterPlayer.userId, respondingPlayer.userId], inviteId);
 
-    gamePlayers.forEach(p => {
-      if (p.socketId) {
-        io.sockets.sockets.get(p.socketId)?.join(newGameId);
-        io.to(p.socketId).emit("game-start", {
-          gameId: game.gameId,
-          gameType: game.gameType,
-          playerNumber: p.number,
-          board: serializedBoard,
-          turn: game.turn,
-          scores: game.scores,
-          bombsUsed: game.bombsUsed,
-          screenshot: game.screenshot,
-          gameOver: game.gameOver,
-          lastClickedTile: game.lastClickedTile,
-          opponentName: p.number === 1 ? p2User.name : p1User.name,
-          gameChat: game.messages,
-          observers: game.observers,
-          player1Name: p1User.name,
-          player2Name: p2User.name
-        });
-      }
-    });
+            gamePlayers.forEach(p => {
+              if (p.socketId) {
+                io.sockets.sockets.get(p.socketId)?.join(newGameId);
+                io.to(p.socketId).emit("game-start", {
+                  gameId: game.gameId,
+                  gameType: game.gameType,
+                  playerNumber: p.number,
+                  board: serializedBoard,
+                  turn: game.turn,
+                  scores: game.scores,
+                  bombsUsed: game.bombsUsed,
+                  screenshot: game.screenshot,
+                  gameOver: game.gameOver,
+                  lastClickedTile: game.lastClickedTile,
+                  opponentName: p.number === 1 ? p2User.name : p1User.name,
+                  gameChat: game.messages,
+                  observers: game.observers,
+                  player1Name: p1User.name,
+                  player2Name: p2User.name
+                });
+              }
+            });
 
-    emitLobbyPlayersList();
-} else if (originalInvite.gameType === '2v2') {
+            emitLobbyPlayersList();
+        } else if (originalInvite.gameType === '2v2') {
             if (pending2v2Acceptances[inviteId]) {
                 pending2v2Acceptances[inviteId].acceptedUsers.add(respondingUserId);
             } else {
@@ -1998,209 +1999,211 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
   });
 
 
-socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
-  const game = games[gameId];
-  if (!game || game.gameOver) {
-    return;
-  }
-
-  const isMidGameSetup = Boolean(game.screenshot);
-
-  // Standard safe-first-click board generation (ONLY for non-midgame setups)
-  if (!game.moves || game.moves.length === 0) {
-    if (!isMidGameSetup) {
-      game.board = generateBoard(x, y); // <-- Updated to pass clicked coordinates
-    }
-  }
-
-  game.clickStartTime = clickStartTime;
-
-  const user = socket.request.session?.passport?.user || socket.request.user || null;
-  const userId = user ? (user.id || socket.request.user?.id) : null;
-
-  if (!userId) {
-    socket.emit("game-error", "Authentication required to make moves.");
-    return;
-  }
-
-  const player = game.players.find((p) => p.userId === userId);
-  if (!player || player.number !== game.turn) {
-    return;
-  }
-
-  player.socketId = socket.id;
-
-  const tile = game.board[y][x];
-  if (tile.revealed) {
-    return;
-  }
-
-  game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
-
-  if (tile.isMine) {
-    tile.revealed = true;
-    tile.owner = player.number;
-    tile.ownerTeam = player.team;
-    game.scores[player.team]++;
-
-    if (checkGameOver(game.scores)) {
-      game.gameOver = true;
-      game.players.forEach(p => delete userGameMap[p.userId]);
-      emitLobbyPlayersList();
-    }
-  } else {
-    const isBlankTile = tile.adjacentMines === 0;
-    const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
-
-    // PREVENT MID-GAME RESTART ON BLANK TILE CLICK
-    if (isBlankTile && noFlagsRevealedYet && !isMidGameSetup) {
-      game.board = generateBoard();
-      game.scores = { 1: 0, 2: 0 };
-      game.bombsUsed = { 1: false, 2: false };
-      game.turn = 1;
-      game.gameOver = false;
-      game.lastClickedTile = {};
-      game.messages = [];
-
-      const serializedBoard = JSON.stringify(game.board);
-      if (!game.moves) game.moves = [];
-      game.moves.push({
-        type: 'restart',
-        board: serializedBoard,
-        timestamp: Date.now()
-      });
-
-      game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-      game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
-      emitLobbyPlayersList();
-
-      game.players.forEach(p => {
-        io.to(p.socketId).emit("game-restarted", {
-          gameId: game.gameId,
-          gameType: game.gameType,
-          playerNumber: p.number,
-          board: serializedBoard,
-          turn: game.turn,
-          scores: game.scores,
-          bombsUsed: game.bombsUsed,
-          gameOver: game.gameOver,
-          lastClickedTile: game.lastClickedTile,
-          opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
-          gameChat: game.messages,
-          observers: game.observers,
-          player1Name: game.players.find(pl => pl.number === 1)?.name,
-          player2Name: game.players.find(pl => pl.number === 2)?.name,
-          player3Name: game.players.find(pl => pl.number === 3)?.name,
-          player4Name: game.players.find(pl => pl.number === 4)?.name,
-        });
-      });
-
-      db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-        board: serializedBoard,
-        scores: game.scores,
-        bombsUsed: game.bombsUsed,
-        turn: game.turn,
-        gameOver: game.gameOver,
-        lastClickedTile: game.lastClickedTile,
-        moves: game.moves,
-        status: 'active',
-        lastUpdated: Timestamp.now(),
-        winnerTeam: null,
-        loserTeam: null,
-        messages: game.messages,
-        observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-      }, { merge: true }).catch(error => {
-        console.error("Error restarting game in Firestore:", error);
-      });
-
+  socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
+    const game = games[gameId];
+    if (!game || game.gameOver) {
       return;
     }
 
-    if (!tile.isMine) {
-  if (isMidGameSetup) {
-    // Recalculate dynamic adjacent mines for target tile and its immediate neighborhood
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const ny = y + dy;
-        const nx = x + dx;
-        if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
-          let count = 0;
-          for (let ndy = -1; ndy <= 1; ndy++) {
-            for (let ndx = -1; ndx <= 1; ndx++) {
-              if (ndx === 0 && ndy === 0) continue;
-              const nny = ny + ndy;
-              const nnx = nx + ndx;
-              if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
-                if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
-                  count++;
+    const isMidGameSetup = Boolean(game.screenshot);
+
+    // Standard safe-first-click board generation (ONLY for non-midgame setups)
+    if (!game.moves || game.moves.length === 0) {
+      if (!isMidGameSetup) {
+        game.board = generateBoard(x, y); // <-- Updated to pass clicked coordinates
+      }
+    }
+
+    game.clickStartTime = clickStartTime;
+
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+
+    if (!userId) {
+      socket.emit("game-error", "Authentication required to make moves.");
+      return;
+    }
+
+    const player = game.players.find((p) => p.userId === userId);
+    if (!player || player.number !== game.turn) {
+      return;
+    }
+
+    player.socketId = socket.id;
+
+    const tile = game.board[y][x];
+    if (tile.revealed) {
+      return;
+    }
+
+    game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
+
+    if (tile.isMine) {
+      tile.revealed = true;
+      tile.owner = player.number;
+      tile.ownerTeam = player.team;
+      game.scores[player.team]++;
+
+      if (checkGameOver(game.scores)) {
+        game.gameOver = true;
+        game.players.forEach(p => delete userGameMap[p.userId]);
+        emitLobbyPlayersList();
+      }
+    } else {
+      const isBlankTile = tile.adjacentMines === 0;
+      const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
+
+      // PREVENT MID-GAME RESTART ON BLANK TILE CLICK
+      if (isBlankTile && noFlagsRevealedYet && !isMidGameSetup) {
+        game.board = generateBoard();
+        game.scores = { 1: 0, 2: 0 };
+        game.bombsUsed = { 1: false, 2: false };
+        game.turn = 1;
+        game.gameOver = false;
+        game.lastClickedTile = {};
+        game.messages = [];
+
+        const serializedBoard = JSON.stringify(game.board);
+        if (!game.moves) game.moves = [];
+        game.moves.push({
+          type: 'restart',
+          board: serializedBoard,
+          timestamp: Date.now()
+        });
+
+        game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
+        game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
+        emitLobbyPlayersList();
+
+        game.players.forEach(p => {
+          io.to(p.socketId).emit("game-restarted", {
+            gameId: game.gameId,
+            gameType: game.gameType,
+            playerNumber: p.number,
+            board: serializedBoard,
+            turn: game.turn,
+            scores: game.scores,
+            bombsUsed: game.bombsUsed,
+            gameOver: game.gameOver,
+            lastClickedTile: game.lastClickedTile,
+            opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
+            gameChat: game.messages,
+            observers: game.observers,
+            player1Name: game.players.find(pl => pl.number === 1)?.name,
+            player2Name: game.players.find(pl => pl.number === 2)?.name,
+            player3Name: game.players.find(pl => pl.number === 3)?.name,
+            player4Name: game.players.find(pl => pl.number === 4)?.name,
+          });
+        });
+
+        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+          board: serializedBoard,
+          scores: game.scores,
+          bombsUsed: game.bombsUsed,
+          turn: game.turn,
+          gameOver: game.gameOver,
+          lastClickedTile: game.lastClickedTile,
+          moves: game.moves,
+          status: 'active',
+          lastUpdated: Timestamp.now(),
+          winnerTeam: null,
+          loserTeam: null,
+          messages: game.messages,
+          observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+        }, { merge: true }).catch(error => {
+          console.error("Error restarting game in Firestore:", error);
+        });
+
+        return;
+      }
+
+      if (!tile.isMine) {
+        if (isMidGameSetup) {
+          // Recalculate dynamic adjacent mines for target tile and its immediate neighborhood
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const ny = y + dy;
+              const nx = x + dx;
+              if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
+                let count = 0;
+                for (let ndy = -1; ndy <= 1; ndy++) {
+                  for (let ndx = -1; ndx <= 1; ndx++) {
+                    if (ndx === 0 && ndy === 0) continue;
+                    const nny = ny + ndy;
+                    const nnx = nx + ndx;
+                    if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
+                      if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
+                        count++;
+                      }
+                    }
+                  }
                 }
+                game.board[ny][nx].adjacentMines = count;
               }
             }
           }
-          game.board[ny][nx].adjacentMines = count;
+        }
+
+        revealRecursive(game.board, x, y);
+
+        if (game.gameType === '1v1') {
+          game.turn = game.turn === 1 ? 2 : 1;
+        } else if (game.gameType === '2v2') {
+          game.turn = getNext2v2Turn(game.turn);
         }
       }
     }
-  }
 
-    revealRecursive(game.board, x, y);
+    // Single, unified move recording
+    if (!game.moves) game.moves = [];
+    game.moves.push({
+      type: 'click',
+      playerNumber: player.number,
+      team: player.team,
+      x,
+      y,
+      timestamp: Date.now()
+    });
 
-    if (game.gameType === '1v1') {
-      game.turn = game.turn === 1 ? 2 : 1;
-    } else if (game.gameType === '2v2') {
-      game.turn = getNext2v2Turn(game.turn);
+    // AI Turn triggering
+    if (!game.gameOver) {
+      const nextPlayer = game.players.find(p => p.number === game.turn);
+      if (nextPlayer && nextPlayer.isAi) {
+        processAiTurn(gameId);
+      }
     }
-  }
 
-  // Single, unified move recording
-  if (!game.moves) game.moves = [];
-  game.moves.push({
-    type: 'click',
-    playerNumber: player.number,
-    team: player.team,
-    x,
-    y,
-    timestamp: Date.now()
-  });
+    const cachedBoardString = JSON.stringify(game.board);
 
-  // AI Turn triggering
-  if (!game.gameOver) {
-    const nextPlayer = game.players.find(p => p.number === game.turn);
-    if (nextPlayer && nextPlayer.isAi) {
-      processAiTurn(gameId);
-    }
-  }
+    io.to(gameId).emit("board-update", {
+      gameId: game.gameId,
+      board: cachedBoardString,
+      turn: game.turn,
+      scores: game.scores,
+      bombsUsed: game.bombsUsed,
+      gameOver: game.gameOver,
+      lastClickedTile: game.lastClickedTile,
+      observers: game.observers,
+      clickStartTime: game.clickStartTime
+    });
 
-  const cachedBoardString = JSON.stringify(game.board);
-
-  io.to(gameId).emit("board-update", {
-    gameId: game.gameId,
-    board: cachedBoardString,
-    turn: game.turn,
-    scores: game.scores,
-    bombsUsed: game.bombsUsed,
-    gameOver: game.gameOver,
-    lastClickedTile: game.lastClickedTile,
-    observers: game.observers,
-    clickStartTime: game.clickStartTime
-  });
-
-  const newStatus = game.gameOver ? 'completed' : 'active';
-  db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-    board: cachedBoardString,
-    turn: game.turn,
-    scores: game.scores,
-    bombsUsed: game.bombsUsed,
-    gameOver: game.gameOver,
-    lastClickedTile: game.lastClickedTile,
-    status: newStatus,
-    moves: game.moves,
-    lastUpdated: Timestamp.now(),
-    winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
-    loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
-    observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-  }, { merge: true }).catch(error => {
-    console.error("Error updating game in Firestore:", error);
+    const newStatus = game.gameOver ? 'completed' : 'active';
+    db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+      board: cachedBoardString,
+      turn: game.turn,
+      scores: game.scores,
+      bombsUsed: game.bombsUsed,
+      gameOver: game.gameOver,
+      lastClickedTile: game.lastClickedTile,
+      status: newStatus,
+      moves: game.moves,
+      lastUpdated: Timestamp.now(),
+      winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
+      loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
+      observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+    }, { merge: true }).catch(error => {
+      console.error("Error updating game in Firestore:", error);
+    });
   });
 
   socket.on("send-game-message", async ({ gameId, message }) => {
@@ -2601,6 +2604,8 @@ socket.on("disconnect", async () => {
       delete userGameMap[disconnectedUserId];
     }
   }
+});
+
 });
 
 app.get("/api/finished-games", async (req, res) => {
