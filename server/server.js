@@ -57,9 +57,11 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      // 1. זיהוי משבצת חשופה ע"י השוואה יחסית בין הערוצים (בצהוב ערוץ B נמוך מ-R ו-G)
-      const samplePx = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.2), tileY + Math.floor(cH * 0.2)));
-      const isYellowBg = (samplePx.r > samplePx.b + 20) && (samplePx.g > samplePx.b + 20);
+      // 1. דגימת צבע הרקע של המשבצת (בפינה בתוך 15% שוליים)
+      const bgPx = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.15), tileY + Math.floor(cH * 0.15)));
+      
+      // רקע צהוב: R ו-G גבוהים באופן משמעותי מ-B
+      const isYellowBg = bgPx.r > 120 && bgPx.g > 100 && bgPx.b < bgPx.r - 30;
 
       if (isYellowBg) {
         board[y][x].revealed = true;
@@ -70,7 +72,7 @@ async function parseScreenshotToBoard(base64Image) {
         let purplePx = 0;
         let blackPolePx = 0;
 
-        // סריקה של הליבה המרכזית בלבד (30% עד 70%)
+        // סריקה בלעדית של מרכז המשבצת (30% עד 70%)
         const startX = tileX + Math.floor(cW * 0.3);
         const endX = tileX + Math.floor(cW * 0.7);
         const startY = tileY + Math.floor(cH * 0.3);
@@ -80,35 +82,40 @@ async function parseScreenshotToBoard(base64Image) {
           for (let px = startX; px < endX; px++) {
             const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-            // עמוד/בסיס דגל שחור
-            if (r < 80 && g < 80 && b < 80) {
-              blackPolePx++;
-            }
-            // סגול (מספר 4) - R ו-B גבוהים יחסית ל-G
-            else if (r > g + 30 && b > g + 30) {
-              purplePx++;
-            }
-            // כחול (מספר 1 / דגל כחול) - B גבוה מ-R ו-G
-            else if (b > r + 30 && b > g + 20) {
-              bluePx++;
-            }
-            // ירוק (מספר 2) - G גבוה מ-R ו-B
-            else if (g > r + 20 && g > b + 20) {
-              greenPx++;
-            }
-            // אדום (מספר 3 / דגל אדום) - R גבוה מ-G ו-B
-            else if (r > g + 40 && r > b + 40) {
-              redPx++;
+            // בדיקת מנוגדות מצבע הרקע הצהוב (הימנעות מכפילות עם הרקע המוזהב)
+            const isNonBgPixel = (bgPx.g - g > 30) || (b > bgPx.b + 30) || (r < bgPx.r - 50);
+
+            if (isNonBgPixel) {
+              // עמוד שחור של דגל
+              if (r < 70 && g < 70 && b < 70) {
+                blackPolePx++;
+              }
+              // סגול (4): R ו-B דומיננטיים לעומת G
+              else if (r > 100 && b > 100 && g < 80) {
+                purplePx++;
+              }
+              // כחול (1 או דגל כחול): B דומיננטי
+              else if (b > 120 && b > r + 30) {
+                bluePx++;
+              }
+              // ירוק (2): G דומיננטי
+              else if (g > 100 && g > r + 20 && g > b + 20) {
+                greenPx++;
+              }
+              // אדום (3 או דגל אדום): R דומיננטי עם G נמוך במיוחד
+              else if (r > 140 && g < 60 && b < 60) {
+                redPx++;
+              }
             }
           }
         }
 
-        // 2. סיווג לפי תכונות יחסיות
+        // 2. קביעת סוג התוכן
         const hasPole = blackPolePx >= 1;
 
         if (hasPole && (redPx >= 2 || bluePx >= 2)) {
           board[y][x].isMine = true;
-          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2; // קבוצה 1 = אדום, קבוצה 2 = כחול
+          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2;
         } else if (purplePx >= 2) {
           board[y][x].adjacentMines = 4;
         } else if (redPx >= 2) {
@@ -118,10 +125,10 @@ async function parseScreenshotToBoard(base64Image) {
         } else if (bluePx >= 2) {
           board[y][x].adjacentMines = 1;
         } else {
-          board[y][x].adjacentMines = 0; // משבצת צהובה ריקה
+          board[y][x].adjacentMines = 0; // משבצת צהובה נקי/ריקה
         }
       } else {
-        board[y][x].revealed = false; // משבצת כחולה לא חשופה
+        board[y][x].revealed = false; // משבצת כחולה בלתי חשופה
       }
     }
   }
