@@ -11,6 +11,7 @@ const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy; // Import Facebook Strategy
 const { v4: uuidv4 } = require("uuid"); // For generating unique game IDs
+const crypto = require("crypto");
 
 const { getBestAIMove } = require('./ai.js');
 
@@ -25,6 +26,69 @@ app.use(express.json()); // Enable parsing of JSON body for guest login
 // IMPORTANT: Add this line to trust proxy headers when deployed to Render
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+
+const Jimp = require("jimp");
+
+async function parseScreenshotToBoard(base64Image) {
+  // 1. Remove base64 data prefix
+  const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
+  const imageBuffer = Buffer.from(base64Data, 'base64');
+  
+  // 2. Load Image with Jimp
+  const image = await Jimp.read(imageBuffer);
+  
+  const width = 16;
+  const height = 16;
+  const cellWidth = Math.floor(image.bitmap.width / width);
+  const cellHeight = Math.floor(image.bitmap.height / height);
+
+  // 3. Initialize empty board matrix
+  const board = Array.from({ length: height }, () =>
+    Array.from({ length: width }, () => ({
+      isMine: false,
+      revealed: false,
+      adjacentMines: 0,
+      owner: null,
+      ownerTeam: null,
+    }))
+  );
+
+  // 4. Sample each cell's center pixel color
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // Get color at the center of the tile
+      const sampleX = Math.floor(x * cellWidth + cellWidth / 2);
+      const sampleY = Math.floor(y * cellHeight + cellHeight / 2);
+      const hexColor = image.getPixelColor(sampleX, sampleY); 
+      const rgba = Jimp.intToRGBA(hexColor);
+
+      // Example detection logic based on dominant RGB colors:
+      // Red flag / team 1
+      if (rgba.r > 200 && rgba.g < 50 && rgba.b < 50) { 
+        board[y][x].revealed = true;
+        board[y][x].isMine = true;
+        board[y][x].ownerTeam = 1;
+      } 
+      // Blue flag / team 2
+      else if (rgba.b > 200 && rgba.r < 50) { 
+        board[y][x].revealed = true;
+        board[y][x].isMine = true;
+        board[y][x].ownerTeam = 2;
+      } 
+      // Number 3 (Yellow background / Red text in your screenshots)
+      else if (rgba.r > 200 && rgba.g > 180 && rgba.b < 50) { 
+        board[y][x].revealed = true;
+        board[y][x].adjacentMines = 3;
+      }
+      // Hidden unrevealed tiles (Default background texture)
+      else {
+        board[y][x].revealed = false;
+      }
+    }
+  }
+
+  return board;
+}
 
 // New global data structures for robust player tracking across reconnections
 const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID, Guest ID)
@@ -925,50 +989,32 @@ io.on("connection", (socket) => {
       console.log(`Unauthenticated socket ${socket.id} connected.`);
   }
 
-  socket.on("invite-midgame-setup", ({ targetSocketId, turn, myColor, bombsUsed, screenshot }) => {
-  const senderSocket = socket;
-  const targetSocket = io.sockets.sockets.get(targetSocketId);
+  socket.on("invite-midgame-setup", async (data) => {
+  let parsedBoard = null;
 
-  if (!targetSocket) {
-    senderSocket.emit("join-error", "Target player is no longer online.");
-    return;
+  if (data.screenshot) {
+    try {
+      parsedBoard = await parseScreenshotToBoard(data.screenshot);
+    } catch (err) {
+      console.error("Failed to parse screenshot:", err);
+    }
   }
 
-  const senderUser = senderSocket.request.session?.passport?.user || senderSocket.request.user;
-  const senderUserId = senderUser?.id;
-  const senderName = senderUser?.displayName || senderUser?.name || "Player";
-
-  const targetUser = targetSocket.request.session?.passport?.user || targetSocket.request.user;
-  const targetUserId = targetUser?.id;
-
-  if (!targetUserId) {
-    senderSocket.emit("join-error", "Target player user ID not found.");
-    return;
-  }
-
-  const inviteId = `midgame_${Date.now()}`;
-
-  const midGameInvite = {
+  const inviteId = crypto.randomUUID();
+  pendingInvites[inviteId] = {
     inviteId,
-    senderId: senderUserId,
-    senderName: senderName,
-    targetSocketIds: [targetSocketId],
+    senderId: socket.id,
+    senderName: socket.userName,
+    targetSocketId: data.targetSocketId,
     gameType: '1v1_midgame',
-    turn,
-    myColor,      // 'red' (P1) or 'blue' (P2)
-    bombsUsed,    // { 1: boolean, 2: boolean }
-    screenshot
+    turn: data.turn,
+    myColor: data.myColor,
+    bombsUsed: data.bombsUsed,
+    screenshot: data.screenshot,
+    initialBoard: parsedBoard // <--- Array board state generated from image
   };
 
-  // Store in pendingInvites so respond-invite can access it
-  if (!pendingInvites[targetUserId]) {
-    pendingInvites[targetUserId] = {};
-  }
-  pendingInvites[targetUserId][inviteId] = midGameInvite;
-
-  // Send to target client
-  targetSocket.emit("game-invite", midGameInvite);
-  senderSocket.emit("invite-sent", { message: "Mid-game invitation sent!" });
+  io.to(data.targetSocketId).emit("game-invite", pendingInvites[inviteId]);
 });
 
 // Lobby Join Event
@@ -1827,7 +1873,11 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     if (accept) {
         if (originalInvite.gameType === '1v1' || originalInvite.gameType === '1v1_midgame') {
     const gameId = uuidv4();
-    const newBoard = generateBoard();
+
+    // Use initialBoard from screenshot parser if available, otherwise fallback to standard generator
+    const newBoard = (originalInvite.gameType === '1v1_midgame' && originalInvite.initialBoard)
+      ? originalInvite.initialBoard
+      : generateBoard();
 
     // Determine Player 1 and Player 2 roles based on selected color
     const inviterIsP1 = originalInvite.myColor !== 'blue';
@@ -1835,24 +1885,24 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const p2User = inviterIsP1 ? respondingPlayer : inviterPlayer;
 
     const gamePlayers = [
-        { userId: p1User.userId, name: p1User.name, number: 1, socketId: userSocketMap[p1User.userId], team: 1 },
-        { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
+      { userId: p1User.userId, name: p1User.name, number: 1, socketId: userSocketMap[p1User.userId], team: 1 },
+      { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
     ];
 
     const game = {
-        gameId,
-        gameType: '1v1',
-        board: newBoard,
-        players: gamePlayers,
-        turn: originalInvite.turn || 1, // Uses custom starting turn
-        scores: { 1: 0, 2: 0 },
-        bombsUsed: originalInvite.bombsUsed || { 1: false, 2: false }, // Uses custom bomb statuses
-        screenshot: originalInvite.screenshot || null, // Reference mid-game screenshot
-        gameOver: false,
-        lastClickedTile: { 1: null, 2: null },
-        messages: [],
-        observers: [],
-        moves: []
+      gameId,
+      gameType: '1v1',
+      board: newBoard, // <--- Correct board assigned here
+      players: gamePlayers,
+      turn: originalInvite.turn || 1,
+      scores: { 1: 0, 2: 0 },
+      bombsUsed: originalInvite.bombsUsed || { 1: false, 2: false },
+      screenshot: originalInvite.screenshot || null,
+      gameOver: false,
+      lastClickedTile: { 1: null, 2: null },
+      messages: [],
+      observers: [],
+      moves: []
     };
 
     games[gameId] = game;
@@ -1861,44 +1911,44 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     // Save initial state to Firestore
     const serializedBoard = JSON.stringify(game.board);
     await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-        gameId: game.gameId,
-        gameType: game.gameType,
-        board: serializedBoard,
-        player1_userId: p1User.userId, player1_name: p1User.name,
-        player2_userId: p2User.userId, player2_name: p2User.name,
-        turn: game.turn,
-        scores: game.scores,
-        bombsUsed: game.bombsUsed,
-        screenshot: game.screenshot,
-        gameOver: false,
-        status: 'active',
-        lastUpdated: Timestamp.now()
+      gameId: game.gameId,
+      gameType: game.gameType,
+      board: serializedBoard,
+      player1_userId: p1User.userId, player1_name: p1User.name,
+      player2_userId: p2User.userId, player2_name: p2User.name,
+      turn: game.turn,
+      scores: game.scores,
+      bombsUsed: game.bombsUsed,
+      screenshot: game.screenshot,
+      gameOver: false,
+      status: 'active',
+      lastUpdated: Timestamp.now()
     }, { merge: true });
 
     clearAllRelatedInvitesForUsers([inviterPlayer.userId, respondingPlayer.userId], inviteId);
 
     // Notify both players and send the mid-game initial state
     gamePlayers.forEach(p => {
-        if (p.socketId) {
-            io.sockets.sockets.get(p.socketId)?.join(gameId);
-            io.to(p.socketId).emit("game-start", {
-                gameId: game.gameId,
-                gameType: game.gameType,
-                playerNumber: p.number,
-                board: serializedBoard,
-                turn: game.turn,
-                scores: game.scores,
-                bombsUsed: game.bombsUsed,
-                screenshot: game.screenshot,
-                gameOver: game.gameOver,
-                lastClickedTile: game.lastClickedTile,
-                opponentName: p.number === 1 ? p2User.name : p1User.name,
-                gameChat: game.messages,
-                observers: game.observers,
-                player1Name: p1User.name,
-                player2Name: p2User.name
-            });
-        }
+      if (p.socketId) {
+        io.sockets.sockets.get(p.socketId)?.join(gameId);
+        io.to(p.socketId).emit("game-start", {
+          gameId: game.gameId,
+          gameType: game.gameType,
+          playerNumber: p.number,
+          board: serializedBoard,
+          turn: game.turn,
+          scores: game.scores,
+          bombsUsed: game.bombsUsed,
+          screenshot: game.screenshot,
+          gameOver: game.gameOver,
+          lastClickedTile: game.lastClickedTile,
+          opponentName: p.number === 1 ? p2User.name : p1User.name,
+          gameChat: game.messages,
+          observers: game.observers,
+          player1Name: p1User.name,
+          player2Name: p2User.name
+        });
+      }
     });
 
     emitLobbyPlayersList();
