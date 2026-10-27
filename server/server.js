@@ -57,84 +57,73 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      // 1. Determine if revealed by checking inner yellow background tone
-      // We sample a point slightly inset from top-left (15% in) to bypass selection borders
-      const samplePx = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.15), tileY + Math.floor(cH * 0.15)));
-      
-      // Revealed tiles have dominant Red & Green channels (Yellow/Orange canvas #FFFF00 or #FFCC00)
-      const isRevealed = samplePx.r > 160 && samplePx.g > 140 && samplePx.b < 120;
+      // 1. Test top-left inner area (20% inset) for revealed yellow/orange background
+      const samplePx = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.2), tileY + Math.floor(cH * 0.2)));
+      const isYellowBg = samplePx.r > 150 && samplePx.g > 130 && samplePx.b < 120;
 
-      if (isRevealed) {
+      if (isYellowBg) {
         board[y][x].revealed = true;
 
-        // 2. Scan ONLY the center 40% bounding box to prevent border color spillover
-        let blue1Pixels = 0;
-        let green2Pixels = 0;
-        let red3Pixels = 0;
-        let purple4Pixels = 0;
-        let blackPolePixels = 0;
-        let redFlagPixels = 0;
-        let blueFlagPixels = 0;
+        // 2. Scan central 50% core of the tile
+        let bluePx = 0;
+        let greenPx = 0;
+        let redPx = 0;
+        let purplePx = 0;
+        let darkPolePx = 0;
 
-        const startX = tileX + Math.floor(cW * 0.30);
-        const endX = tileX + Math.floor(cW * 0.70);
-        const startY = tileY + Math.floor(cH * 0.30);
-        const endY = tileY + Math.floor(cH * 0.70);
+        const startX = tileX + Math.floor(cW * 0.25);
+        const endX = tileX + Math.floor(cW * 0.75);
+        const startY = tileY + Math.floor(cH * 0.25);
+        const endY = tileY + Math.floor(cH * 0.75);
 
         for (let py = startY; py < endY; py++) {
           for (let px = startX; px < endX; px++) {
             const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-            // Pure Purple/Magenta (#800080 / #C000C0) -> Number 4
-            if (r > 120 && b > 120 && g < 70) {
-              purple4Pixels++;
+            // Dark flag pole/base (#000000 / dark gray)
+            if (r < 60 && g < 60 && b < 60) {
+              darkPolePx++;
             }
-            // Pure Green (#009900 / #00CC00) -> Number 2
+            // Purple/Magenta (Number 4)
+            else if (r > 120 && b > 120 && g < 70) {
+              purplePx++;
+            }
+            // Blue (Number 1 or Blue Flag)
+            else if (b > 160 && r < 90 && g < 130) {
+              bluePx++;
+            }
+            // Green (Number 2)
             else if (g > 130 && r < 90 && b < 90) {
-              green2Pixels++;
+              greenPx++;
             }
-            // Pure Blue (#0000FF / #0044FF) -> Number 1 or Blue Flag
-            else if (b > 170 && r < 80 && g < 130) {
-              blue1Pixels++;
-            }
-            // Pure Red (#FF0000) -> Number 3 or Red Flag
-            else if (r > 190 && g < 70 && b < 70) {
-              red3Pixels++;
-            }
-            // Flag Pole / Base Dark Shadow
-            else if (r < 50 && g < 50 && b < 50) {
-              blackPolePixels++;
+            // Red (Number 3 or Red Flag)
+            else if (r > 180 && g < 70 && b < 70) {
+              redPx++;
             }
           }
         }
 
-        // Check if black pole/base exists in conjunction with red/blue to distinguish flags from digits
-        if (blackPolePixels >= 3) {
-          if (red3Pixels >= 3) redFlagPixels = red3Pixels + blackPolePixels;
-          if (blue1Pixels >= 3) blueFlagPixels = blue1Pixels + blackPolePixels;
-        }
+        // 3. Evaluate Flags vs Numbers
+        const isFlag = darkPolePx >= 3;
 
-        // 3. Precise Priority Assignment based on inner core match thresholds
-        if (redFlagPixels > 5) {
+        if (isFlag) {
           board[y][x].isMine = true;
-          board[y][x].ownerTeam = 1; // Team 1 Red Flag
-        } else if (blueFlagPixels > 5) {
-          board[y][x].isMine = true;
-          board[y][x].ownerTeam = 2; // Team 2 Blue Flag
-        } else if (purple4Pixels >= 4) {
+          // Assign team based on dominant flag cloth color
+          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2;
+        } else if (purplePx >= 3) {
           board[y][x].adjacentMines = 4;
-        } else if (red3Pixels >= 4) {
+        } else if (redPx >= 3) {
           board[y][x].adjacentMines = 3;
-        } else if (green2Pixels >= 4) {
+        } else if (greenPx >= 3) {
           board[y][x].adjacentMines = 2;
-        } else if (blue1Pixels >= 4) {
+        } else if (bluePx >= 3) {
           board[y][x].adjacentMines = 1;
         } else {
-          // Blank yellow tile (0 adjacent mines)
+          // Blank yellow tile
           board[y][x].adjacentMines = 0;
         }
       } else {
-        // Unrevealed blue tile
+        // Unrevealed tile
         board[y][x].revealed = false;
       }
     }
