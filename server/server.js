@@ -990,8 +990,19 @@ io.on("connection", (socket) => {
   }
 
   socket.on("invite-midgame-setup", async (data) => {
-  let parsedBoard = null;
+  // 1. Identify inviter by userId
+  const inviterUser = socket.request.session?.passport?.user || socket.request.user || null;
+  const inviterUserId = inviterUser ? (inviterUser.id || socket.request.user?.id) : null;
+  const inviterPlayer = players.find((p) => p.userId === inviterUserId);
 
+  // 2. Identify target player by their targetSocketId
+  const targetPlayer = players.find((p) => p.id === data.targetSocketId);
+  if (!targetPlayer) {
+    socket.emit("game-error", "Target player no longer connected.");
+    return;
+  }
+
+  let parsedBoard = null;
   if (data.screenshot) {
     try {
       parsedBoard = await parseScreenshotToBoard(data.screenshot);
@@ -1001,20 +1012,27 @@ io.on("connection", (socket) => {
   }
 
   const inviteId = crypto.randomUUID();
-  pendingInvites[inviteId] = {
+
+  // 3. Key properly by target user ID
+  if (!pendingInvites[targetPlayer.userId]) {
+    pendingInvites[targetPlayer.userId] = {};
+  }
+
+  pendingInvites[targetPlayer.userId][inviteId] = {
     inviteId,
-    senderId: socket.id,
-    senderName: socket.userName,
+    senderId: inviterUserId, // Fixed: Save userId instead of socket.id
+    senderName: inviterPlayer ? inviterPlayer.name : "Opponent",
     targetSocketId: data.targetSocketId,
     gameType: '1v1_midgame',
     turn: data.turn,
     myColor: data.myColor,
     bombsUsed: data.bombsUsed,
     screenshot: data.screenshot,
-    initialBoard: parsedBoard // <--- Array board state generated from image
+    initialBoard: parsedBoard
   };
 
-  io.to(data.targetSocketId).emit("game-invite", pendingInvites[inviteId]);
+  // 4. Emit to target socket
+  io.to(data.targetSocketId).emit("game-invite", pendingInvites[targetPlayer.userId][inviteId]);
 });
 
 // Lobby Join Event
@@ -1872,86 +1890,87 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
     if (accept) {
         if (originalInvite.gameType === '1v1' || originalInvite.gameType === '1v1_midgame') {
-    const gameId = uuidv4();
+    const newGameId = uuidv4(); // Renamed to avoid shadowing or ambiguity
 
-    // Use initialBoard from screenshot parser if available, otherwise fallback to standard generator
-    const newBoard = (originalInvite.gameType === '1v1_midgame' && originalInvite.initialBoard)
-      ? originalInvite.initialBoard
-      : generateBoard();
+        // Use initialBoard from screenshot parser if available, otherwise fallback to standard generator
+        const newBoard = (originalInvite.gameType === '1v1_midgame' && originalInvite.initialBoard)
+          ? originalInvite.initialBoard
+          : generateBoard();
 
-    // Determine Player 1 and Player 2 roles based on selected color
-    const inviterIsP1 = originalInvite.myColor !== 'blue';
-    const p1User = inviterIsP1 ? inviterPlayer : respondingPlayer;
-    const p2User = inviterIsP1 ? respondingPlayer : inviterPlayer;
+        // Determine Player 1 and Player 2 roles based on selected color
+        const inviterIsP1 = originalInvite.myColor !== 'blue';
+        const p1User = inviterIsP1 ? inviterPlayer : respondingPlayer;
+        const p2User = inviterIsP1 ? respondingPlayer : inviterPlayer;
 
-    const gamePlayers = [
-      { userId: p1User.userId, name: p1User.name, number: 1, socketId: userSocketMap[p1User.userId], team: 1 },
-      { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
-    ];
+        const gamePlayers = [
+          { userId: p1User.userId, name: p1User.name, number: 1, socketId: userSocketMap[p1User.userId], team: 1 },
+          { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
+        ];
 
-    const game = {
-      gameId,
-      gameType: '1v1',
-      board: newBoard, // <--- Correct board assigned here
-      players: gamePlayers,
-      turn: originalInvite.turn || 1,
-      scores: { 1: 0, 2: 0 },
-      bombsUsed: originalInvite.bombsUsed || { 1: false, 2: false },
-      screenshot: originalInvite.screenshot || null,
-      gameOver: false,
-      lastClickedTile: { 1: null, 2: null },
-      messages: [],
-      observers: [],
-      moves: []
-    };
+        const game = {
+          gameId: newGameId,
+          gameType: '1v1',
+          board: newBoard,
+          players: gamePlayers,
+          turn: originalInvite.turn || 1,
+          scores: { 1: 0, 2: 0 },
+          bombsUsed: originalInvite.bombsUsed || { 1: false, 2: false },
+          screenshot: originalInvite.screenshot || null,
+          gameOver: false,
+          lastClickedTile: { 1: null, 2: null },
+          messages: [],
+          observers: [],
+          moves: []
+        };
 
-    games[gameId] = game;
-    gamePlayers.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
+        games[newGameId] = game;
+        gamePlayers.forEach(p => userGameMap[p.userId] = { gameId: newGameId, role: 'player' });
 
-    // Save initial state to Firestore
-    const serializedBoard = JSON.stringify(game.board);
-    await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-      gameId: game.gameId,
-      gameType: game.gameType,
-      board: serializedBoard,
-      player1_userId: p1User.userId, player1_name: p1User.name,
-      player2_userId: p2User.userId, player2_name: p2User.name,
-      turn: game.turn,
-      scores: game.scores,
-      bombsUsed: game.bombsUsed,
-      screenshot: game.screenshot,
-      gameOver: false,
-      status: 'active',
-      lastUpdated: Timestamp.now()
-    }, { merge: true });
-
-    clearAllRelatedInvitesForUsers([inviterPlayer.userId, respondingPlayer.userId], inviteId);
-
-    // Notify both players and send the mid-game initial state
-    gamePlayers.forEach(p => {
-      if (p.socketId) {
-        io.sockets.sockets.get(p.socketId)?.join(gameId);
-        io.to(p.socketId).emit("game-start", {
+        // Save initial state to Firestore
+        const serializedBoard = JSON.stringify(game.board);
+        await db.collection(GAMES_COLLECTION_PATH).doc(newGameId).set({
           gameId: game.gameId,
           gameType: game.gameType,
-          playerNumber: p.number,
           board: serializedBoard,
+          player1_userId: p1User.userId, player1_name: p1User.name,
+          player2_userId: p2User.userId, player2_name: p2User.name,
           turn: game.turn,
           scores: game.scores,
           bombsUsed: game.bombsUsed,
           screenshot: game.screenshot,
-          gameOver: game.gameOver,
-          lastClickedTile: game.lastClickedTile,
-          opponentName: p.number === 1 ? p2User.name : p1User.name,
-          gameChat: game.messages,
-          observers: game.observers,
-          player1Name: p1User.name,
-          player2Name: p2User.name
-        });
-      }
-    });
+          gameOver: false,
+          status: 'active',
+          lastUpdated: Timestamp.now()
+        }, { merge: true });
 
-    emitLobbyPlayersList();
+        // Clear all pending invites associated with these users using the incoming inviteId
+        clearAllRelatedInvitesForUsers([inviterPlayer.userId, respondingPlayer.userId], inviteId);
+
+        // Notify both players and send the initial state
+        gamePlayers.forEach(p => {
+          if (p.socketId) {
+            io.sockets.sockets.get(p.socketId)?.join(newGameId);
+            io.to(p.socketId).emit("game-start", {
+              gameId: game.gameId,
+              gameType: game.gameType,
+              playerNumber: p.number,
+              board: serializedBoard,
+              turn: game.turn,
+              scores: game.scores,
+              bombsUsed: game.bombsUsed,
+              screenshot: game.screenshot,
+              gameOver: game.gameOver,
+              lastClickedTile: game.lastClickedTile,
+              opponentName: p.number === 1 ? p2User.name : p1User.name,
+              gameChat: game.messages,
+              observers: game.observers,
+              player1Name: p1User.name,
+              player2Name: p2User.name
+            });
+          }
+        });
+
+        emitLobbyPlayersList();
 } else if (originalInvite.gameType === '2v2') {
             console.log(`[2v2 Invite] User ${respondingPlayer.name} (${respondingUserId}) accepted invite ${inviteId}.`);
 
