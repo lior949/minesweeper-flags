@@ -925,6 +925,40 @@ io.on("connection", (socket) => {
       console.log(`Unauthenticated socket ${socket.id} connected.`);
   }
 
+  socket.on("custom-feature-action", async ({ gameId, payload }) => {
+    const game = games[gameId];
+    if (!game || game.gameOver) return;
+
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+
+    if (!userId) {
+        socket.emit("game-error", "Authentication required.");
+        return;
+    }
+
+    // 1. Process custom feature logic on game state
+    game.customFeatureData = payload;
+
+    // 2. Broadcast board/state update to room
+    io.to(gameId).emit("board-update", {
+        gameId: game.gameId,
+        board: JSON.stringify(game.board),
+        turn: game.turn,
+        scores: game.scores,
+        bombsUsed: game.bombsUsed,
+        gameOver: game.gameOver,
+        lastClickedTile: game.lastClickedTile,
+        customFeatureData: game.customFeatureData
+    });
+
+    // 3. Persist update asynchronously to Firestore
+    db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+        customFeatureData: game.customFeatureData,
+        lastUpdated: Timestamp.now()
+    }, { merge: true }).catch(err => console.error("Firestore feature sync error:", err));
+});
+
 // Lobby Join Event
   socket.on("join-lobby", (name) => {
     // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
