@@ -247,7 +247,6 @@ async function parseScreenshotToBoard(base64Image) {
       const cH = Math.floor(cellHeight);
 
       let bluePixelCount = 0;
-      let totalBlueIntensity = 0;
       let greenPx = 0;
       let redPx = 0;
       let brownPx = 0;   // For 5
@@ -267,9 +266,8 @@ async function parseScreenshotToBoard(base64Image) {
           if (r < 60 && g < 60 && b < 60) {
             blackPx++; // 7 (Black)
           } else if (r < 60 && g < 60 && b > 80) {
-            // Collects ALL blue pixels for both 1 and 4
+            // Count any blue text pixels for both 1 and 4
             bluePixelCount++;
-            totalBlueIntensity += b;
           } else if (g > 110 && g > r && g > b) {
             greenPx++;  // 2 (Green)
           } else if (r > 140 && g < 90 && b < 90) {
@@ -291,14 +289,12 @@ async function parseScreenshotToBoard(base64Image) {
         else if (blackPx >= 3) board[y][x].adjacentMines = 7;
         else if (cyanPx >= 3) board[y][x].adjacentMines = 6;
         else if (brownPx >= 3) board[y][x].adjacentMines = 5;
+        // Since both 1 and 4 are blue, 4 is a wider glyph with more pixels than 1.
         else if (bluePixelCount >= 3) {
-          const avgBlue = totalBlueIntensity / bluePixelCount;
-          // 1 is bright blue (~255), 4 is dark navy (~154). 
-          // 190 acts as an unshakeable dividing line.
-          if (avgBlue > 190) {
-            board[y][x].adjacentMines = 1;
+          if (bluePixelCount >= 28) {
+            board[y][x].adjacentMines = 4; // Wide multi-stroke glyph
           } else {
-            board[y][x].adjacentMines = 4;
+            board[y][x].adjacentMines = 1; // Narrow single-stroke glyph
           }
         }
         else if (redPx >= 3) board[y][x].adjacentMines = 3;
