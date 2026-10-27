@@ -57,11 +57,19 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      // 1. דגימת צבע הרקע של המשבצת (בפינה בתוך 15% שוליים)
-      const bgPx = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.15), tileY + Math.floor(cH * 0.15)));
-      
-      // רקע צהוב: R ו-G גבוהים באופן משמעותי מ-B
-      const isYellowBg = bgPx.r > 120 && bgPx.g > 100 && bgPx.b < bgPx.r - 30;
+      // 1. Multi-point interior sampling to bypass colored selection borders (Red/Blue outlines)
+      const samplePoints = [
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.25))),
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.75), tileY + Math.floor(cH * 0.25))),
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.75))),
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.50), tileY + Math.floor(cH * 0.50)))
+      ];
+
+      // A tile is revealed if AT LEAST ONE sample point hits yellow canvas background
+      // Yellow canvas: Red > 130, Green > 110, Blue < 140, and Red/Green significantly higher than Blue
+      const isYellowBg = samplePoints.some(px => 
+        px.r > 130 && px.g > 110 && (px.r + px.g) / 2 > px.b + 30
+      );
 
       if (isYellowBg) {
         board[y][x].revealed = true;
@@ -70,52 +78,47 @@ async function parseScreenshotToBoard(base64Image) {
         let greenPx = 0;
         let redPx = 0;
         let purplePx = 0;
-        let blackPolePx = 0;
+        let darkPolePx = 0;
 
-        // סריקה בלעדית של מרכז המשבצת (30% עד 70%)
-        const startX = tileX + Math.floor(cW * 0.3);
-        const endX = tileX + Math.floor(cW * 0.7);
-        const startY = tileY + Math.floor(cH * 0.3);
-        const endY = tileY + Math.floor(cH * 0.7);
+        // 2. Scan central 50% core of the tile
+        const startX = tileX + Math.floor(cW * 0.25);
+        const endX = tileX + Math.floor(cW * 0.75);
+        const startY = tileY + Math.floor(cH * 0.25);
+        const endY = tileY + Math.floor(cH * 0.75);
 
         for (let py = startY; py < endY; py++) {
           for (let px = startX; px < endX; px++) {
             const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-            // בדיקת מנוגדות מצבע הרקע הצהוב (הימנעות מכפילות עם הרקע המוזהב)
-            const isNonBgPixel = (bgPx.g - g > 30) || (b > bgPx.b + 30) || (r < bgPx.r - 50);
-
-            if (isNonBgPixel) {
-              // עמוד שחור של דגל
-              if (r < 70 && g < 70 && b < 70) {
-                blackPolePx++;
-              }
-              // סגול (4): R ו-B דומיננטיים לעומת G
-              else if (r > 100 && b > 100 && g < 80) {
-                purplePx++;
-              }
-              // כחול (1 או דגל כחול): B דומיננטי
-              else if (b > 120 && b > r + 30) {
-                bluePx++;
-              }
-              // ירוק (2): G דומיננטי
-              else if (g > 100 && g > r + 20 && g > b + 20) {
-                greenPx++;
-              }
-              // אדום (3 או דגל אדום): R דומיננטי עם G נמוך במיוחד
-              else if (r > 140 && g < 60 && b < 60) {
-                redPx++;
-              }
+            // Dark Pole / Flag Base Shadow (#000000 / Dark Gray)
+            if (r < 75 && g < 75 && b < 75) {
+              darkPolePx++;
+            }
+            // Purple/Magenta (Number 4)
+            else if (r > 110 && b > 110 && g < 80) {
+              purplePx++;
+            }
+            // Blue (Number 1 or Blue Flag)
+            else if (b > 130 && b > r + 30) {
+              bluePx++;
+            }
+            // Green (Number 2)
+            else if (g > 110 && g > r + 20 && g > b + 20) {
+              greenPx++;
+            }
+            // Red (Number 3 or Red Flag)
+            else if (r > 140 && g < 80 && b < 80) {
+              redPx++;
             }
           }
         }
 
-        // 2. קביעת סוג התוכן
-        const hasPole = blackPolePx >= 1;
+        // 3. Flags vs Numbers classification
+        const isFlag = darkPolePx >= 1;
 
-        if (hasPole && (redPx >= 2 || bluePx >= 2)) {
+        if (isFlag && (redPx >= 1 || bluePx >= 1)) {
           board[y][x].isMine = true;
-          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2;
+          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2; // Team 1 = Red, Team 2 = Blue
         } else if (purplePx >= 2) {
           board[y][x].adjacentMines = 4;
         } else if (redPx >= 2) {
@@ -125,10 +128,12 @@ async function parseScreenshotToBoard(base64Image) {
         } else if (bluePx >= 2) {
           board[y][x].adjacentMines = 1;
         } else {
-          board[y][x].adjacentMines = 0; // משבצת צהובה נקי/ריקה
+          // Blank yellow tile (0 adjacent mines)
+          board[y][x].adjacentMines = 0;
         }
       } else {
-        board[y][x].revealed = false; // משבצת כחולה בלתי חשופה
+        // Unrevealed blue tile
+        board[y][x].revealed = false;
       }
     }
   }
