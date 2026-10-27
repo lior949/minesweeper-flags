@@ -57,56 +57,70 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      // Sample background color (top-left inner padding of the tile)
-      const bgHex = image.getPixelColor(tileX + Math.floor(cW * 0.2), tileY + Math.floor(cH * 0.2));
-      const bgRgba = Jimp.intToRGBA(bgHex);
+      // Sample border pixel vs inner tile pixel to accurately check tile revelation
+      const cornerRgba = Jimp.intToRGBA(image.getPixelColor(tileX + 2, tileY + 2));
+      const centerRgba = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW / 2), tileY + Math.floor(cH / 2)));
 
-      // Is it a revealed yellow tile background?
-      const isYellowTile = bgRgba.r > 200 && bgRgba.g > 150 && bgRgba.b < 100;
+      // Revealed tiles have high Red/Green channel values (Yellow/Orange background)
+      const isRevealed = (cornerRgba.r > 150 && cornerRgba.g > 120) || (centerRgba.r > 180 && centerRgba.g > 150);
 
-      if (isYellowTile) {
+      if (isRevealed) {
         board[y][x].revealed = true;
 
-        // Scan the central 50% area of the tile to check text/flag colors
-        let bluePixels = 0;
-        let greenPixels = 0;
-        let redPixels = 0;
-        let darkFlagPixels = 0;
+        // Scan central tile area (inner 60% box)
+        let counts = {
+          blue1: 0,   // Number 1
+          green2: 0,  // Number 2
+          red3: 0,    // Number 3
+          purple4: 0, // Number 4
+          redFlag: 0, // Team 1 Flag
+          blueFlag: 0 // Team 2 Flag
+        };
 
-        const startX = tileX + Math.floor(cW * 0.25);
-        const endX = tileX + Math.floor(cW * 0.75);
-        const startY = tileY + Math.floor(cH * 0.25);
-        const endY = tileY + Math.floor(cH * 0.75);
+        const startX = tileX + Math.floor(cW * 0.2);
+        const endX = tileX + Math.floor(cW * 0.8);
+        const startY = tileY + Math.floor(cH * 0.2);
+        const endY = tileY + Math.floor(cH * 0.8);
 
         for (let py = startY; py < endY; py++) {
           for (let px = startX; px < endX; px++) {
-            const pixelHex = image.getPixelColor(px, py);
-            const { r, g, b } = Jimp.intToRGBA(pixelHex);
+            const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-            // Blue text (Number 1)
-            if (b > 180 && r < 80 && g < 120) bluePixels++;
+            // Purple / Magenta text (Number 4)
+            if (r > 120 && b > 120 && g < 80) counts.purple4++;
+            // Blue text or Blue Flag (Team 2)
+            else if (b > 160 && r < 100 && g < 140) counts.blue1++;
             // Green text (Number 2)
-            else if (g > 150 && r < 80 && b < 80) greenPixels++;
-            // Red text (Number 3) or Red Flag
-            else if (r > 180 && g < 60 && b < 60) redPixels++;
-            // Dark pole/flag body
-            else if (r < 50 && g < 50 && b < 50) darkFlagPixels++;
+            else if (g > 140 && r < 100 && b < 100) counts.green2++;
+            // Red text (Number 3) or Red Flag (Team 1)
+            else if (r > 180 && g < 70 && b < 70) counts.red3++;
+            // Dark pole / flag icon shadow
+            else if (r < 60 && g < 60 && b < 60) {
+              // Contextually check if neighboring pixel is pure Red or Blue
+              const rightPx = Jimp.intToRGBA(image.getPixelColor(Math.min(px + 2, endX), py));
+              if (rightPx.r > 160) counts.redFlag++;
+              else if (rightPx.b > 160) counts.blueFlag++;
+            }
           }
         }
 
-        // Differentiate based on dominant inner color
-        if (darkFlagPixels > 8) {
-          // Flag tile (Team 1 or 2 based on red vs blue accent)
+        // Assign classification based on highest match count threshold
+        if (counts.redFlag > 4) {
           board[y][x].isMine = true;
-          board[y][x].ownerTeam = redPixels > 5 ? 1 : 2;
-        } else if (bluePixels > 8) {
-          board[y][x].adjacentMines = 1;
-        } else if (greenPixels > 8) {
-          board[y][x].adjacentMines = 2;
-        } else if (redPixels > 8) {
+          board[y][x].ownerTeam = 1;
+        } else if (counts.blueFlag > 4) {
+          board[y][x].isMine = true;
+          board[y][x].ownerTeam = 2;
+        } else if (counts.purple4 > 6) {
+          board[y][x].adjacentMines = 4;
+        } else if (counts.red3 > 6) {
           board[y][x].adjacentMines = 3;
+        } else if (counts.green2 > 6) {
+          board[y][x].adjacentMines = 2;
+        } else if (counts.blue1 > 6) {
+          board[y][x].adjacentMines = 1;
         } else {
-          // Blank yellow tile (0 adjacent mines)
+          // Blank yellow square with 0 adjacent mines
           board[y][x].adjacentMines = 0;
         }
       } else {
