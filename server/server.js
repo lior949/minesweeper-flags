@@ -2000,199 +2000,91 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
 
   socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
-  const game = games[gameId];
-  if (!game || game.gameOver) {
-    return;
-  }
-
-  const isMidGameSetup = Boolean(game.screenshot);
-
-  // Standard safe-first-click board generation (ONLY for standard, non-midgame setups)
-  if (!game.moves || game.moves.length === 0) {
-    if (!isMidGameSetup) {
-      game.board = generateBoard(x, y);
+    const game = games[gameId];
+    if (!game || game.gameOver) {
+      return;
     }
-  }
 
-  game.clickStartTime = clickStartTime;
+    const isMidGameSetup = Boolean(game.screenshot);
 
-  const user = socket.request.session?.passport?.user || socket.request.user || null;
-  const userId = user ? (user.id || socket.request.user?.id) : null;
-
-  if (!userId) {
-    socket.emit("game-error", "Authentication required to make moves.");
-    return;
-  }
-
-  const player = game.players.find((p) => p.userId === userId);
-  if (!player || player.number !== game.turn) {
-    return;
-  }
-
-  player.socketId = socket.id;
-
-  const tile = game.board[y][x];
-  if (tile.revealed) {
-    return;
-  }
-
-  game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
-
-  if (tile.isMine) {
-    tile.revealed = true;
-    tile.owner = player.number;
-    tile.ownerTeam = player.team;
-    game.scores[player.team]++;
-
-    if (checkGameOver(game.scores)) {
-      game.gameOver = true;
-      game.players.forEach(p => delete userGameMap[p.userId]);
-      emitLobbyPlayersList();
-    }
-  } else {
-    // Dynamically calculate adjacent mine counts around the clicked tile for midgame boards
-    if (isMidGameSetup) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const ny = y + dy;
-          const nx = x + dx;
-          if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
-            let count = 0;
-            for (let ndy = -1; ndy <= 1; ndy++) {
-              for (let ndx = -1; ndx <= 1; ndx++) {
-                if (ndx === 0 && ndy === 0) continue;
-                const nny = ny + ndy;
-                const nnx = nx + ndx;
-                if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
-                  if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
-                    count++;
-                  }
-                }
-              }
-            }
-            game.board[ny][nx].adjacentMines = count;
-          }
-        }
+    // Standard safe-first-click board generation (ONLY for standard, non-midgame setups)
+    if (!game.moves || game.moves.length === 0) {
+      if (!isMidGameSetup) {
+        game.board = generateBoard(x, y);
       }
     }
 
-    revealRecursive(game.board, x, y);
+    game.clickStartTime = clickStartTime;
 
-    if (game.gameType === '1v1') {
-      game.turn = game.turn === 1 ? 2 : 1;
-    } else if (game.gameType === '2v2') {
-      game.turn = getNext2v2Turn(game.turn);
+    const user = socket.request.session?.passport?.user || socket.request.user || null;
+    const userId = user ? (user.id || socket.request.user?.id) : null;
+
+    if (!userId) {
+      socket.emit("game-error", "Authentication required to make moves.");
+      return;
     }
-  }
 
-  if (!game.moves) game.moves = [];
-  game.moves.push({
-    type: 'click',
-    playerNumber: player.number,
-    team: player.team,
-    x,
-    y,
-    timestamp: Date.now()
-  });
-
-  if (!game.gameOver) {
-    const nextPlayer = game.players.find(p => p.number === game.turn);
-    if (nextPlayer && nextPlayer.isAi) {
-      processAiTurn(gameId);
+    const player = game.players.find((p) => p.userId === userId);
+    if (!player || player.number !== game.turn) {
+      return;
     }
-  }
 
-  const cachedBoardString = JSON.stringify(game.board);
+    player.socketId = socket.id;
 
-  io.to(gameId).emit("board-update", {
-    gameId: game.gameId,
-    board: cachedBoardString,
-    turn: game.turn,
-    scores: game.scores,
-    bombsUsed: game.bombsUsed,
-    gameOver: game.gameOver,
-    lastClickedTile: game.lastClickedTile,
-    observers: game.observers,
-    clickStartTime: game.clickStartTime
-  });
+    const tile = game.board[y][x];
+    if (tile.revealed) {
+      return;
+    }
 
-  const newStatus = game.gameOver ? 'completed' : 'active';
-  db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-    board: cachedBoardString,
-    turn: game.turn,
-    scores: game.scores,
-    bombsUsed: game.bombsUsed,
-    gameOver: game.gameOver,
-    lastClickedTile: game.lastClickedTile,
-    status: newStatus,
-    moves: game.moves,
-    lastUpdated: Timestamp.now(),
-    winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
-    loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
-    observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-  }, { merge: true }).catch(error => {
-    console.error("Error updating game in Firestore:", error);
-  });
-});
-        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-          board: serializedBoard,
-          scores: game.scores,
-          bombsUsed: game.bombsUsed,
-          turn: game.turn,
-          gameOver: game.gameOver,
-          lastClickedTile: game.lastClickedTile,
-          moves: game.moves,
-          status: 'active',
-          lastUpdated: Timestamp.now(),
-          winnerTeam: null,
-          loserTeam: null,
-          messages: game.messages,
-          observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-        }, { merge: true }).catch(error => {
-          console.error("Error restarting game in Firestore:", error);
-        });
+    game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
 
-        return;
+    if (tile.isMine) {
+      tile.revealed = true;
+      tile.owner = player.number;
+      tile.ownerTeam = player.team;
+      game.scores[player.team]++;
+
+      if (checkGameOver(game.scores)) {
+        game.gameOver = true;
+        game.players.forEach(p => delete userGameMap[p.userId]);
+        emitLobbyPlayersList();
       }
-
-      if (!tile.isMine) {
-        if (isMidGameSetup) {
-          // Recalculate dynamic adjacent mines for target tile and its immediate neighborhood
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const ny = y + dy;
-              const nx = x + dx;
-              if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
-                let count = 0;
-                for (let ndy = -1; ndy <= 1; ndy++) {
-                  for (let ndx = -1; ndx <= 1; ndx++) {
-                    if (ndx === 0 && ndy === 0) continue;
-                    const nny = ny + ndy;
-                    const nnx = nx + ndx;
-                    if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
-                      if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
-                        count++;
-                      }
+    } else {
+      // Dynamically calculate adjacent mine counts around the clicked tile for midgame boards
+      if (isMidGameSetup) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const ny = y + dy;
+            const nx = x + dx;
+            if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
+              let count = 0;
+              for (let ndy = -1; ndy <= 1; ndy++) {
+                for (let ndx = -1; ndx <= 1; ndx++) {
+                  if (ndx === 0 && ndy === 0) continue;
+                  const nny = ny + ndy;
+                  const nnx = nx + ndx;
+                  if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
+                    if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
+                      count++;
                     }
                   }
                 }
-                game.board[ny][nx].adjacentMines = count;
               }
+              game.board[ny][nx].adjacentMines = count;
             }
           }
         }
+      }
 
-        revealRecursive(game.board, x, y);
+      revealRecursive(game.board, x, y);
 
-        if (game.gameType === '1v1') {
-          game.turn = game.turn === 1 ? 2 : 1;
-        } else if (game.gameType === '2v2') {
-          game.turn = getNext2v2Turn(game.turn);
-        }
+      if (game.gameType === '1v1') {
+        game.turn = game.turn === 1 ? 2 : 1;
+      } else if (game.gameType === '2v2') {
+        game.turn = getNext2v2Turn(game.turn);
       }
     }
 
-    // Single, unified move recording
     if (!game.moves) game.moves = [];
     game.moves.push({
       type: 'click',
@@ -2203,7 +2095,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
       timestamp: Date.now()
     });
 
-    // AI Turn triggering
     if (!game.gameOver) {
       const nextPlayer = game.players.find(p => p.number === game.turn);
       if (nextPlayer && nextPlayer.isAi) {
