@@ -1051,8 +1051,8 @@ io.on("connection", (socket) => {
       myColor: data.myColor,
       bombsUsed: data.bombsUsed,
       screenshot: data.screenshot,
-      initialBoard: parsedData.board,
-      initialScores: parsedData.initialScores
+      initialBoard: parsedData.board,       // <--- Ensures board array is saved
+      initialScores: parsedData.initialScores // <--- Ensures scores are saved
     };
 
     io.to(data.targetSocketId).emit("game-invite", pendingInvites[targetPlayer.userId][inviteId]);
@@ -1796,8 +1796,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         if (originalInvite.gameType === '1v1' || originalInvite.gameType === '1v1_midgame') {
             const newGameId = uuidv4();
 
-            const newBoard = (originalInvite.gameType === '1v1_midgame' && originalInvite.initialBoard)
-              ? originalInvite.initialBoard
+            const parsedInitialBoard = originalInvite.initialBoard;
+            const newBoard = (originalInvite.gameType === '1v1_midgame' && parsedInitialBoard)
+              ? parsedInitialBoard
               : generateBoard();
 
             const initialScores = originalInvite.initialScores || { 1: 0, 2: 0 };
