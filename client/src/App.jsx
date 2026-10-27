@@ -1531,7 +1531,6 @@ const [screenshotFile, setScreenshotFile] = useState(null);
         </div>
       </div>
     )}
-            </div>
 
             <div className="game-mode-selection">
               <label>
