@@ -173,16 +173,50 @@ function App() {
   const [isReplayAutoPlaying, setIsReplayAutoPlaying] = useState(false);
   const replayTimerRef = useRef(null);
 
-  const handleCustomFeature = () => {
-    if (socketRef.current && socketRef.current.connected && gameId) {
-      socketRef.current.emit("custom-feature-action", {
-        gameId,
-        payload: "example_data",
-      });
-    } else {
-      addGameMessage("Server", "Cannot trigger action: Not connected or not in a game.", true);
-    }
+const [showMidGameModal, setShowMidGameModal] = useState(false);
+const [midGameOpponentId, setMidGameOpponentId] = useState("");
+const [midGameTurn, setMidGameTurn] = useState("1"); // "1" or "2"
+const [midGameMyColor, setMidGameMyColor] = useState("red"); // "red" (P1) or "blue" (P2)
+const [p1BombUsed, setP1BombUsed] = useState(false);
+const [p2BombUsed, setP2BombUsed] = useState(false);
+const [screenshotFile, setScreenshotFile] = useState(null);
+
+  const handleSendMidGameInvite = (e) => {
+  e.preventDefault();
+  if (!midGameOpponentId) {
+    showMessage("Please select an opponent.", true);
+    return;
+  }
+
+  // Convert uploaded image file to Base64 (if provided)
+  const sendInvite = (base64Image) => {
+    socketRef.current.emit("invite-midgame-setup", {
+      targetSocketId: midGameOpponentId,
+      turn: parseInt(midGameTurn, 10),
+      myColor: midGameMyColor,
+      bombsUsed: { 1: p1BombUsed, 2: p2BombUsed },
+      screenshot: base64Image
+    });
+    setShowMidGameModal(false);
+    showMessage("Mid-game setup invitation sent!");
   };
+
+  if (screenshotFile) {
+    const reader = new FileReader();
+    reader.onload = () => sendInvite(reader.result);
+    reader.readAsDataURL(screenshotFile);
+  } else {
+    sendInvite(null);
+  }
+};
+
+  const handleCustomFeature = () => {
+  if (!isSocketConnected) {
+    showMessage("Not connected to server.", true);
+    return;
+  }
+  setShowMidGameModal(true);
+};
 
   const navigateToReplays = () => {
     window.history.pushState({}, "", "/replays");
@@ -1381,25 +1415,122 @@ function App() {
           </div>
         )}
 
-        {!gameId && !replayData && ( 
-            <>
-            <h2>Lobby - Online Players</h2>
-            <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '10px 0' }}>
-              <button onClick={logout} className="bomb-button">Logout</button>
-              <button onClick={navigateToReplays} className="bomb-button" style={{ background: '#3b82f6' }}>
-                📜 Stats & Game History
-              </button>
-              {playerNumber !== 0 && (
-              <button 
-                className="bomb-button"
-                onClick={handleCustomFeature}
-                disabled={!isSocketConnected || gameOver}
-                style={{ width: '100%', margin: '8px 0 0 0', background: '#8b5cf6' }}
+        {!gameId && !replayData && (  
+  <>
+    <h2>Lobby - Online Players</h2>
+    <p>Logged in as: <b>{name} {isGuest && "(Guest)"}</b></p>
+    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '10px 0' }}>
+      <button onClick={logout} className="bomb-button">Logout</button>
+      <button onClick={navigateToReplays} className="bomb-button" style={{ background: '#3b82f6' }}>
+        📜 Stats & Game History
+      </button>
+      <button onClick={handleCustomFeature} className="bomb-button" style={{ background: '#8b5cf6' }}>
+        ⚙️ Mid-Game Setup
+      </button>
+    </div>
+
+    {/* Mid-Game Setup Modal */}
+    {showMidGameModal && (
+      <div className="invite-modal-overlay">
+        <div className="invite-modal-card" style={{ maxWidth: '450px', width: '90%' }}>
+          <h3>Setup Mid-Game Resume</h3>
+          <form onSubmit={handleSendMidGameInvite} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            
+            {/* Opponent Selection */}
+            <label style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '4px' }}>
+              Select Opponent:
+              <select 
+                value={midGameOpponentId} 
+                onChange={(e) => setMidGameOpponentId(e.target.value)}
+                required
+                style={{ padding: '8px', borderRadius: '4px' }}
               >
-                  Custom Feature
+                <option value="">-- Select Player --</option>
+                {playersList
+                  .filter(p => socketRef.current && p.id !== socketRef.current.id && !p.gameId)
+                  .map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))
+                }
+              </select>
+            </label>
+
+            {/* Player Color / Role */}
+            <label style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '4px' }}>
+              Your Role / Color:
+              <select 
+                value={midGameMyColor} 
+                onChange={(e) => setMidGameMyColor(e.target.value)}
+                style={{ padding: '8px', borderRadius: '4px' }}
+              >
+                <option value="red">Player 1 (Red)</option>
+                <option value="blue">Player 2 (Blue)</option>
+              </select>
+            </label>
+
+            {/* Current Turn */}
+            <label style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '4px' }}>
+              Whose Turn Is It Now?
+              <select 
+                value={midGameTurn} 
+                onChange={(e) => setMidGameTurn(e.target.value)}
+                style={{ padding: '8px', borderRadius: '4px' }}
+              >
+                <option value="1">Player 1 (Red)</option>
+                <option value="2">Player 2 (Blue)</option>
+              </select>
+            </label>
+
+            {/* Bomb Status */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', textAlign: 'left' }}>
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={p1BombUsed} 
+                  onChange={(e) => setP1BombUsed(e.target.checked)} 
+                />
+                P1 Bomb Used
+              </label>
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={p2BombUsed} 
+                  onChange={(e) => setP2BombUsed(e.target.checked)} 
+                />
+                P2 Bomb Used
+              </label>
+            </div>
+
+            {/* Screenshot Upload */}
+            <label style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', gap: '4px' }}>
+              Upload Mid-Game Print-Screen:
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={(e) => setScreenshotFile(e.target.files[0])}
+                required
+                style={{ padding: '4px' }}
+              />
+            </label>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              <button type="submit" className="btn-accept" style={{ flex: 1, padding: '10px' }}>
+                Send Invitation
               </button>
-            )}
+              <button 
+                type="button" 
+                className="btn-decline" 
+                onClick={() => setShowMidGameModal(false)}
+                style={{ flex: 1, padding: '10px' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
             </div>
 
             <div className="game-mode-selection">
@@ -1762,46 +1893,66 @@ function App() {
         )}
 
        {invites.length > 0 && (
-          <div className="invite-modal-overlay">
-            <div className="invite-modal-card" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-              <h3 style={{ margin: '0 0 12px 0', fontSize: '1.2rem', textAlign: 'center' }}>Game Invitations ({invites.length})</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {invites.map((inv) => (
-                  <div key={inv.inviteId} style={{ padding: '12px', background: '#334155', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px', border: '1px solid #475569' }}>
-                    <div style={{ fontWeight: '600', fontSize: '1rem', color: '#f8fafc' }}>
-                      {inv.gameType === '2v2' ? (
-                        <>
-                          2v2 Invitation from <b>{inv.senderName}</b>.<br/>
-                          <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                            Invited: {inv.invitedPlayersInfo?.map(p => p.name).join(', ')}
-                          </span>
-                        </>
-                      ) : (
-                        <>Invitation from <b>{inv.senderName}</b></>
-                      )}
-                    </div>
-                    <div className="invite-actions">
-                      <button 
-                        className="btn-accept" 
-                        onClick={() => respondInvite(inv.inviteId, true)}
-                        style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        ACCEPT
-                      </button>
-                      <button 
-                        className="btn-decline" 
-                        onClick={() => respondInvite(inv.inviteId, false)}
-                        style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        DECLINE
-                      </button>
-                    </div>
-                  </div>
-                ))}
+  <div className="invite-modal-overlay">
+    <div className="invite-modal-card" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+      <h3 style={{ margin: '0 0 12px 0', fontSize: '1.2rem', textAlign: 'center' }}>
+        Game Invitations ({invites.length})
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {invites.map((inv) => (
+          <div key={inv.inviteId} style={{ padding: '12px', background: '#334155', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px', border: '1px solid #475569' }}>
+            <div style={{ fontWeight: '600', fontSize: '1rem', color: '#f8fafc' }}>
+              {inv.gameType === '2v2' ? (
+                <>
+                  2v2 Invitation from <b>{inv.senderName}</b>.<br/>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                    Invited: {inv.invitedPlayersInfo?.map(p => p.name).join(', ')}
+                  </span>
+                </>
+              ) : (
+                <>Invitation from <b>{inv.senderName}</b></>
+              )}
+            </div>
+
+            {/* MID-GAME INVITATION PREVIEW */}
+            {inv.gameType === '1v1_midgame' && (
+              <div className="midgame-invite-preview" style={{ background: '#1e293b', padding: '8px', borderRadius: '6px' }}>
+                <p style={{ fontSize: '0.85rem', color: '#cbd5e1', margin: '4px 0' }}>
+                  <strong>Starting Turn:</strong> Player {inv.turn} | 
+                  <strong> Bombs Used:</strong> P1: {inv.bombsUsed?.[1] ? 'Yes' : 'No'}, P2: {inv.bombsUsed?.[2] ? 'Yes' : 'No'}
+                </p>
+                {inv.screenshot && (
+                  <img 
+                    src={inv.screenshot} 
+                    alt="Board Screenshot" 
+                    style={{ width: '100%', maxHeight: '180px', objectFit: 'contain', borderRadius: '4px', marginTop: '6px' }} 
+                  />
+                )}
               </div>
+            )}
+
+            <div className="invite-actions" style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className="btn-accept" 
+                onClick={() => respondInvite(inv.inviteId, true)}
+                style={{ background: '#10b981', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', flex: 1 }}
+              >
+                ACCEPT
+              </button>
+              <button 
+                className="btn-decline" 
+                onClick={() => respondInvite(inv.inviteId, false)}
+                style={{ background: '#ef4444', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', flex: 1 }}
+              >
+                DECLINE
+              </button>
             </div>
           </div>
-        )}
+        ))}
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
