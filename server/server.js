@@ -47,7 +47,6 @@ function distributeMinesForParsedBoard(board) {
               if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
                 existingMinesAround++;
               } else if (!board[ny][nx].revealed) {
-                // Only collect safe unrevealed tiles that aren't already counted
                 if (!unrevealedNeighbors.some(n => n.x === nx && n.y === ny)) {
                   unrevealedNeighbors.push({ x: nx, y: ny });
                 }
@@ -56,14 +55,12 @@ function distributeMinesForParsedBoard(board) {
           }
         }
 
-        // Calculate how many *additional* mines this number needs
         const needed = board[y][x].adjacentMines - existingMinesAround;
         
-        // If it needs mines and has available unrevealed neighbors, place them safely
         if (needed > 0 && unrevealedNeighbors.length >= needed) {
           unrevealedNeighbors.sort(() => Math.random() - 0.5);
           for (let i = 0; i < needed; i++) {
-            const pos = unrevealedNeighbors;
+            const pos = unrevealedNeighbors[i]; // <--- FIXED: Added [i] index reference
             board[pos.y][pos.x].isMine = true;
           }
         }
@@ -116,6 +113,103 @@ function distributeMinesForParsedBoard(board) {
   }
 
   return board;
+}
+
+async function parseScreenshotToBoard(base64Image) {
+  const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
+  const imageBuffer = Buffer.from(base64Data, 'base64');
+  
+  const image = await Jimp.read(imageBuffer);
+  
+  const width = 16;
+  const height = 16;
+  const cellWidth = image.bitmap.width / width;
+  const cellHeight = image.bitmap.height / height;
+
+  const initialScores = { 1: 0, 2: 0 };
+
+  const board = Array.from({ length: height }, () =>
+    Array.from({ length: width }, () => ({
+      isMine: false,
+      revealed: false,
+      adjacentMines: 0,
+      owner: null,
+      ownerTeam: null,
+    }))
+  );
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const tileX = Math.floor(x * cellWidth);
+      const tileY = Math.floor(y * cellHeight);
+      const cW = Math.floor(cellWidth);
+      const cH = Math.floor(cellHeight);
+
+      let bluePx = 0;
+      let greenPx = 0;
+      let redPx = 0;
+      let purplePx = 0;
+      let darkPolePx = 0;
+
+      const startX = tileX + Math.floor(cW * 0.25);
+      const endX = tileX + Math.floor(cW * 0.75);
+      const startY = tileY + Math.floor(cH * 0.25);
+      const endY = tileY + Math.floor(cH * 0.75);
+
+      for (let py = startY; py < endY; py++) {
+        for (let px = startX; px < endX; px++) {
+          const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
+
+          if (r < 75 && g < 75 && b < 75) darkPolePx++;
+          else if (r > 110 && b > 110 && g < 80) purplePx++;
+          else if (b > 130 && b > r + 25) bluePx++;
+          else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
+          else if (r > 140 && g < 80 && b < 80) redPx++;
+        }
+      }
+
+      // FLAG OVERRIDE
+      const hasFlagPole = darkPolePx >= 1;
+      const isBlueFlag = hasFlagPole && bluePx >= 1;
+      const isRedFlag = hasFlagPole && redPx >= 1;
+
+      if (isRedFlag || isBlueFlag) {
+        const team = isRedFlag ? 1 : 2;
+        board[y][x].revealed = true;
+        board[y][x].isMine = true;
+        board[y][x].ownerTeam = team;
+        initialScores[team]++;
+        continue;
+      }
+
+      // Sample interior background
+      const samplePoints = [
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.25))),
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.75), tileY + Math.floor(cH * 0.25))),
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.75))),
+        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.50), tileY + Math.floor(cH * 0.50)))
+      ];
+
+      const isYellowBg = samplePoints.some(px => 
+        px.r > 130 && px.g > 110 && (px.r + px.g) / 2 > px.b + 30
+      );
+
+      if (isYellowBg) {
+        board[y][x].revealed = true;
+        if (purplePx >= 2) board[y][x].adjacentMines = 4;
+        else if (redPx >= 2) board[y][x].adjacentMines = 3;
+        else if (greenPx >= 2) board[y][x].adjacentMines = 2;
+        else if (bluePx >= 2) board[y][x].adjacentMines = 1;
+        else board[y][x].adjacentMines = 0;
+      } else {
+        board[y][x].revealed = false;
+      }
+    }
+  }
+
+  distributeMinesForParsedBoard(board);
+
+  return { board, initialScores };
 }
 async function parseScreenshotToBoard(base64Image) {
   const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
