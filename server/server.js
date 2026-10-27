@@ -249,7 +249,7 @@ async function parseScreenshotToBoard(base64Image) {
       let bluePx = 0;
       let greenPx = 0;
       let redPx = 0;
-      let purplePx = 0;  // Specifically for 4 (purple/magenta)
+      let purplePx = 0;  // Specifically for 4 (purple/magenta: needs high red + high blue)
       let brownPx = 0;   // For 5
       let cyanPx = 0;    // For 6
       let blackPx = 0;   // For 7
@@ -267,17 +267,17 @@ async function parseScreenshotToBoard(base64Image) {
 
           if (r < 75 && g < 75 && b < 75) darkPolePx++;
           // Black / Dark text (7)
-          else if (r < 60 && g < 60 && b < 60) blackPx++;
-          // Purple / Magenta text (4) -> High red and high blue, low green
-          else if (r > 80 && b > 80 && g < 70) purplePx++;
+          else if (r < 60 && g < 60 && g < 60) blackPx++;
+          // Purple / Magenta text (4) -> Requires strong red AND strong blue together
+          else if (r > 100 && b > 100 && g < 80) purplePx++;
           // Brown / Dark Orange text (5)
           else if (r > 100 && r < 160 && g > 60 && g < 110 && b < 60) brownPx++;
           // Cyan / Teal text (6)
           else if (r < 50 && g > 110 && b > 110) cyanPx++;
           // Olive Green text (8)
           else if (r > 80 && r < 140 && g > 90 && g < 150 && b < 50) olivePx++;
-          // Blue text (1) -> Pure blue, strictly separated from purple
-          else if (b > 130 && b > r + 30) bluePx++;
+          // Blue text (1) -> Pure blue with strictly low red
+          else if (b > 120 && r < 90 && g < 100) bluePx++;
           else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
           else if (r > 140 && g < 80 && b < 80) redPx++;
         }
