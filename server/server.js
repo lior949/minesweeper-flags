@@ -2202,7 +2202,6 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
   }, { merge: true }).catch(error => {
     console.error("Error updating game in Firestore:", error);
   });
-});
 
   socket.on("send-game-message", async ({ gameId, message }) => {
     const game = games[gameId];
