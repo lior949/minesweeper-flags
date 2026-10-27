@@ -83,9 +83,11 @@ function distributeMinesForParsedBoard(board) {
             }
 
             // Only place if we have exact or enough slots, and double check it doesn't break other constraints
-            if (unrevealedNeighbors.length >= needed) {
+            if (unrevealedNeighbors.length > 0) {
               unrevealedNeighbors.sort(() => Math.random() - 0.5);
-              for (let i = 0; i < needed; i++) {
+              const slotsToFill = Math.min(needed, unrevealedNeighbors.length);
+              
+              for (let i = 0; i < slotsToFill; i++) {
                 const pos = unrevealedNeighbors[i];
                 
                 // Safety check: ensure placing a mine here doesn't violate ANY adjacent revealed number
@@ -107,7 +109,7 @@ function distributeMinesForParsedBoard(board) {
                   if (!safeToPlace) break;
                 }
 
-                if (safeToPlace) {
+                if (safeToPlace && !board[pos.y][pos.x].isMine) {
                   board[pos.y][pos.x].isMine = true;
                   changed = true;
                 }
