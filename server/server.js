@@ -32,7 +32,7 @@ function distributeMinesForParsedBoard(board) {
   const width = board[0].length;
   let changed = true;
 
-  // Pass 1: Iteratively deduct deterministic mines based on OCR numbers & flags
+  // Pass 1: Deduct deterministic mines based on OCR numbers & flags
   while (changed) {
     changed = false;
     for (let y = 0; y < height; y++) {
@@ -70,10 +70,10 @@ function distributeMinesForParsedBoard(board) {
     }
   }
 
-  // Pass 2: Calculate correct adjacentMines count for ALL unrevealed tiles
+  // Pass 2: Calculate correct adjacentMines count for ALL non-mine tiles
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (!board[y][x].revealed) {
+      if (!board[y][x].isMine && board[y][x].ownerTeam === null) {
         let count = 0;
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
@@ -87,7 +87,10 @@ function distributeMinesForParsedBoard(board) {
             }
           }
         }
-        board[y][x].adjacentMines = count;
+        // Only update if the tile was unrevealed (preserve original OCR numbers on revealed tiles)
+        if (!board[y][x].revealed) {
+          board[y][x].adjacentMines = count;
+        }
       }
     }
   }
@@ -1789,9 +1792,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
               { userId: p2User.userId, name: p2User.name, number: 2, socketId: userSocketMap[p2User.userId], team: 2 },
             ];
 
+            const isMidgame = originalInvite.gameType === '1v1_midgame';
+
             const game = {
               gameId: newGameId,
               gameType: '1v1',
+              isMidgame: isMidgame, // Explicit boolean flag
               board: newBoard,
               players: gamePlayers,
               turn: originalInvite.turn || 1,
@@ -1802,7 +1808,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
               lastClickedTile: { 1: null, 2: null },
               messages: [],
               observers: [],
-              moves: []
+              moves: isMidgame ? [{ type: 'setup', timestamp: Date.now() }] : [] // Seed moves so safe-first-click is bypassed
             };
 
             games[newGameId] = game;
@@ -2005,14 +2011,14 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
       return;
     }
 
-    const isMidGameSetup = Boolean(game.screenshot);
+    const isMidGameSetup = game.isMidgame || Boolean(game.screenshot);
 
-    // Standard safe-first-click board generation (ONLY for standard, non-midgame setups)
-    if (!game.moves || game.moves.length === 0) {
-      if (!isMidGameSetup) {
-        game.board = generateBoard(x, y);
-      }
-    }
+
+
+   // Skip initial board regeneration for midgame matches
+if ((!game.moves || game.moves.length === 0) && !isMidGameSetup) {
+  game.board = generateBoard(x, y);
+}
 
     game.clickStartTime = clickStartTime;
 
