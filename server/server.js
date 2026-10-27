@@ -2200,21 +2200,23 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
     const isMidGameSetup = game.isMidgame || Boolean(game.screenshot);
 
-    // --- RESTORED ORIGINAL FIRST-CLICK BLANK SAFEGUARD ---
-    const isRegularGameFirstClick = !isMidGameSetup && (!game.moves || game.moves.length === 0);
-    
-    if (isRegularGameFirstClick) {
+    // Check if any mine or flag has been revealed yet in the game
+    const mineRevealed = game.scores[1] > 0 || game.scores[2] > 0 || game.board.some(row => row.some(cell => cell.isMine && cell.revealed));
+
+    // If no mine has been revealed yet, and the player clicks a blank tile (0 adjacent mines, not a mine),
+    // restart/regenerate the board layout right then and there.
+    if (!isMidGameSetup && !mineRevealed) {
       const clickedTile = game.board[y][x];
-      const hasAnyScoreOrRevealed = (game.scores[1] > 0 || game.scores[2] > 0);
-      
-      // If the first click hits a blank tile (0 adjacent mines, not a mine) and nothing is revealed yet:
-      if (clickedTile.adjacentMines === 0 && !clickedTile.isMine && !hasAnyScoreOrRevealed) {
-        // Keep generating new boards until the first click lands on a non-blank tile
-        let safetyLoop = 0;
-        while (clickedTile.adjacentMines === 0 && !clickedTile.isMine && safetyLoop < 100) {
-          safetyLoop++;
+      if (clickedTile.adjacentMines === 0 && !clickedTile.isMine) {
+        let safety = 0;
+        while (safety < 200) {
+          safety++;
           game.board = generateBoard();
-          // Re-evaluate the clicked coordinate on the freshly generated board
+          const freshTile = game.board[y][x];
+          // Stop regenerating when the clicked tile is a mine or a numbered tile (> 0)
+          if (freshTile.isMine || freshTile.adjacentMines > 0) {
+            break;
+          }
         }
       }
     }
