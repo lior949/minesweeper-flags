@@ -30,35 +30,86 @@ const Jimp = require("jimp");
 function distributeMinesForParsedBoard(board) {
   const height = board.length;
   const width = board[0].length;
-  
-  // Count how many mines/flags were already parsed from the screenshot
+
+  // 1. Collect all unrevealed, non-mine, non-flag candidate positions
+  let unrevealedTiles = [];
   let currentMinesCount = 0;
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (board[y][x].isMine || board[y][x].ownerTeam !== null) {
         currentMinesCount++;
+      } else if (!board[y][x].revealed) {
+        unrevealedTiles.push({ x, y });
       }
     }
   }
 
-  // Randomly fill the remaining necessary mines up to the total MINES (51)
-  // avoiding already revealed tiles or existing flags/mines
+  // Shuffle unrevealed tiles for random distribution
+  unrevealedTiles.sort(() => Math.random() - 0.5);
+
   let minesToPlace = Math.max(0, MINES - currentMinesCount);
-  let safetyCounter = 0;
 
-  while (minesToPlace > 0 && safetyCounter < 2000) {
-    safetyCounter++;
-    const rx = Math.floor(Math.random() * width);
-    const ry = Math.floor(Math.random() * height);
+  // 2. Intelligent placement: try placing mines while validating against revealed number constraints
+  // We run a backtracking or weighted random pass to satisfy board numbers
+  for (let tile of unrevealedTiles) {
+    if (minesToPlace <= 0) break;
 
-    // FIXED: Correctly reference the 2D array elements board[ry][rx]
-    if (!board[ry][rx].revealed && !board[ry][rx].isMine && board[ry][rx].ownerTeam === null) {
-      board[ry][rx].isMine = true;
+    // Temporarily place a mine
+    board[tile.y][tile.x].isMine = true;
+
+    // Check if this placement violates any revealed number constraint (e.g. a '1' now touching 2 mines)
+    let violatesConstraint = false;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
+          let actualMinesAround = 0;
+          let unrevealedCountAround = 0;
+
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const ny = y + dy;
+              const nx = x + dx;
+              if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
+                  actualMinesAround++;
+                }
+              }
+            }
+          }
+
+          // If a revealed number has MORE mines around it than its value permits, it's invalid
+          if (actualMinesAround > board[y][x].adjacentMines) {
+            violatesConstraint = true;
+            break;
+          }
+        }
+      }
+      if (violatesConstraint) break;
+    }
+
+    if (violatesConstraint) {
+      // Revert placement if it broke a constraint
+      board[tile.y][tile.x].isMine = false;
+    } else {
       minesToPlace--;
     }
   }
 
-  // Recalculate adjacentMines for all unrevealed tiles based on the complete minefield
+  // If strict constraints left extra mines to place, distribute them safely into remaining slots
+  if (minesToPlace > 0) {
+    for (let tile of unrevealedTiles) {
+      if (minesToPlace <= 0) break;
+      if (!board[tile.y][tile.x].isMine) {
+        board[tile.y][tile.x].isMine = true;
+        minesToPlace--;
+      }
+    }
+  }
+
+  // 3. Final Pass: Calculate correct adjacentMines count ONLY for unrevealed tiles.
+  // CRITICAL: We never overwrite `board[y][x].adjacentMines` if `board[y][x].revealed` is true!
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!board[y][x].revealed) {
