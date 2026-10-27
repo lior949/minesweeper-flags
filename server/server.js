@@ -346,6 +346,10 @@ async function parseScreenshotToBoard(base64Image) {
       let greenPx = 0;
       let redPx = 0;
       let purplePx = 0;
+      let brownPx = 0;   // For 5
+      let cyanPx = 0;    // For 6
+      let blackPx = 0;   // For 7
+      let olivePx = 0;   // For 8
       let darkPolePx = 0;
 
       const startX = tileX + Math.floor(cW * 0.25);
@@ -358,6 +362,14 @@ async function parseScreenshotToBoard(base64Image) {
           const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
           if (r < 75 && g < 75 && b < 75) darkPolePx++;
+          // Black / Dark text (7)
+          else if (r < 60 && g < 60 && b < 60) blackPx++;
+          // Brown / Dark Orange text (5)
+          else if (r > 100 && r < 160 && g > 60 && g < 110 && b < 60) brownPx++;
+          // Cyan / Teal text (6)
+          else if (r < 50 && g > 110 && b > 110) cyanPx++;
+          // Olive Green text (8)
+          else if (r > 80 && r < 140 && g > 90 && g < 150 && b < 50) olivePx++;
           else if (r > 110 && b > 110 && g < 80) purplePx++;
           else if (b > 130 && b > r + 25) bluePx++;
           else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
@@ -393,10 +405,15 @@ async function parseScreenshotToBoard(base64Image) {
 
       if (isYellowBg) {
         board[y][x].revealed = true;
-        if (purplePx >= 2) board[y][x].adjacentMines = 4;
+
+        if (olivePx >= 2) board[y][x].adjacentMines = 8;
+        else if (blackPx >= 2) board[y][x].adjacentMines = 7;
+        else if (cyanPx >= 2) board[y][x].adjacentMines = 6;
+        else if (brownPx >= 2) board[y][x].adjacentMines = 5;
+        else if (purplePx >= 1 || (bluePx > 0 && redPx > 0)) board[y][x].adjacentMines = 4;
         else if (redPx >= 2) board[y][x].adjacentMines = 3;
         else if (greenPx >= 2) board[y][x].adjacentMines = 2;
-        else if (bluePx >= 2) board[y][x].adjacentMines = 1;
+        else if (bluePx >= 1) board[y][x].adjacentMines = 1;
         else board[y][x].adjacentMines = 0;
       } else {
         board[y][x].revealed = false;
