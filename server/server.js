@@ -1,5 +1,3 @@
-// server.js
-
 const express = require("express");
 const fetch = require('node-fetch'); // You might need to import fetch if not already available globally in your Node.js version
 const router = express.Router(); // Assuming you're using express.Router or directly app.get
@@ -28,6 +26,67 @@ app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 const Jimp = require("jimp");
+
+function distributeMinesForParsedBoard(board) {
+  const height = board.length;
+  const width = board[0].length;
+
+  // 1. Mark tiles adjacent to numbers as potential mine spots
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
+        let unrevealedNeighbors = [];
+        let flaggedNeighbors = 0;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const ny = y + dy;
+            const nx = x + dx;
+            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+              if (board[ny][nx].ownerTeam !== null) {
+                flaggedNeighbors++;
+              } else if (!board[ny][nx].revealed) {
+                unrevealedNeighbors.push({ x: nx, y: ny });
+              }
+            }
+          }
+        }
+
+        const remainingMinesNeeded = board[y][x].adjacentMines - flaggedNeighbors;
+        
+        // If remaining hidden neighbors match remaining mines needed, mark them as mines
+        if (remainingMinesNeeded > 0 && unrevealedNeighbors.length === remainingMinesNeeded) {
+          unrevealedNeighbors.forEach(pos => {
+            board[pos.y][pos.x].isMine = true;
+          });
+        }
+      }
+    }
+  }
+
+  // 2. Recalculate adjacentMines for all unrevealed tiles so clicks register correctly
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!board[y][x].revealed) {
+        let count = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const ny = y + dy;
+            const nx = x + dx;
+            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+              if (board[ny][nx].isMine) count++;
+            }
+          }
+        }
+        board[y][x].adjacentMines = count;
+      }
+    }
+  }
+
+  return board;
+}
 
 async function parseScreenshotToBoard(base64Image) {
   const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
@@ -121,6 +180,8 @@ async function parseScreenshotToBoard(base64Image) {
     }
   }
 
+  distributeMinesForParsedBoard(board);
+
   return { board, initialScores };
 }
 // New global data structures for robust player tracking across reconnections
@@ -145,25 +206,16 @@ app.use(
 // Add this route to your existing Express app
 router.get('/api/get-client-ip', async (req, res) => {
     try {
-        // Option 1: Get IP from request headers (most common when proxied)
-        // This attempts to get the IP from common proxy headers like X-Forwarded-For
-        // If your server is directly exposed, req.ip or req.connection.remoteAddress might work.
-        // For Render.com, 'x-forwarded-for' is usually reliable.
         let clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
-        // If clientIp is an array (e.g., from X-Forwarded-For with multiple IPs), take the first one
         if (Array.isArray(clientIp)) {
             clientIp = clientIp[0];
         }
 
-        // If clientIp is an IPv6 address like '::1' or '::ffff:127.0.0.1', or includes port
-        if (clientIp && clientIp.includes(':') && !clientIp.startsWith('::')) { // IPv6 with port
+        if (clientIp && clientIp.includes(':') && !clientIp.startsWith('::')) {
             clientIp = clientIp.split(':').slice(0, -1).join(':');
         }
         if (clientIp === '::1' || clientIp === '127.0.0.1' || clientIp === '::ffff:127.0.0.1') {
-            // This means the request came from localhost or a direct local connection to your backend
-            // In a production environment behind a proxy (like Render.com), this is usually not the case.
-            // If it is, you might still need to call ipify.org from the backend.
             console.warn("Client IP is localhost. Attempting to fetch public IP via ipify.org from backend.");
             const response = await fetch('https://api.ipify.org?format=json');
             if (!response.ok) {
@@ -173,8 +225,7 @@ router.get('/api/get-client-ip', async (req, res) => {
             clientIp = data.ip;
         }
 
-        // If for some reason clientIp is still not resolved, fall back to ipify.org directly from backend
-        if (!clientIp || clientIp.includes('::ffff:')) { // Common pattern for IPv4 mapped IPv6 or if still local
+        if (!clientIp || clientIp.includes('::ffff:')) {
              console.warn("Client IP not resolved from headers or is IPv6 mapped IPv4. Falling back to ipify.org from backend.");
              const response = await fetch('https://api.ipify.org?format=json');
              if (!response.ok) {
@@ -196,19 +247,15 @@ router.get('/api/get-client-ip', async (req, res) => {
     }
 });
 
-// === Environment Variables for OAuth (DO NOT HARDCODE IN PRODUCTION) ===
-// These should be set on Render as environment variables.
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET;
 
-// === Declare `db`, `sessionMiddleware`, and `io` variables here ===
 let db;
 let sessionMiddleware;
-let io; // Declare io here so it's accessible globally
+let io;
 
-// --- Game Constants (Moved to a more global scope) ---
 const WIDTH = 16;
 const HEIGHT = 16;
 const MINES = 51;
@@ -218,38 +265,34 @@ const GAMES_COLLECTION_PATH = `artifacts/${APP_ID}/public/data/minesweeperGames`
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
   console.log(`[Firebase Init] Service Account Project ID: ${serviceAccount.project_id}`);
-  const privateKeyCleaned = serviceAccount.private_key.replace(/\\n/g, '\n');
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
   });
-  db = getFirestore(); // Initialize db for Admin SDK operations
+  db = getFirestore();
 
-  // Define the session middleware instance using FirestoreStore
   sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || "super-secret-fallback-key-for-dev",
     resave: false,
     saveUninitialized: false,
     store: new FirestoreStore({
-      dataset: db, // Pass your initialized Firestore admin instance directly here
-      kind: 'express-sessions', // Optional: collection name for session storage
+      dataset: db,
+      kind: 'express-sessions',
     }),
     cookie: {
       sameSite: "none",
       secure: true,
-      maxAge: 1000 * 60 * 60 * 24, // 24 hours
+      maxAge: 1000 * 60 * 60 * 24,
       proxy: true,
     },
   });
 
-  // Apply session middleware to Express
   app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
   console.log("Firebase Admin SDK and FirestoreStore initialized.");
 
-  // Configure Socket.IO with CORS
   io = new Server(server, {
     cors: {
       origin: [
@@ -263,12 +306,10 @@ try {
     },
   });
 
-  // Wrap express-session for Socket.IO handshake access
   io.use((socket, next) => {
     sessionMiddleware(socket.request, {}, next);
   });
 
-  // Socket Auth Middleware
   io.use((socket, next) => {
     const session = socket.request.session;
 
@@ -312,58 +353,49 @@ try {
 }
 
 
-// === Passport config ===
 passport.use(new GoogleStrategy({
   clientID: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/google/callback"
 }, (accessToken, refreshToken, profile, done) => {
-  done(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
+  done(null, { id: profile.id, displayName: profile.displayName });
 }));
 
 passport.use(new FacebookStrategy({
-  clientID: FACEBOOK_CLIENT_ID, // Correctly using the declared variable
-  clientSecret: FACEBOOK_CLIENT_SECRET, // Correctly using the declared variable
+  clientID: FACEBOOK_CLIENT_ID,
+  clientSecret: FACEBOOK_CLIENT_SECRET,
   callbackURL: "https://minesweeper-flags-backend.onrender.com/auth/facebook/callback",
   profileFields: ['id', 'displayName', 'photos', 'email']
 },
 function(accessToken, refreshToken, profile, cb) {
-  cb(null, { id: profile.id, displayName: profile.displayName }); // Store object with ID and displayName
+  cb(null, { id: profile.id, displayName: profile.displayName });
 }));
 
-
-// Passport Serialization/Deserialization
 passport.serializeUser((user, done) => {
-  done(null, user); // Store the entire user object in the session
+  done(null, user);
 });
 
 passport.deserializeUser((user, done) => {
-  done(null, user); // Pass the user object back to req.user
+  done(null, user);
 });
 
 
-// === Authentication Routes ===
-
-// Google Auth Initiate
 app.get("/auth/google",
   passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
-// Google Auth Callback
 app.get("/auth/google/callback",
   passport.authenticate("google", {
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
-  (req, res) => { // Add a callback to manually save session
+  (req, res) => {
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Google auth:", err);
-        // Redirect to a failure page with an error message
         return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
       console.log(`[Session Save] Session successfully saved after Google auth. New Session ID: ${req.sessionID}`);
 
-      // NEW: Redirect the pop-up window itself back to the frontend with data via postMessage
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
@@ -389,7 +421,6 @@ app.get("/auth/google/callback",
   }
 );
 
-// Facebook Auth Initiate
 app.get("/auth/facebook",
   passport.authenticate("facebook", { scope: ['public_profile'] })
 );
@@ -398,16 +429,14 @@ app.get("/auth/facebook/callback",
   passport.authenticate("facebook", {
     failureRedirect: "https://minesweeper-flags-frontend.onrender.com/login-failed",
   }),
-  (req, res) => { // Add a callback to manually save session
+  (req, res) => {
     req.session.save((err) => {
       if (err) {
         console.error("Error saving session after Facebook auth:", err);
-        // Redirect to a failure page with an error message
         return res.redirect(`https://minesweeper-flags-frontend.onrender.com/auth/callback-failure?message=${encodeURIComponent(err.message || 'Authentication failed due to session error.')}`);
       }
       console.log(`[Session Save] Session successfully saved after Facebook auth. New Session ID: ${req.sessionID}`);
 
-      // NEW: Redirect the pop-up window itself back to the frontend with data via postMessage
       const userData = {
         id: req.user.id,
         displayName: req.user.displayName
@@ -433,14 +462,12 @@ app.get("/auth/facebook/callback",
   }
 );
 
-// NEW: Guest Login Route
 app.post("/auth/guest", (req, res) => {
     const { guestId } = req.body;
     if (!guestId) {
         return res.status(400).json({ message: "Guest ID and name are required." });
     }
 
-    // Set user data directly in the session for guest
     req.session.passport = { user: { id: guestId, displayName: `Guest_${guestId.substring(6, 11)}` }};
 
     req.session.save((err) => {
@@ -453,73 +480,54 @@ app.post("/auth/guest", (req, res) => {
     });
 });
 
-
-// Logout Route
 app.get("/logout", (req, res, next) => {
-  req.logout((err) => { // Passport's logout method
+  req.logout((err) => {
     if (err) { return next(err); }
-    req.session.destroy((destroyErr) => { // Destroy the session on the server
+    req.session.destroy((destroyErr) => {
       if (destroyErr) { return next(destroyErr); }
       res.clearCookie("connect.sid", {
           path: '/',
           secure: true,
           sameSite: 'none',
-          proxy: true, // Clear cookie with proxy setting
-      }); // Clear the session cookie from the client
+          proxy: true,
+      });
       console.log("User logged out and session destroyed.");
       res.status(200).send("Logged out successfully");
     });
   });
 });
 
-// Login Check Route
 app.get("/me", (req, res) => {
-  console.log("------------------- /me Request Received -------------------");
-  console.log("Is Authenticated (req.isAuthenticated()):", req.isAuthenticated());
-  console.log("User in session (req.user):", req.user);
-  console.log("Session ID (req.sessionID):", req.sessionID);
-  console.log("Session object (req.session):", req.session);
-  console.log("Passport data in session:", req.session?.passport);
-
-
   if (req.isAuthenticated() && req.user) {
-    res.json({ user: req.user }); // req.user now contains id and displayName
-  } else if (req.session?.passport?.user) { // Check for guest user explicitly if Passport.js didn't authenticate
+    res.json({ user: req.user });
+  } else if (req.session?.passport?.user) {
       res.json({ user: req.session.passport.user });
   }
   else {
     res.status(401).json({ error: "Not authenticated" });
   }
-  console.log("------------------------------------------------------------");
 });
 
 app.get("/login-failed", (req, res) => {
   res.send("Login failed");
 });
 
-
-// Global Game Data Structures
-let players = []; // Lobby players: [{ id: socket.id, userId, name }]
-// Active games: gameId: { gameType: '1v1' | '2v2', players: [{userId, name, number, socketId, team}], board, scores: {1:0, 2:0}, bombsUsed: {1:false, 2:false}, turn, gameOver, lastClickedTile, messages: [], observers: [{userId, name, socketId}] } // Added gameType, team in players, scores/bombsUsed are team-based
+let players = [];
 let games = {};
-const pendingInvites = {}; // Stores pending invites: { targetUserId: { inviteId: { ...inviteData } } }
-// NEW: Store pending 2v2 acceptances
-const pending2v2Acceptances = {}; // { inviteId: { inviterId, acceptedUsers: Set<userId>, requiredPlayers: Set<userId> } }
+const pendingInvites = {};
+const pending2v2Acceptances = {};
 
-// --- Chat State ---
-const lobbyMessages = []; // Stores messages for the lobby chat
-const MAX_LOBBY_MESSAGES = 100; // Limit lobby chat history
+const lobbyMessages = [];
+const MAX_LOBBY_MESSAGES = 100;
 
-
-// Helper to generate a new Minesweeper board
 const generateBoard = () => {
   const board = Array.from({ length: HEIGHT }, () =>
     Array.from({ length: WIDTH }, () => ({
       isMine: false,
       revealed: false,
       adjacentMines: 0,
-      owner: null, // Player number who claimed the mine (1,2,3,4)
-      ownerTeam: null, // Team number who claimed the mine (1 or 2)
+      owner: null,
+      ownerTeam: null,
     }))
   );
 
@@ -552,21 +560,18 @@ const generateBoard = () => {
   return board;
 };
 
-// Helper for recursive reveal of blank areas
 const revealRecursive = (board, x, y) => {
-  // Check bounds and if already revealed
   if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || board[y][x].revealed) {
     return;
   }
 
   const tile = board[y][x];
-  tile.revealed = true; // Mark as revealed
+  tile.revealed = true;
 
-  // If it's a blank tile (0 adjacent mines) and not a mine, propagate reveal
   if (tile.adjacentMines === 0 && !tile.isMine) {
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        if (dx !== 0 || dy !== 0) { // Exclude the center tile itself
+        if (dx !== 0 || dy !== 0) {
           revealRecursive(board, x + dx, y + dy);
         }
       }
@@ -574,7 +579,6 @@ const revealRecursive = (board, x, y) => {
   }
 };
 
-// Helper for bomb ability 5x5 reveal
 const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
   for (let dy = -2; dy <= 2; dy++) {
     for (let dx = -2; dx <= 2; dx++) {
@@ -585,11 +589,11 @@ const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
         if (!tile.revealed) {
           if (tile.isMine) {
             tile.revealed = true;
-            tile.owner = playerNumber; // Assign bomb owner (specific player)
-            tile.ownerTeam = playerTeam; // Assign bomb owner (team)
-            scores[playerTeam]++; // Increment score for captured mine for the team
+            tile.owner = playerNumber;
+            tile.ownerTeam = playerTeam;
+            scores[playerTeam]++;
           } else {
-            revealRecursive(board, x, y); // Recursively reveal non-mine tiles
+            revealRecursive(board, x, y);
           }
         }
       }
@@ -598,15 +602,12 @@ const revealArea = (board, cx, cy, playerNumber, playerTeam, scores) => {
 };
 
 function clearAllRelatedInvitesForUsers(userIds, currentInviteId) {
-    // 1. Loop through all users who have entries in pendingInvites
     Object.keys(pendingInvites).forEach(targetUserId => {
         if (!pendingInvites[targetUserId]) return;
 
         Object.keys(pendingInvites[targetUserId]).forEach(invId => {
             const inviteObj = pendingInvites[targetUserId][invId];
             
-            // Check if the invite involves any of the active game users as a sender, 
-            // recipient (targetUserId), or explicitly listed in a 2v2 roster.
             const involvesUser = 
                 userIds.includes(inviteObj.senderId) || 
                 userIds.includes(targetUserId) ||
@@ -617,14 +618,12 @@ function clearAllRelatedInvitesForUsers(userIds, currentInviteId) {
             }
         });
 
-        // Push the updated state down to the user's socket if they are connected
         const clientSocketId = userSocketMap[targetUserId];
         if (clientSocketId) {
             io.to(clientSocketId).emit("update-invites", pendingInvites[targetUserId] || {});
         }
     });
 
-    // 2. Clear tracking objects for 2v2 acceptances involving these users
     Object.keys(pending2v2Acceptances).forEach(invId => {
         const acceptanceObj = pending2v2Acceptances[invId];
         const involvesTrackerUser = userIds.some(uid => acceptanceObj.requiredPlayers?.has(uid));
@@ -634,7 +633,6 @@ function clearAllRelatedInvitesForUsers(userIds, currentInviteId) {
     });
 }
 
-// AI Adversary Turn Loop Integration
 async function processAiTurn(gameId) {
     const game = games[gameId];
     if (!game || game.gameOver) return;
@@ -648,10 +646,9 @@ async function processAiTurn(gameId) {
         const aiMove = getBestAIMove(game.board);
         if (!aiMove) return;
 
-        const x = aiMove.c; // column
-        const y = aiMove.r; // row
+        const x = aiMove.c;
+        const y = aiMove.r;
 
-        // FIXED: Record the AI's last move so the frontend highlights it with its border color
         game.lastClickedTile = { ...game.lastClickedTile, [nextPlayer.number]: { x, y } };
 
         const aiTile = game.board[y][x];
@@ -672,7 +669,7 @@ async function processAiTurn(gameId) {
                 aiHitMine = true;
             }
         } else {
-            revealRecursive(game.board, x, y); // Pass x (col) then y (row)
+            revealRecursive(game.board, x, y);
             
             if (game.gameType === '1v1') {
                 game.turn = game.turn === 1 ? 2 : 1;
@@ -683,7 +680,6 @@ async function processAiTurn(gameId) {
 
         const cachedBoardString = JSON.stringify(game.board);
 
-        // Emit update to clients
         io.to(gameId).emit("board-update", {
             gameId: game.gameId,
             board: cachedBoardString,
@@ -693,10 +689,9 @@ async function processAiTurn(gameId) {
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile,
             observers: game.observers,
-            clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
+            clickStartTime: game.clickStartTime
         });
 
-        // Persist state asynchronously
         const newStatus = game.gameOver ? 'completed' : 'active';
         db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             board: cachedBoardString,
@@ -713,27 +708,23 @@ async function processAiTurn(gameId) {
             console.error("Error updating AI move in Firestore:", error);
         });
 
-        // FIXED: If AI hit a mine, keep playing consecutive turns automatically!
         if (aiHitMine && !game.gameOver) {
             processAiTurn(gameId);
         }
     }, 800);
 }
 
-// Helper to check for game over condition
 const checkGameOver = (scores) => {
-  // Game over if either player (1v1) or team (2v2) reaches 26 flags (mines)
   return scores[1] >= 26 || scores[2] >= 26;
 };
 
-// Helper to get next turn player number for 2v2
 const getNext2v2Turn = (currentTurn) => {
   switch (currentTurn) {
-    case 1: return 3; // P1 -> P3
-    case 2: return 4; // P2 -> P4
-    case 3: return 2; // P3 -> P2
-    case 4: return 1; // P4 -> P1
-    default: return 1; // Should not happen, but default to P1
+    case 1: return 3;
+    case 2: return 4;
+    case 3: return 2;
+    case 4: return 1;
+    default: return 1;
   }
 };
 
@@ -750,10 +741,7 @@ const getPlayersWithAI = () => {
     return players;
 };
 
-
-// Helper to emit the filtered list of players in the lobby
 const emitLobbyPlayersList = () => {
-    // Non-blocking background batch emission or fast mapper
     const activePlayers = getPlayersWithAI();
     const playersWithStatus = players.map(p => {
         const gameMapping = userGameMap[p.userId];
@@ -795,65 +783,51 @@ const emitLobbyPlayersList = () => {
 };
 
 
-// === Socket.IO Connection and Game Events ===
 io.on("connection", (socket) => {
-  // 1. Try reading user from the cookie-based passport session or custom fallback injection
   let user = socket.request.session?.passport?.user || socket.request.user || null;
   let userId = user ? (user.id || socket.request.user?.id) : null;
   let userName = user ? (user.displayName || user.name) : null;
 
-  // 2. iOS Safari Handshake Auth Block Check:
   if (!userId && socket.handshake.auth && socket.handshake.auth.user) {
     const authUser = socket.handshake.auth.user;
     userId = authUser.id || authUser.guestId || `guest_${Date.now()}`;
     userName = authUser.displayName || authUser.name || "Guest";
-    
-    console.log(`[iOS Sync] Handshake Auth Fallback applied for User: ${userName} (${userId})`);
   }
-  console.log(`Socket Connected: ${socket.id}`);
 
   if (userId) {
-    console.log(`[Connect] User ${userName} (${userId}) connected. Socket: ${socket.id}. Currently in game map? ${userGameMap[userId] ? 'Yes' : 'No'}.`);
-
-    // Always update user-to-socket mapping with the latest socket ID
     userSocketMap[userId] = socket.id;
-    // Emit this event *after* userSocketMap is updated and userId is confirmed
     socket.emit('authenticated-socket-ready');
 
-    // Handle rejoining an existing game if user was previously in one or if it's stored in Firestore
     if (userGameMap[userId]) {
         const gameMapping = userGameMap[userId];
         const gameId = gameMapping.gameId;
-        const role = gameMapping.role; // 'player' or 'observer'
-        let game = games[gameId]; // Try to get from in-memory first
+        const role = gameMapping.role;
+        let game = games[gameId];
 
-        if (!game) { // If not in memory, try to load from Firestore
+        if (!game) {
             db.collection(GAMES_COLLECTION_PATH).doc(gameId).get().then(doc => {
                 if (doc.exists && (doc.data().status === 'active' || doc.data().status === 'waiting_for_resume')) {
                     const gameData = doc.data();
                     const deserializedBoard = JSON.parse(gameData.board);
 
-                    // Reconstruct in-memory game object for 1v1 or 2v2
                     game = {
                         gameId: gameData.gameId,
-                        gameType: gameData.gameType || '1v1', // Default to 1v1 if not specified
+                        gameType: gameData.gameType || '1v1',
                         board: deserializedBoard,
                         scores: gameData.scores,
                         bombsUsed: gameData.bombsUsed,
                         turn: gameData.turn,
-                        moves: game.moves,
+                        moves: gameData.moves || [],
                         gameOver: gameData.gameOver,
                         lastClickedTile: gameData.lastClickedTile || {},
-                        players: [], // Will be populated with proper player objects
-                        messages: gameData.messages || [] // Load game chat messages
+                        players: [],
+                        messages: gameData.messages || []
                     };
 
-                    // Filter out players from observers list loaded from Firestore
                     game.observers = (gameData.observers || []).filter(obs =>
                         ![gameData.player1_userId, gameData.player2_userId, gameData.player3_userId, gameData.player4_userId].includes(obs.userId)
                     );
 
-                    // Reconstruct players list for the game (for 1v1 or 2v2)
                     const playerUserIds = [gameData.player1_userId, gameData.player2_userId];
                     const playerNames = {
                         1: gameData.player1_name || "Player 1",
@@ -868,30 +842,26 @@ io.on("connection", (socket) => {
                     game.players = playerUserIds.map((pUid, index) => {
                         const playerNum = index + 1;
                         let playerObj = players.find(p => p.userId === pUid);
-                        if (!playerObj) { // If player not in global players list, add them
+                        if (!playerObj) {
                             playerObj = { userId: pUid, name: playerNames[playerNum], number: playerNum };
                             players.push(playerObj);
                         }
-                        playerObj.socketId = userSocketMap[pUid] || null; // Update socketId from userSocketMap
-                        playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
+                        playerObj.socketId = userSocketMap[pUid] || null;
+                        playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2;
                         return playerObj;
                     });
 
-                    games[gameId] = game; // Add game to in-memory active games
+                    games[gameId] = game;
 
-                    // Set game status to active if it was waiting for resume
                     if (gameData.status === 'waiting_for_resume') {
-                        doc.ref.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true }).then(() => {
-                            console.log(`Game ${gameId} status updated to 'active' in Firestore on resume.`);
-                        }).catch(e => console.error("Error updating game status on resume:", e));
+                        doc.ref.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true }).catch(e => console.error("Error updating game status on resume:", e));
                     }
 
-                    // --- Handle Player Reconnection ---
                     if (role === 'player') {
                         const playerInGame = game.players.find(p => p.userId === userId);
                         if (playerInGame) {
-                            socket.join(gameId); // Join game room on resume
-                            io.to(playerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
+                            socket.join(gameId);
+                            io.to(playerInGame.socketId).emit("game-start", {
                                 gameId: game.gameId,
                                 gameType: game.gameType,
                                 playerNumber: playerInGame.number,
@@ -901,45 +871,40 @@ io.on("connection", (socket) => {
                                 bombsUsed: game.bombsUsed,
                                 gameOver: game.gameOver,
                                 lastClickedTile: game.lastClickedTile,
-                                opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== userId)?.name : "N/A", // Opponent name for 1v1
-                                gameChat: game.messages, // Send game chat history
-                                observers: game.observers, // Send observer list
+                                opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== userId)?.name : "N/A",
+                                gameChat: game.messages,
+                                observers: game.observers,
                                 player1Name: playerNames[1],
                                 player2Name: playerNames[2],
                                 player3Name: playerNames[3],
                                 player4Name: playerNames[4],
                             });
-                            console.log(`Emitted game-start to reconnected player ${playerInGame.name} for game ${gameId}.`);
-                            io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' }); // Notify others in game
+                            io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' });
 
-                            // Notify relevant players of reconnection
                             game.players.filter(p => p.userId !== userId && p.socketId).forEach(opponent => {
                                 io.to(opponent.socketId).emit("opponent-reconnected", { name: playerInGame.name });
-                                console.log(`Notified player ${opponent.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
                             });
                         }
-                    }
-                    // --- Handle Observer Reconnection ---
-                    else if (role === 'observer') {
+                    } else if (role === 'observer') {
                         const observerInGame = game.observers.find(o => o.userId === userId);
-                        if (!observerInGame) { // Add if not found in the loaded list (shouldn't happen if Firestore is clean)
+                        if (!observerInGame) {
                             game.observers.push({ userId, name: userName, socketId: socket.id });
-                            doc.ref.update({ observers: FieldValue.arrayUnion({ userId, name: userName }) }); // Update Firestore
+                            doc.ref.update({ observers: FieldValue.arrayUnion({ userId, name: userName }) });
                         } else {
-                            observerInGame.socketId = socket.id; // Update existing observer's socketId
+                            observerInGame.socketId = socket.id;
                         }
-                        socket.join(gameId); // Join game room
+                        socket.join(gameId);
                         io.to(socket.id).emit("game-start", {
                             gameId: game.gameId,
                             gameType: game.gameType,
-                            playerNumber: 0, // Indicate observer role
+                            playerNumber: 0,
                             board: JSON.stringify(game.board),
                             turn: game.turn,
                             scores: game.scores,
                             bombsUsed: game.bombsUsed,
                             gameOver: game.gameOver,
                             lastClickedTile: game.lastClickedTile,
-                            opponentName: "N/A", // No opponent for observer
+                            opponentName: "N/A",
                             gameChat: game.messages,
                             observers: game.observers,
                             player1Name: playerNames[1],
@@ -947,18 +912,15 @@ io.on("connection", (socket) => {
                             player3Name: playerNames[3],
                             player4Name: playerNames[4],
                         });
-                        console.log(`Emitted game-start to reconnected observer ${userName} for game ${gameId}.`);
-                        io.to(gameId).emit("observer-joined", { name: userName, userId: userId }); // Notify others in game
+                        io.to(gameId).emit("observer-joined", { name: userName, userId: userId });
                     }
-                    emitLobbyPlayersList(); // Update lobby list
+                    emitLobbyPlayersList();
                 } else {
-                    delete userGameMap[userId]; // Game not found or invalid status, clear map
-                    console.log(`Game ${gameId} for user ${userId} not found or invalid status in Firestore. Clearing userGameMap.`);
-                    emitLobbyPlayersList(); // Re-emit if userGameMap changed
+                    delete userGameMap[userId];
+                    emitLobbyPlayersList();
                 }
             }).catch(e => console.error("Error fetching game from Firestore on reconnect:", e));
-        } else { // Game found in memory
-            // Update player/observer socketId in in-memory game object
+        } else {
             if (role === 'player') {
                 const playerInGame = game.players.find(p => p.userId === userId);
                 if (playerInGame) {
@@ -979,14 +941,12 @@ io.on("connection", (socket) => {
                         observers: game.observers,
                         player1Name: game.players.find(pl => pl.number === 1)?.name || "Player 1",
                         player2Name: game.players.find(pl => pl.number === 2)?.name || "Player 2",
-                        player3Name: game.players.find(pl => pl.number === 3)?.name, // Include for 2v2
-                        player4Name: game.players.find(pl => pl.number === 4)?.name, // Include for 2v2
+                        player3Name: game.players.find(pl => pl.number === 3)?.name,
+                        player4Name: game.players.find(pl => pl.number === 4)?.name,
                     });
-                    console.log(`Re-sent active game state for game ${gameId} to player ${playerInGame.name}.`);
-                    io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' }); // Notify other observers
+                    io.to(gameId).emit("player-reconnected", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' });
                     game.players.filter(p => p.userId !== userId && p.socketId).forEach(opponent => {
                         io.to(opponent.socketId).emit("opponent-reconnected", { name: playerInGame.name });
-                        console.log(`Notified player ${opponent.name} of ${playerInGame.name} re-connection in game ${gameId}.`);
                     });
                 }
             } else if (role === 'observer') {
@@ -997,14 +957,14 @@ io.on("connection", (socket) => {
                     io.to(socket.id).emit("game-start", {
                         gameId: game.gameId,
                         gameType: game.gameType,
-                        playerNumber: 0, // Indicate observer role
+                        playerNumber: 0,
                         board: JSON.stringify(game.board),
                         turn: game.turn,
                         scores: game.scores,
                         bombsUsed: game.bombsUsed,
                         gameOver: game.gameOver,
                         lastClickedTile: game.lastClickedTile,
-                        opponentName: "N/A", // No opponent for observer
+                        opponentName: "N/A",
                         gameChat: game.messages,
                         observers: game.observers,
                         player1Name: game.players.find(pl => pl.number === 1)?.name || "Player 1",
@@ -1012,14 +972,11 @@ io.on("connection", (socket) => {
                         player3Name: game.players.find(pl => pl.number === 3)?.name,
                         player4Name: game.players.find(pl => pl.number === 4)?.name,
                     });
-                    console.log(`Re-sent active game state for game ${gameId} to observer ${userName}.`);
-                    io.to(gameId).emit("observer-joined", { name: userName, userId: userId }); // Notify others in game
+                    io.to(gameId).emit("observer-joined", { name: userName, userId: userId });
                 }
             }
         }
     }
-  } else {
-      console.log(`Unauthenticated socket ${socket.id} connected.`);
   }
 
  socket.on("invite-midgame-setup", async (data) => {
@@ -1064,64 +1021,43 @@ io.on("connection", (socket) => {
 
   io.to(data.targetSocketId).emit("game-invite", pendingInvites[targetPlayer.userId][inviteId]);
 });
-// Lobby Join Event
+
   socket.on("join-lobby", (name) => {
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
-    
-    // FIXED: Handle cases where passport user is either an object or just the user directly
     const userId = user ? (user.id || socket.request.user?.id) : null;
     const userName = user ? (user.displayName || user.name || name) : name; 
 
     if (!userId) {
         socket.emit("join-error", "Authentication required to join lobby.");
-        console.warn(`Unauthenticated socket ${socket.id} tried to join lobby.`);
         return;
     }
 
-    console.log(`[Join Lobby] Player ${userName} (${userId}) attempting to join lobby with socket ID ${socket.id}.`);
-    console.log(`[Join Lobby] Players before filter: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-
-    // Ensure userSocketMap is updated
     userSocketMap[userId] = socket.id;
 
-    // Ensure only one entry per userId in the players list, update socket.id if rejoining
     players = players.filter(p => p.userId !== userId);
-    console.log(`[Join Lobby] Players after filter for existing userId: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
+    players.push({ id: socket.id, userId: userId, name: userName });
+    socket.emit("lobby-joined", userName);
+    socket.emit("initial-lobby-messages", lobbyMessages);
 
-    players.push({ id: socket.id, userId: userId, name: userName }); // Store userId and current socket.id
-    console.log(`[Join Lobby] Player ${userName} (${userId}) joined lobby with socket ID ${socket.id}. Total lobby players: ${players.length}`);
-    socket.emit("lobby-joined", userName); // Send back the name used
-    socket.emit("initial-lobby-messages", lobbyMessages); // Send lobby chat history to new joiner
-
-    // Emit updated player list to all connected clients in the lobby (all players now)
-    console.log(`[Join Lobby] Calling emitLobbyPlayersList. Current userGameMap: ${JSON.stringify(userGameMap)}`);
-    emitLobbyPlayersList(); // Use the helper
-    socket.emit("request-observable-games"); // Request observable games when joining lobby
+    emitLobbyPlayersList();
+    socket.emit("request-observable-games");
   });
 
-  // Handle Lobby Chat Messages
   socket.on("send-lobby-message", (message) => {
-    // FIXED: Safari Fallback context resolution
     const user = socket.request.session?.passport?.user || socket.request.user || null;
-    const userName = user ? (user.displayName || user.name) : 'Anonymous'; // Fallback for sender name
+    const userName = user ? (user.displayName || user.name) : 'Anonymous';
     const timestamp = new Date().toLocaleTimeString();
     const fullMessage = { sender: userName, text: message, timestamp: timestamp };
     lobbyMessages.push(fullMessage);
     if (lobbyMessages.length > MAX_LOBBY_MESSAGES) {
-      lobbyMessages.shift(); // Remove oldest message if over limit
+      lobbyMessages.shift();
     }
-    io.emit("receive-lobby-message", fullMessage); // Emit to all clients in the lobby
-    console.log(`Lobby message from ${userName}: ${message}`);
+    io.emit("receive-lobby-message", fullMessage);
   });
 
 
-// Lobby Unfinished Games Request Event
   socket.on("request-unfinished-games", async () => {
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
-    
-    // FIXED: Extract userId and userName dynamically from the available session layout
     const userId = user ? (user.id || socket.request.user?.id) : null;
     const userName = user ? (user.displayName || user.name || 'Unknown Player') : 'Unknown Player';
 
@@ -1132,29 +1068,26 @@ io.on("connection", (socket) => {
 
     try {
         const gamesQuery = await db.collection(GAMES_COLLECTION_PATH)
-            .where('gameOver', '==', false) // Only fetch games that are NOT over
-            .where('status', 'in', ['active', 'waiting_for_resume']) // Fetch active or waiting games
+            .where('gameOver', '==', false)
+            .where('status', 'in', ['active', 'waiting_for_resume'])
             .get();
 
         let unfinishedGames = [];
 
         gamesQuery.forEach(doc => {
             const gameData = doc.data();
-            // Check if the current user is part of this game
             const isPlayer1 = gameData.player1_userId === userId;
             const isPlayer2 = gameData.player2_userId === userId;
             const isPlayer3 = gameData.gameType === '2v2' && gameData.player3_userId === userId;
             const isPlayer4 = gameData.gameType === '2v2' && gameData.player4_userId === userId;
 
             if (isPlayer1 || isPlayer2 || isPlayer3 || isPlayer4) {
-                // Determine playerNumber for client-side logic
                 let myPlayerNumber = null;
                 if (isPlayer1) myPlayerNumber = 1;
                 else if (isPlayer2) myPlayerNumber = 2;
                 else if (isPlayer3) myPlayerNumber = 3;
                 else if (isPlayer4) myPlayerNumber = 4;
 
-                // Determine opponent name for 1v1 or team names for 2v2 for display in lobby
                 let opponentName = null;
                 if (gameData.gameType === '1v1') {
                     opponentName = myPlayerNumber === 1 ? gameData.player2_name : gameData.player1_name;
@@ -1162,11 +1095,11 @@ io.on("connection", (socket) => {
 
                 unfinishedGames.push({
                     gameId: gameData.gameId,
-                    board: gameData.board, // Send serialized board for potential client-side preview
+                    board: gameData.board,
                     gameType: gameData.gameType || '1v1',
                     playerNumber: myPlayerNumber,
-                    opponentName: opponentName, // Only relevant for 1v1
-                    player1Name: gameData.player1_name, // All player names for 2v2 display
+                    opponentName: opponentName,
+                    player1Name: gameData.player1_name,
                     player2Name: gameData.player2_name,
                     player3Name: gameData.player3_name,
                     player4Name: gameData.player4_name,
@@ -1178,7 +1111,6 @@ io.on("connection", (socket) => {
         });
 
         socket.emit("receive-unfinished-games", unfinishedGames);
-        console.log(`Sent ${unfinishedGames.length} unfinished games to user ${userName}.`);
 
     } catch (error) {
         console.error("Error fetching unfinished games for user:", userId, error);
@@ -1186,12 +1118,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  // NEW: Request for observable games in the lobby
   socket.on("request-observable-games", async () => {
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
-    
-    // FIXED: Extract userId dynamically from available authentication layers
     const userId = user ? (user.id || socket.request.user?.id) : null;
 
     if (!userId) {
@@ -1201,48 +1129,40 @@ io.on("connection", (socket) => {
 
     try {
         const gamesQuery = await db.collection(GAMES_COLLECTION_PATH)
-            .where('gameOver', '==', false) // Only show ongoing games
-            .where('status', 'in', ['active', 'waiting_for_resume']) // Include games waiting for resume
+            .where('gameOver', '==', false)
+            .where('status', 'in', ['active', 'waiting_for_resume'])
             .get();
 
         let observableGames = [];
 
         gamesQuery.forEach(doc => {
             const gameData = doc.data();
-            // A game is observable if the current user is NOT a player in it,
-            // and it has at least one player currently connected (in-memory game `players` list contains a socketId)
-            // or at least one observer connected.
             const isPlayer = [gameData.player1_userId, gameData.player2_userId, gameData.player3_userId, gameData.player4_userId].includes(userId);
 
-            // Only show games the current user is NOT playing in
             if (!isPlayer) {
                 const gameInMem = games[gameData.gameId];
                 let hasActiveParticipants = false;
 
                 if (gameInMem) {
-                    // Check if any player has an active socket
                     const playersActive = gameInMem.players.some(p => p.socketId);
-                    // Check if any observer has an active socket
                     const anyObserverActive = gameInMem.observers.some(o => o.socketId);
 
                     hasActiveParticipants = playersActive || anyObserverActive;
                 }
 
                 if (hasActiveParticipants) {
-                    // Prevent adding games the user is already observing
                     const alreadyObserving = userGameMap[userId] && userGameMap[userId].gameId === gameData.gameId && userGameMap[userId].role === 'observer';
                     if (!alreadyObserving) {
                          observableGames.push({
                             gameId: gameData.gameId,
                             gameType: gameData.gameType || '1v1',
-                            player1Name: gameData.player1_name || "Player 1", // Ensure names are sent
-                            player2Name: gameData.player2_name || "Player 2", // Ensure names are sent
-                            player3Name: gameData.player3_name, // For 2v2
-                            player4Name: gameData.player4_name, // For 2v2
+                            player1Name: gameData.player1_name || "Player 1",
+                            player2Name: gameData.player2_name || "Player 2",
+                            player3Name: gameData.player3_name,
+                            player4Name: gameData.player4_name,
                             scores: gameData.scores,
                             status: gameData.status,
                             lastUpdated: gameData.lastUpdated ? gameData.lastUpdated.toDate().toLocaleString() : 'N/A',
-                            // Add active participant count for display
                             activeParticipants: (gameInMem ? (gameInMem.players.filter(p => p.socketId).length + gameInMem.observers.filter(o => o.socketId).length) : 0)
                         });
                     }
@@ -1251,7 +1171,6 @@ io.on("connection", (socket) => {
         });
 
         socket.emit("receive-observable-games", observableGames);
-        console.log(`Sent ${observableGames.length} observable games to user ${userId}.`);
 
     } catch (error) {
         console.error("Error fetching observable games for user:", userId, error);
@@ -1261,7 +1180,6 @@ io.on("connection", (socket) => {
 
 
 socket.on("resume-game", async ({ gameId }) => {
-  // FIXED: Fallback context mapping for Safari compatibility profiles
   const user = socket.request.session?.passport?.user || socket.request.user || null;
   const userId = user ? (user.id || socket.request.user?.id) : null;
   const userName = user ? (user.displayName || user.name || 'Unknown Player') : 'Unknown Player';
@@ -1271,8 +1189,6 @@ socket.on("resume-game", async ({ gameId }) => {
     return;
   }
 
-  // Ensure this user's socket is properly mapped before proceeding
-  // This is crucial for handling re-connections from the same user but new socket
   userSocketMap[userId] = socket.id;
 
   try {
@@ -1281,7 +1197,6 @@ socket.on("resume-game", async ({ gameId }) => {
 
     if (!gameDoc.exists) {
       socket.emit("join-error", "Game not found or already ended.");
-      // Also, if a game is not found, ensure userGameMap doesn't point to it
       if (userGameMap[userId] && userGameMap[userId].gameId === gameId) {
           delete userGameMap[userId];
       }
@@ -1290,7 +1205,6 @@ socket.on("resume-game", async ({ gameId }) => {
 
     const gameData = gameDoc.data();
 
-    // Verify that the resuming user is one of the players in this game
     const allPlayerUserIds = [gameData.player1_userId, gameData.player2_userId];
     if (gameData.gameType === '2v2') {
         allPlayerUserIds.push(gameData.player3_userId, gameData.player4_userId);
@@ -1300,93 +1214,72 @@ socket.on("resume-game", async ({ gameId }) => {
       return;
     }
 
-    // Determine current player's number from Firestore data
     let currentPlayerNumber = null;
     if (gameData.player1_userId === userId) currentPlayerNumber = 1;
     else if (gameData.player2_userId === userId) currentPlayerNumber = 2;
     else if (gameData.player3_userId === userId) currentPlayerNumber = 3;
     else if (gameData.player4_userId === userId) currentPlayerNumber = 4;
 
-    // Prepare player names for sending to client
     const playerNamesForClient = {
         1: gameData.player1_name || "Player 1",
         2: gameData.player2_name || "Player 2",
-        3: gameData.player3_name, // For 2v2
-        4: gameData.player4_name, // For 2v2
+        3: gameData.player3_name,
+        4: gameData.player4_name,
     };
 
-    // Check if the game is already in memory
     if (games[gameId]) {
       const existingGame = games[gameId];
 
-      // Step 1: Update the in-memory game's player socket IDs based on the global userSocketMap.
-      // This ensures the most current connection status for all players.
       existingGame.players.forEach(player => {
           player.socketId = userSocketMap[player.userId] || null;
       });
-      // Also update observer socket IDs
       existingGame.observers.forEach(observer => {
           observer.socketId = userSocketMap[observer.userId] || null;
       });
 
       const currentPlayerInGame = existingGame.players.find(p => p.userId === userId);
 
-      // Verify current player's presence in the in-memory game's player list
       if (!currentPlayerInGame) {
           socket.emit("join-error", "Internal error: You are a participant but not found in in-memory game players.");
-          console.error(`Error: User ${userId} is a game participant but not in existingGame.players array.`);
           return;
       }
 
-      // If the current player's socket is now correctly set to the active socket,
-      // it means they are successfully connected/reconnected to their game slot.
       if (currentPlayerInGame.socketId === socket.id) {
-          socket.join(gameId); // IMPORTANT: Join the game room for the resuming player
-          // Update userGameMap for the player's role
+          socket.join(gameId);
           userGameMap[userId] = { gameId, role: 'player' };
 
-          // Emit the game state to the resuming player
-          io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
+          io.to(currentPlayerInGame.socketId).emit("game-start", {
               gameId: existingGame.gameId,
               gameType: existingGame.gameType,
-              playerNumber: currentPlayerNumber, // Use the derived number
+              playerNumber: currentPlayerNumber,
               board: JSON.stringify(existingGame.board),
               turn: existingGame.turn,
               scores: existingGame.scores,
               bombsUsed: existingGame.bombsUsed,
               gameOver: existingGame.gameOver,
-              lastClickedTile: existingGame.lastClickedTile, // Include lastClickedTile
-              opponentName: existingGame.gameType === '1v1' ? existingGame.players.find(op => op.userId !== userId)?.name : "N/A", // Opponent name for 1v1
-              gameChat: existingGame.messages, // Send game chat history
-              observers: existingGame.observers, // Send observer list
+              lastClickedTile: existingGame.lastClickedTile,
+              opponentName: existingGame.gameType === '1v1' ? existingGame.players.find(op => op.userId !== userId)?.name : "N/A",
+              gameChat: existingGame.messages,
+              observers: existingGame.observers,
               player1Name: playerNamesForClient[1],
               player2Name: playerNamesForClient[2],
               player3Name: playerNamesForClient[3],
               player4Name: playerNamesForClient[4],
           });
-          console.log(`User ${userName} (re)connected to game ${gameId} from in-memory state.`);
 
-          // Notify all other players in the game (if 2v2) or just opponent (if 1v1)
           existingGame.players.filter(p => p.userId !== userId && p.socketId).forEach(player => {
               io.to(player.socketId).emit("opponent-reconnected", { name: userName });
-              console.log(`Notified player ${player.name} of ${userName} re-connection in game ${gameId}.`);
           });
-          io.to(gameId).emit("player-reconnected", { name: userName, userId: userId, role: 'player' }); // Notify other observers
-          return; // Successful resumption, exit
+          io.to(gameId).emit("player-reconnected", { name: userName, userId: userId, role: 'player' });
+          return;
       } else {
-          // This case implies the user's userId is mapped to a different active socket
-          // for this game, indicating another active session/tab for the same user.
           socket.emit("join-error", "Your game session is active on another connection or tab.");
-          console.warn(`User ${userName} tried to resume game ${gameId}, but their socket ID does not match the active one in memory or userSocketMap.`);
           return;
       }
     }
 
+    const deserializedBoard = JSON.parse(gameData.board);
 
-    // If game not in memory, load from Firestore and initialize in memory
-    const deserializedBoard = JSON.parse(gameData.board); // Deserialize board from Firestore string
-
-    // Reconstruct the game object for in-memory use
     const game = {
       gameId: gameData.gameId,
       gameType: gameData.gameType || '1v1',
@@ -1395,17 +1288,15 @@ socket.on("resume-game", async ({ gameId }) => {
       bombsUsed: gameData.bombsUsed || { 1: false, 2: false },
       turn: gameData.turn,
       gameOver: gameData.gameOver,
-      lastClickedTile: gameData.lastClickedTile || {}, // Load lastClickedTile from Firestore
-      players: [], // Will populate based on who is resuming and who the opponent is
-      messages: gameData.messages || [] // Load game chat messages
+      lastClickedTile: gameData.lastClickedTile || {},
+      players: [],
+      messages: gameData.messages || []
     };
 
-    // Filter out players from observers list loaded from Firestore
     game.observers = (gameData.observers || []).filter(obs =>
         ![gameData.player1_userId, gameData.player2_userId, gameData.player3_userId, gameData.player4_userId].includes(obs.userId)
     );
 
-    // Populate players array for the in-memory game object
     const playerUids = [gameData.player1_userId, gameData.player2_userId];
     if (game.gameType === '2v2') {
         playerUids.push(gameData.player3_userId, gameData.player4_userId);
@@ -1414,83 +1305,69 @@ socket.on("resume-game", async ({ gameId }) => {
     game.players = playerUids.map((pUid, index) => {
         const playerNum = index + 1;
         let playerObj = players.find(p => p.userId === pUid);
-        if (!playerObj) { // If player not in global players list, add them
+        if (!playerObj) {
             playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
             players.push(playerObj);
         }
-        // Assign the current socket ID if this is the resuming player, or get from map for other players
         playerObj.socketId = (pUid === userId) ? socket.id : (userSocketMap[pUid] || null);
-        playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
+        playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2;
         return playerObj;
     });
 
-    // Update observers' socketIds
     game.observers.forEach(observer => {
         observer.socketId = userSocketMap[observer.userId] || null;
     });
 
-    games[gameId] = game; // Add game to in-memory active games
+    games[gameId] = game;
 
-    // Ensure userGameMap is correctly set for all players
     game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-    game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' }); // Observers remain observers
+    game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
 
-
-    // Update Firestore status from 'waiting_for_resume' to 'active'
     if (gameData.status === 'waiting_for_resume') {
       await gameDocRef.set({ status: 'active', lastUpdated: Timestamp.now() }, { merge: true });
-      console.log(`Game ${gameId} status updated to 'active' in Firestore.`);
     }
 
-    // Emit game-start to the player who resumed
     const currentPlayerInGame = game.players.find(p => p.userId === userId);
 
     if (currentPlayerInGame && currentPlayerInGame.socketId) {
-      socket.join(gameId); // IMPORTANT: Join the game room for the resuming player
-      io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
+      socket.join(gameId);
+      io.to(currentPlayerInGame.socketId).emit("game-start", {
         gameId: game.gameId,
         gameType: game.gameType,
         playerNumber: currentPlayerInGame.number,
-        board: JSON.stringify(game.board), // Send serialized board
+        board: JSON.stringify(game.board),
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
-        lastClickedTile: game.lastClickedTile, // Include lastClickedTile
+        lastClickedTile: game.lastClickedTile,
         opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== userId)?.name : "N/A",
-        gameChat: game.messages, // Send game chat history
-        observers: game.observers, // Send observer list
+        gameChat: game.messages,
+        observers: game.observers,
         player1Name: playerNamesForClient[1],
         player2Name: playerNamesForClient[2],
         player3Name: playerNamesForClient[3],
         player4Name: playerNamesForClient[4],
       });
-      console.log(`User ${userName} successfully resumed game ${gameId}.`);
-      io.to(gameId).emit("player-reconnected", { name: userName, userId: userId, role: 'player' }); // Notify other observers
+      io.to(gameId).emit("player-reconnected", { name: userName, userId: userId, role: 'player' });
     }
 
-    // If other players are also connected, notify them that game is active again
     game.players.filter(p => p.userId !== userId && p.socketId).forEach(player => {
         io.to(player.socketId).emit("opponent-reconnected", { name: userName });
-        console.log(`Notified player ${player.name} that ${userName} reconnected to game ${gameId}.`);
     });
 
-    // Update lobby player list (all players now)
-    emitLobbyPlayersList(); // Use the helper
+    emitLobbyPlayersList();
 
   } catch (error) {
     console.error("Error resuming game:", error);
     socket.emit("join-error", "Failed to resume game. " + error.message);
-    // If an error occurs, ensure userGameMap is cleaned up if it was set incorrectly
     if (userGameMap[userId] && userGameMap[userId].gameId === gameId) {
         delete userGameMap[userId];
     }
   }
 });
 
-  // NEW: Observe Game Event
   socket.on("observe-game", async ({ gameId }) => {
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     const userName = user ? (user.displayName || user.name || 'Anonymous Observer') : 'Anonymous Observer';
@@ -1500,14 +1377,12 @@ socket.on("resume-game", async ({ gameId }) => {
         return;
     }
 
-    // If already in a game (as player or observer), prevent observing another
     if (userGameMap[userId]) {
         socket.emit("join-error", "You are already in a game or observing another.");
-        console.warn(`Observer ${userName} (${userId}) tried to observe game ${gameId} but already mapped to ${userGameMap[userId].gameId}.`);
         return;
     }
 
-    userSocketMap[userId] = socket.id; // Update socket map
+    userSocketMap[userId] = socket.id;
 
     try {
         const gameDocRef = db.collection(GAMES_COLLECTION_PATH).doc(gameId);
@@ -1523,7 +1398,6 @@ socket.on("resume-game", async ({ gameId }) => {
             socket.emit("join-error", "Game is already over and cannot be observed.");
             return;
         }
-        // Prevent observing a game you are playing in
         const isPlayerInGame = [gameData.player1_userId, gameData.player2_userId, gameData.player3_userId, gameData.player4_userId].includes(userId);
         if (isPlayerInGame) {
             socket.emit("join-error", "You are a player in this game, not an observer.");
@@ -1532,15 +1406,13 @@ socket.on("resume-game", async ({ gameId }) => {
 
         let game = games[gameId];
         if (!game) {
-            // Load game into memory if not already there
             const deserializedBoard = JSON.parse(gameData.board);
 
-            // Prepare player names for sending to client
             const playerNamesForClient = {
                 1: gameData.player1_name || "Player 1",
                 2: gameData.player2_name || "Player 2",
-                3: gameData.player3_name, // For 2v2
-                4: gameData.player4_name, // For 2v2
+                3: gameData.player3_name,
+                4: gameData.player4_name,
             };
 
             game = {
@@ -1552,16 +1424,14 @@ socket.on("resume-game", async ({ gameId }) => {
                 turn: gameData.turn,
                 gameOver: gameData.gameOver,
                 lastClickedTile: gameData.lastClickedTile || {},
-                players: [], // Will be populated with proper player objects (from Firestore)
+                players: [],
                 messages: gameData.messages || []
             };
 
-            // Filter out players from observers list loaded from Firestore
             game.observers = (gameData.observers || []).filter(obs =>
                 ![gameData.player1_userId, gameData.player2_userId, gameData.player3_userId, gameData.player4_userId].includes(obs.userId)
             );
 
-            // Populate players for in-memory game from Firestore data
             const playerUids = [gameData.player1_userId, gameData.player2_userId];
             if (game.gameType === '2v2') {
                 playerUids.push(gameData.player3_userId, gameData.player4_userId);
@@ -1570,63 +1440,57 @@ socket.on("resume-game", async ({ gameId }) => {
             game.players = playerUids.map((pUid, index) => {
                 const playerNum = index + 1;
                 let playerObj = players.find(p => p.userId === pUid);
-                if (!playerObj) { // If player not in global players list, add them
+                if (!playerObj) {
                     playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
                     players.push(playerObj);
                 }
                 playerObj.socketId = userSocketMap[pUid] || null;
-                playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
+                playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2;
                 return playerObj;
             });
 
-            games[gameId] = game; // Add to in-memory games
+            games[gameId] = game;
         }
 
-        // Add observer to the game's observer list in memory
         const newObserver = { userId, name: userName, socketId: socket.id };
         const existingObserverIndex = game.observers.findIndex(o => o.userId === userId);
         if (existingObserverIndex === -1) {
             game.observers.push(newObserver);
         } else {
-            game.observers[existingObserverIndex].socketId = socket.id; // Update existing observer's socketId
+            game.observers[existingObserverIndex].socketId = socket.id;
         }
 
-        // Update Firestore with the new observer (ensure it's just the userId and name)
         await gameDocRef.update({
-            observers: FieldValue.arrayUnion({ userId, name: userName }) // Store minimal info in Firestore
+            observers: FieldValue.arrayUnion({ userId, name: userName })
         });
-        console.log(`Observer ${userName} (${userId}) joined game ${gameId}.`);
 
-        socket.join(gameId); // Join the game-specific Socket.IO room
+        socket.join(gameId);
 
-        // Update userGameMap for the observer
         userGameMap[userId] = { gameId, role: 'observer' };
 
-        // Emit game-start to the new observer
         io.to(socket.id).emit("game-start", {
             gameId: game.gameId,
             gameType: game.gameType,
-            playerNumber: 0, // 0 indicates an observer
+            playerNumber: 0,
             board: JSON.stringify(game.board),
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile,
-            opponentName: "N/A", // Observers don't have an "opponent"
+            opponentName: "N/A",
             gameChat: game.messages,
-            observers: game.observers, // Send the list of current observers in this game
+            observers: game.observers,
             player1Name: game.players.find(pl => pl.number === 1)?.name || "Player 1",
             player2Name: game.players.find(pl => pl.number === 2)?.name || "Player 2",
             player3Name: game.players.find(pl => pl.number === 3)?.name,
             player4Name: game.players.find(pl => pl.number === 4)?.name,
         });
 
-        // Notify players and other observers in the game about the new observer
         io.to(gameId).emit("observer-joined", { name: userName, userId: userId });
 
-        emitLobbyPlayersList(); // Update lobby list since an observer might be "in game" from lobby perspective
-        socket.emit("request-observable-games"); // Refresh observable games for client
+        emitLobbyPlayersList();
+        socket.emit("request-observable-games");
     } catch (error) {
         console.error("Error observing game:", error);
         socket.emit("join-error", "Failed to observe game. " + error.message);
@@ -1644,7 +1508,6 @@ socket.on("resume-game", async ({ gameId }) => {
 
         const gameData = gameDoc.data();
 
-        // Emit full replay context including moves list and player details to client
         socket.emit("receive-game-replay", {
             gameId: gameData.gameId,
             gameType: gameData.gameType || '1v1',
@@ -1655,10 +1518,9 @@ socket.on("resume-game", async ({ gameId }) => {
             winnerTeam: gameData.winnerTeam,
             finalScores: gameData.scores,
             moves: gameData.moves || [],
-            board: gameData.board // Initial or final serialized board state
+            board: gameData.board
         });
 
-        console.log(`Sent replay data for game ${gameId} to client ${socket.id}`);
     } catch (error) {
         console.error("Error fetching game replay:", error);
         socket.emit("game-error", "Failed to retrieve game replay.");
@@ -1667,19 +1529,15 @@ socket.on("resume-game", async ({ gameId }) => {
 
 
 socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const inviterUser = socket.request.session?.passport?.user || socket.request.user || null;
     const inviterUserId = inviterUser ? (inviterUser.id || socket.request.user?.id) : null;
     const inviterPlayer = players.find((p) => p.userId === inviterUserId);
 
     if (!inviterPlayer) {
-        console.warn(`Invite failed: Inviter not found. userId: ${inviterUserId}`);
         socket.emit("join-error", "Invite failed: Inviter profile could not be found.");
         return;
     }
 
-    // --- BULLETPROOF AI CHECK ---
-    // Handle targetSocketIds whether it's passed as an array, a string, or null
     const firstTarget = Array.isArray(targetSocketIds) ? targetSocketIds[0] : targetSocketIds;
     const isAiInvite = 
         gameType === '1v1' && (
@@ -1753,14 +1611,13 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         emitLobbyPlayersList();
         return;
     }
-    const invitedPlayersData = []; // To store player objects for invite
+    const invitedPlayersData = [];
     const allInvitedUserIds = [];
 
     if (gameType === '1v1') {
         const targetSocketId = firstTarget;
         const invitedPlayer = players.find((p) => p.id === targetSocketId);
         if (!invitedPlayer) {
-            console.warn(`Invite failed: Invitee not found for 1v1. targetSocketId: ${targetSocketId}`);
             socket.emit("join-error", "Invite failed: AI Bot or player not found.");
             return;
         }
@@ -1768,37 +1625,30 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         allInvitedUserIds.push(invitedPlayer.userId);
 
     } else if (gameType === '2v2') {
-        // targetSocketIds in 2v2 mode will contain partner's and two rivals' socket IDs
         for (const sId of targetSocketIds) {
             const p = players.find(player => player.id === sId);
             if (!p) {
-                console.warn(`Invite failed: 2v2 invitee not found. socketId: ${sId}`);
                 io.to(inviterPlayer.id).emit("invite-rejected", { fromName: "Server", reason: "One or more invited players not found." });
                 return;
             }
             invitedPlayersData.push(p);
             allInvitedUserIds.push(p.userId);
         }
-        if (invitedPlayersData.length !== 3) { // 1 partner + 2 rivals
-            console.warn(`Invite failed: Incorrect number of players for 2v2 invite. Expected 3, got ${invitedPlayersData.length}.`);
+        if (invitedPlayersData.length !== 3) {
             io.to(inviterPlayer.id).emit("invite-rejected", { fromName: "Server", reason: "Incorrect number of players for 2v2 game." });
             return;
         }
     } else {
-        console.warn(`Invite failed: Unknown game type ${gameType}.`);
         return;
     }
 
-    // Check if any of the involved players (inviter + all invited) are already in a game
     const allInvolvedUserIds = [inviterUserId, ...allInvitedUserIds];
     const playersAlreadyInGame = allInvolvedUserIds.filter(uid => userGameMap[uid]);
 
     if (playersAlreadyInGame.length > 0) {
         const namesInGame = playersAlreadyInGame.map(uid => players.find(p => p.userId === uid)?.name || uid).join(', ');
         const reason = `One or more players (${namesInGame}) are already in a game.`;
-        console.warn(`Invite failed: ${reason}`);
         io.to(inviterPlayer.id).emit("invite-rejected", { fromName: "Server", reason: reason });
-        // Also inform other invited players if they were already in a game and caused rejection
         allInvitedUserIds.forEach(invitedUid => {
             if (userGameMap[invitedUid] && userSocketMap[invitedUid]) {
                 io.to(userSocketMap[invitedUid]).emit("invite-rejected", { fromName: inviterPlayer.name, reason: "You are already in another game." });
@@ -1807,41 +1657,33 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         return;
     }
 
-    // Generate a unique invite ID
     const inviteId = uuidv4();
 
-    // Store the invite for each recipient
     for (const invitedP of invitedPlayersData) {
         if (!pendingInvites[invitedP.userId]) {
             pendingInvites[invitedP.userId] = {};
         }
-        // Store the full invite details including targetSocketIds
         pendingInvites[invitedP.userId][inviteId] = {
             inviteId,
             senderId: inviterUserId,
             senderName: inviterPlayer.name,
-            gameId: null, // Game ID is created only upon acceptance by first player
+            gameId: null,
             gameType: gameType,
-            targetSocketIds: targetSocketIds, // Crucial: Store the original targetSocketIds here
+            targetSocketIds: targetSocketIds,
             timestamp: Date.now(),
             status: 'pending',
-            invitedPlayersInfo: invitedPlayersData.map(p => ({ userId: p.userId, name: p.name, socketId: p.id })) // Store info about all invited players
+            invitedPlayersInfo: invitedPlayersData.map(p => ({ userId: p.userId, name: p.name, socketId: p.id }))
         };
     }
 
-    // NEW: For 2v2 invites, initialize pending2v2Acceptances
     if (gameType === '2v2') {
         pending2v2Acceptances[inviteId] = {
             inviterId: inviterUserId,
-            acceptedUsers: new Set([inviterUserId]), // Initialize with inviter's acceptance
-            // Required players are inviter + 3 invitees
+            acceptedUsers: new Set([inviterUserId]),
             requiredPlayers: new Set(allInvolvedUserIds)
         };
-        console.log(`Initialized pending2v2Acceptances for inviteId ${inviteId}. Required players: ${Array.from(pending2v2Acceptances[inviteId].requiredPlayers).join(', ')}`);
-        console.log(`[2v2 Invite] Inviter ${inviterPlayer.name} (${inviterUserId}) implicitly accepted for invite ${inviteId}.`);
     }
 
-    // Now emit the invitations to the target players
     for (const invitedP of invitedPlayersData) {
         const targetSocketId = invitedP.id;
         if (targetSocketId) {
@@ -1851,14 +1693,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     io.to(inviterPlayer.id).emit("invite-sent", { message: "Invite sent successfully." });
   });
 
-// Respond to Invite Event
   socket.on("respond-invite", async ({ inviteId, gameIdFromClient, accept }) => {
     const respondingUser = socket.request.session?.passport?.user || socket.request.user || null;
     const respondingUserId = respondingUser ? (respondingUser.id || socket.request.user?.id) : null;
     const respondingPlayer = players.find((p) => p.userId === respondingUserId);
 
     if (!respondingPlayer) {
-        console.warn(`Respond invite failed: Responding player not found. socketId: ${socket.id}`);
         socket.emit("join-error", "Response failed: Your player profile could not be found.");
         return;
     }
@@ -1867,7 +1707,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
     if (!originalInvite) {
         socket.emit("game-error", "Invalid or expired invite.");
-        console.warn(`Respond invite failed: Invalid or expired invite for responding user ${respondingUserId}, inviteId ${inviteId}.`);
         return;
     }
 
@@ -1998,12 +1837,9 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
     emitLobbyPlayersList();
 } else if (originalInvite.gameType === '2v2') {
-            console.log(`[2v2 Invite] User ${respondingPlayer.name} (${respondingUserId}) accepted invite ${inviteId}.`);
-
             if (pending2v2Acceptances[inviteId]) {
                 pending2v2Acceptances[inviteId].acceptedUsers.add(respondingUserId);
             } else {
-                console.error(`[2v2 Invite] No pending2v2Acceptances found for inviteId ${inviteId}.`);
                 return;
             }
 
@@ -2122,7 +1958,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
                 io.to(inviterPlayer.id).emit("server-message", { text: `Waiting for ${waitingForNames.join(', ')} to accept.`, isError: false });
             }
         }
-    } else { // Decline / Reject
+    } else {
         io.to(inviterPlayer.id).emit("invite-rejected", { fromName: respondingPlayer.name });
         if (originalInvite.gameType === '2v2' && Array.isArray(originalInvite.invitedPlayersInfo)) {
             allPlayerUserIdsInInvite.forEach(uid => {
@@ -2139,264 +1975,235 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     }
 });
 
-  // Request pending invites for a user (e.g., on login or refresh)
   socket.on("request-pending-invites", () => {
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     
     if (userId) {
         socket.emit("update-invites", pendingInvites[userId] || {});
-        console.log(`Sent pending invites to user ${userId}.`);
     }
   });
 
 
 socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
-    const game = games[gameId];
-    if (!game || game.gameOver) {
-        return;
+  const game = games[gameId];
+  if (!game || game.gameOver) {
+    return;
+  }
+
+  const isMidGameSetup = Boolean(game.screenshot);
+
+  // Standard safe-first-click board generation (ONLY for non-midgame setups)
+  if (!game.moves || game.moves.length === 0) {
+    if (!isMidGameSetup) {
+      game.board = generateBoard(x, y);
     }
-   game.clickStartTime = clickStartTime;
+  }
 
-    const user = socket.request.session?.passport?.user || socket.request.user || null;
-    const userId = user ? (user.id || socket.request.user?.id) : null;
-    
-    if (!userId) {
-        socket.emit("game-error", "Authentication required to make moves.");
-        return;
+  game.clickStartTime = clickStartTime;
+
+  const user = socket.request.session?.passport?.user || socket.request.user || null;
+  const userId = user ? (user.id || socket.request.user?.id) : null;
+
+  if (!userId) {
+    socket.emit("game-error", "Authentication required to make moves.");
+    return;
+  }
+
+  const player = game.players.find((p) => p.userId === userId);
+  if (!player || player.number !== game.turn) {
+    return;
+  }
+
+  player.socketId = socket.id;
+
+  const tile = game.board[y][x];
+  if (tile.revealed) {
+    return;
+  }
+
+  game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
+
+  if (tile.isMine) {
+    tile.revealed = true;
+    tile.owner = player.number;
+    tile.ownerTeam = player.team;
+    game.scores[player.team]++;
+
+    if (checkGameOver(game.scores)) {
+      game.gameOver = true;
+      game.players.forEach(p => delete userGameMap[p.userId]);
+      emitLobbyPlayersList();
     }
+  } else {
+    const isBlankTile = tile.adjacentMines === 0;
+    const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
-    const player = game.players.find((p) => p.userId === userId);
-    if (!player || player.number !== game.turn) {
-        return;
-    }
+    // PREVENT MID-GAME RESTART ON BLANK TILE CLICK
+    if (isBlankTile && noFlagsRevealedYet && !isMidGameSetup) {
+      game.board = generateBoard();
+      game.scores = { 1: 0, 2: 0 };
+      game.bombsUsed = { 1: false, 2: false };
+      game.turn = 1;
+      game.gameOver = false;
+      game.lastClickedTile = {};
+      game.messages = [];
 
-    player.socketId = socket.id;
-
-    const tile = game.board[y][x];
-    if (tile.revealed) {
-        return;
-    }
-
-    game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
-
-    if (tile.isMine) {
-      tile.revealed = true;
-      tile.owner = player.number; 
-      tile.ownerTeam = player.team; 
-      game.scores[player.team]++; 
-
-      if (checkGameOver(game.scores)) {
-          game.gameOver = true;
-          let winnerTeam = null;
-          let loserTeam = null;
-          if (game.scores[1] > game.scores[2]) {
-              winnerTeam = 1; loserTeam = 2;
-          } else if (game.scores[2] > game.scores[1]) {
-              winnerTeam = 2; loserTeam = 1;
-          }
-          
-          game.players.forEach(p => delete userGameMap[p.userId]);
-          emitLobbyPlayersList();
-      }
-
-    } else { 
-      const isBlankTile = tile.adjacentMines === 0;
-      const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
-
-      if (isBlankTile && noFlagsRevealedYet) {
-        game.board = generateBoard();
-        game.scores = { 1: 0, 2: 0 };
-        game.bombsUsed = { 1: false, 2: false };
-        game.turn = 1;
-        game.gameOver = false;
-        game.lastClickedTile = {};
-        game.messages = [];
-
-        const serializedBoard = JSON.stringify(game.board);
-        if (!game.moves) game.moves = [];
-        game.moves.push({
-            type: 'restart',
-            board: serializedBoard,
-            timestamp: Date.now()
-        });
-
-        game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-        game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
-        emitLobbyPlayersList();
-
-        // INSTANTLY emit game restart to avoid waiting for Firestore write
-        game.players.forEach(p => {
-            io.to(p.socketId).emit("game-restarted", {
-                gameId: game.gameId,
-                gameType: game.gameType,
-                playerNumber: p.number,
-                board: serializedBoard,
-                turn: game.turn,
-                scores: game.scores,
-                bombsUsed: game.bombsUsed,
-                gameOver: game.gameOver,
-                lastClickedTile: game.lastClickedTile,
-                opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
-                gameChat: game.messages,
-                observers: game.observers,
-                player1Name: game.players.find(pl => pl.number === 1)?.name,
-                player2Name: game.players.find(pl => pl.number === 2)?.name,
-                player3Name: game.players.find(pl => pl.number === 3)?.name,
-                player4Name: game.players.find(pl => pl.number === 4)?.name,
-            });
-        });
-
-        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            board: serializedBoard,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            turn: game.turn,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            moves: game.moves,
-            status: 'active',
-            lastUpdated: Timestamp.now(),
-            winnerTeam: null,
-            loserTeam: null,
-            messages: game.messages,
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-        }, { merge: true }).catch(error => {
-            console.error("Error restarting game in Firestore (background persist):", error);
-        });
-
-        return;
-      }
-
-      revealRecursive(game.board, x, y);
-
-      if (game.gameType === '1v1') {
-        game.turn = game.turn === 1 ? 2 : 1;
-      } else if (game.gameType === '2v2') {
-        game.turn = getNext2v2Turn(game.turn);
-      }
-    }
-
-  if (!game.moves) game.moves = [];
-    game.moves.push({
-        type: 'click',
-        playerNumber: player.number,
-        team: player.team,
-        x,
-        y,
+      const serializedBoard = JSON.stringify(game.board);
+      if (!game.moves) game.moves = [];
+      game.moves.push({
+        type: 'restart',
+        board: serializedBoard,
         timestamp: Date.now()
-    });
+      });
 
-// AI Adversary Turn Loop Integration
-    if (!game.gameOver) {
-        const nextPlayer = game.players.find(p => p.number === game.turn);
-        if (nextPlayer && nextPlayer.isAi) {
-            processAiTurn(gameId);
-        }
-    }
+      game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
+      game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
+      emitLobbyPlayersList();
 
-  if (!game.moves) game.moves = [];
-    game.moves.push({
-        type: 'click',
-        playerNumber: player.number,
-        x,
-        y,
-        timestamp: Date.now()
-    });
+      game.players.forEach(p => {
+        io.to(p.socketId).emit("game-restarted", {
+          gameId: game.gameId,
+          gameType: game.gameType,
+          playerNumber: p.number,
+          board: serializedBoard,
+          turn: game.turn,
+          scores: game.scores,
+          bombsUsed: game.bombsUsed,
+          gameOver: game.gameOver,
+          lastClickedTile: game.lastClickedTile,
+          opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
+          gameChat: game.messages,
+          observers: game.observers,
+          player1Name: game.players.find(pl => pl.number === 1)?.name,
+          player2Name: game.players.find(pl => pl.number === 2)?.name,
+          player3Name: game.players.find(pl => pl.number === 3)?.name,
+          player4Name: game.players.find(pl => pl.number === 4)?.name,
+        });
+      });
 
-    // =========================================================================
-    // PERFORMANCE BOTTLENECK REMOVAL: JSON SERIALIZATION CACHING & MEMORY STREAMING
-    // =========================================================================
-    // By pre-serializing the board string once outside the emit loop and optimizing 
-    // payload size, we bypass heavy stringification overhead on every single client socket.
-    const cachedBoardString = JSON.stringify(game.board);
-
-    // 1. Instantly emit state updates to eliminate interaction delay
-    io.to(gameId).emit("board-update", {
-        gameId: game.gameId,
-        board: cachedBoardString,
-        turn: game.turn,
+      db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+        board: serializedBoard,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
-        gameOver: game.gameOver,
-        lastClickedTile: game.lastClickedTile,
-        observers: game.observers,
-        clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
-    });
-
-    // 2. Persist state asynchronously in the background without `await`
-    const newStatus = game.gameOver ? 'completed' : 'active';
-    db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-        board: cachedBoardString,
         turn: game.turn,
-        scores: game.scores,
-        bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile,
-        status: newStatus,
         moves: game.moves,
+        status: 'active',
         lastUpdated: Timestamp.now(),
-        winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
-        loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
+        winnerTeam: null,
+        loserTeam: null,
+        messages: game.messages,
         observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-    }, { merge: true }).catch(error => {
-        console.error("Error updating game in Firestore (tile-click background persist):", error);
-    });
+      }, { merge: true }).catch(error => {
+        console.error("Error restarting game in Firestore:", error);
+      });
+
+      return;
+    }
+
+    revealRecursive(game.board, x, y);
+
+    if (game.gameType === '1v1') {
+      game.turn = game.turn === 1 ? 2 : 1;
+    } else if (game.gameType === '2v2') {
+      game.turn = getNext2v2Turn(game.turn);
+    }
+  }
+
+  // Single, unified move recording
+  if (!game.moves) game.moves = [];
+  game.moves.push({
+    type: 'click',
+    playerNumber: player.number,
+    team: player.team,
+    x,
+    y,
+    timestamp: Date.now()
   });
 
-  // Handle Game Chat Messages
+  // AI Turn triggering
+  if (!game.gameOver) {
+    const nextPlayer = game.players.find(p => p.number === game.turn);
+    if (nextPlayer && nextPlayer.isAi) {
+      processAiTurn(gameId);
+    }
+  }
+
+  const cachedBoardString = JSON.stringify(game.board);
+
+  io.to(gameId).emit("board-update", {
+    gameId: game.gameId,
+    board: cachedBoardString,
+    turn: game.turn,
+    scores: game.scores,
+    bombsUsed: game.bombsUsed,
+    gameOver: game.gameOver,
+    lastClickedTile: game.lastClickedTile,
+    observers: game.observers,
+    clickStartTime: game.clickStartTime
+  });
+
+  const newStatus = game.gameOver ? 'completed' : 'active';
+  db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+    board: cachedBoardString,
+    turn: game.turn,
+    scores: game.scores,
+    bombsUsed: game.bombsUsed,
+    gameOver: game.gameOver,
+    lastClickedTile: game.lastClickedTile,
+    status: newStatus,
+    moves: game.moves,
+    lastUpdated: Timestamp.now(),
+    winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
+    loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
+    observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+  }, { merge: true }).catch(error => {
+    console.error("Error updating game in Firestore:", error);
+  });
+});
+
   socket.on("send-game-message", async ({ gameId, message }) => {
     const game = games[gameId];
     if (!game) {
-      console.warn(`Attempted to send message to non-existent game ${gameId}`);
       return;
     }
     
-    // FIXED: Fallback profile synchronization layers
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     const userName = user ? (user.displayName || user.name || 'Anonymous') : 'Anonymous';
 
     if (!userId) {
-        console.warn(`Unauthenticated user tried to send game message to ${gameId}`);
         return;
     }
 
-    // Only allow players or active observers to send messages
     const isPlayer = game.players.some(p => p.userId === userId);
     const isObserver = game.observers.some(o => o.userId === userId);
 
     if (!isPlayer && !isObserver) {
-        console.warn(`User ${userName} (${userId}) is not a player or observer in game ${gameId}, cannot send message.`);
         return;
     }
-
 
     const timestamp = new Date().toLocaleTimeString();
     const fullMessage = { sender: userName, text: message, timestamp: timestamp };
     game.messages.push(fullMessage);
 
-    io.to(gameId).emit("receive-game-message", fullMessage); // Emit to everyone in the game room
-    console.log(`Game ${gameId} message from ${userName}: ${message}`);
+    io.to(gameId).emit("receive-game-message", fullMessage);
 
-    // Persist messages to Firestore (append to existing messages array)
     try {
         await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
             messages: FieldValue.arrayUnion(fullMessage)
         });
-        console.log(`Game ${gameId} chat message saved to Firestore.`);
     } catch (error) {
         console.error("Error saving game message to Firestore:", error);
     }
   });
 
-// Use Bomb Event
   socket.on("use-bomb", ({ gameId }) => {
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     
@@ -2406,15 +2213,12 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         return;
     }
 
-    // Determine player's team
     const playerTeam = player.team;
 
-    // Turn check applies differently for 1v1 vs 2v2
     const isPlayersTurn = (game.gameType === '1v1' && player.number === game.turn) || (game.gameType === '2v2' && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === playerTeam));
 
-    if (!isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
+    if (!isPlayersTurn || game.bombsUsed[playerTeam]) {
         if (!isPlayersTurn) {
-            console.warn(`Player ${player.name} tried to use bomb out of turn. Current turn: ${game.turn}`);
             io.to(socket.id).emit("bomb-error", "It's not your turn or your team's turn to use the bomb.");
         } else if (game.bombsUsed[playerTeam]) {
             io.to(socket.id).emit("bomb-error", "Your team has already used its bomb!");
@@ -2422,25 +2226,21 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         return;
     }
 
-    // Only allow bomb usage if player's team is strictly behind in score
     const opponentTeam = playerTeam === 1 ? 2 : 1;
     if (game.scores[playerTeam] >= game.scores[opponentTeam]) {
         io.to(socket.id).emit("bomb-error", "You can only use the bomb when your team is behind in score!");
         return;
     }
 
-    player.socketId = socket.id; // Update socket ID on action
+    player.socketId = socket.id;
 
     io.to(player.socketId).emit("wait-bomb-center");
-    console.log(`Player ${player.name} (Team ${player.team}) is waiting for bomb center selection.`);
   });
 
-  // Bomb Center Selected Event
   socket.on("bomb-center", async ({ gameId, x, y }) => {
     const game = games[gameId];
     if (!game || game.gameOver) return;
 
-    // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     
@@ -2450,15 +2250,12 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         return;
     }
 
-    // Determine player's team
     const playerTeam = player.team;
 
-    // Turn check applies differently for 1v1 vs 2v2
     const isPlayersTurn = (game.gameType === '1v1' && player.number === game.turn) || (game.gameType === '2v2' && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === playerTeam));
 
-    if (!isPlayersTurn || game.bombsUsed[playerTeam]) { // Check bomb used for the TEAM
+    if (!isPlayersTurn || game.bombsUsed[playerTeam]) {
         if (!isPlayersTurn) {
-            console.warn(`Player ${player.name} tried to place bomb out of turn. Current turn: ${game.turn}`);
             io.to(socket.id).emit("bomb-error", "It's not your turn or your team's turn to place the bomb.");
         } else if (game.bombsUsed[playerTeam]) {
             io.to(socket.id).emit("bomb-error", "Your team has already used its bomb!");
@@ -2466,14 +2263,13 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         return;
     }
 
-    player.socketId = socket.id; // Update socket ID on action
+    player.socketId = socket.id;
 
     const MIN_COORD = 2;
     const MAX_COORD_X = WIDTH - 3;
     const MAX_COORD_Y = HEIGHT - 3;
 
     if (x < MIN_COORD || x > MAX_COORD_X || y < MIN_COORD || y > MAX_COORD_Y) {
-      console.log(`Bomb center (${x},${y}) out of bounds for 5x5 blast.`);
       io.to(player.socketId).emit("bomb-error", "Bomb center must be within the 12x12 area.");
       return;
     }
@@ -2497,20 +2293,17 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     }
 
     if (allTilesRevealed) {
-      console.log(`Bomb area at (${x},${y}) already fully revealed.`);
       io.to(player.socketId).emit("bomb-error", "All tiles in the bomb area are already revealed.");
       return;
     }
 
-    // Update last clicked tile for the current player using bomb center
     game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
 
-    game.bombsUsed[playerTeam] = true; // Mark bomb as used for the TEAM
-    revealArea(game.board, x, y, player.number, playerTeam, game.scores); // Pass playerTeam to revealArea
+    game.bombsUsed[playerTeam] = true;
+    revealArea(game.board, x, y, player.number, playerTeam, game.scores);
 
     if (checkGameOver(game.scores)) {
         game.gameOver = true;
-        // Determine winner/loser team
         let winnerTeam = null;
         let loserTeam = null;
         if (game.scores[1] > game.scores[2]) {
@@ -2518,32 +2311,26 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         } else if (game.scores[2] > game.scores[1]) {
             winnerTeam = 2; loserTeam = 1;
         }
-        // Set game status to 'completed' in Firestore and clear userGameMap for players
         try {
             await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-                status: 'completed', // Game is completed
+                status: 'completed',
                 gameOver: true,
                 lastUpdated: Timestamp.now(),
-                winnerTeam: winnerTeam, // Store winning team
-                loserTeam: loserTeam, // Store losing team
-                lastClickedTile: game.lastClickedTile, // Save lastClickedTile
+                winnerTeam: winnerTeam,
+                loserTeam: loserTeam,
+                lastClickedTile: game.lastClickedTile,
             }, { merge: true });
-            console.log(`Game ${gameId} status set to 'completed' in Firestore.`);
         } catch (error) {
             console.error("Error setting game status to 'completed' on bomb usage:", error);
         }
-        // Clear userGameMap for all players when game is over
         game.players.forEach(p => delete userGameMap[p.userId]);
-        emitLobbyPlayersList(); // Update lobby list
+        emitLobbyPlayersList();
     }
-    // Turn always switches after bomb usage, regardless of game type.
     if (game.gameType === '1v1') {
-        game.turn = game.turn === 1 ? 2 : 1; // 1v1: P1 -> P2 -> P1
+        game.turn = game.turn === 1 ? 2 : 1;
     } else if (game.gameType === '2v2') {
-        game.turn = getNext2v2Turn(game.turn); // 2v2: P1 -> P3 -> P2 -> P4 -> P1
+        game.turn = getNext2v2Turn(game.turn);
     }
-
-    console.log(`Player ${player.name} (Team ${player.team}) used bomb at ${x},${y}. New scores: Team 1: ${game.scores[1]}, Team 2: ${game.scores[2]}`);
 
     if (!game.moves) game.moves = [];
     game.moves.push({
@@ -2555,106 +2342,96 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         timestamp: Date.now()
     });
 
-    // Update game state in Firestore
     try {
-        const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
+        const serializedBoard = JSON.stringify(game.board);
         const newStatus = game.gameOver ? 'completed' : 'active';
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for update
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             board: serializedBoard,
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
+            lastClickedTile: game.lastClickedTile,
             moves: game.moves,
-            status: newStatus, // Use the newStatus
+            status: newStatus,
             lastUpdated: Timestamp.now(),
             winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
             loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name })) // Save observers list
+            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
         }, { merge: true });
-        console.log(`Game ${gameId} updated in Firestore (bomb-center). Status: ${newStatus}`);
     } catch (error) {
         console.error("Error updating game in Firestore (bomb-center):", error);
     }
 
-    // Emit board-update to all players AND observers in the game room
     io.to(gameId).emit("board-update", {
         gameId: game.gameId,
-        board: JSON.stringify(game.board), // Send serialized board to client
+        board: JSON.stringify(game.board),
         turn: game.turn,
         scores: game.scores,
         bombsUsed: game.bombsUsed,
         gameOver: game.gameOver,
-        lastClickedTile: game.lastClickedTile, // Include lastClickedTile in emitted data
-        observers: game.observers, // Send observer list
-        clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
+        lastClickedTile: game.lastClickedTile,
+        observers: game.observers,
+        clickStartTime: game.clickStartTime
     });
   });
 
-  // Restart Game Event (Manual Restart Button)
   socket.on("restart-game", async ({ gameId }) => {
     const game = games[gameId];
     if (!game) return;
 
-    // FIXED: Fallback identity parsing
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
     const requestingPlayer = game.players.find(p => p.userId === userId);
     if (!requestingPlayer) return;
 
-    console.log(`Manual restart requested by ${requestingPlayer.name} for game ${gameId}.`);
-
     game.board = generateBoard();
-    game.scores = { 1: 0, 2: 0 }; // Reset team scores
-    game.bombsUsed = { 1: false, 2: false }; // Reset team bomb usage
-    game.turn = 1; // Always reset turn to player 1
+    game.scores = { 1: 0, 2: 0 };
+    game.bombsUsed = { 1: false, 2: false };
+    game.turn = 1;
     game.gameOver = false;
-    game.lastClickedTile = {}; // Reset lastClickedTile for all players
-    game.messages = []; // Clear game chat messages on restart
+    game.lastClickedTile = {};
+    game.messages = [];
 
     game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-    game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' }); // Observers remain observers
-    emitLobbyPlayersList(); // Update lobby list
+    game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
+    emitLobbyPlayersList();
 
-    // Update game state in Firestore
     try {
-        const serializedBoard = JSON.stringify(game.board); // Serialize for Firestore
-        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({ // Use set with merge true for restart
+        const serializedBoard = JSON.stringify(game.board);
+        await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
             board: serializedBoard,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             turn: game.turn,
             moves: game.moves,
             gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile, // Save lastClickedTile
-            status: 'active', // Game is active after restart
+            lastClickedTile: game.lastClickedTile,
+            status: 'active',
             lastUpdated: Timestamp.now(),
-            winnerTeam: null, // Reset winner/loser team
-            loserTeam: null, // Reset winner/loser team
-            messages: game.messages, // Save cleared messages
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name })) // Save observers list
+            winnerTeam: null,
+            loserTeam: null,
+            messages: game.messages,
+            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
         }, { merge: true });
-        console.log(`Game ${gameId} restarted and updated in Firestore.`);
     } catch (error) {
         console.error("Error restarting game in Firestore:", error);
     }
 
-    // Emit to all players AND observers in the game room
     game.players.forEach(p => {
-        io.to(p.socketId).emit("game-restarted", { // Use game-restarted event
+        io.to(p.socketId).emit("game-restarted", {
             gameId: game.gameId,
             gameType: game.gameType,
-            playerNumber: p.number, // This will be the player's own number, not observer's 0
+            playerNumber: p.number,
             board: JSON.stringify(game.board),
             turn: game.turn,
             scores: game.scores,
             bombsUsed: game.bombsUsed,
             gameOver: game.gameOver,
             lastClickedTile: game.lastClickedTile,
-            opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A", // Only relevant for 1v1
+            opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
             gameChat: game.messages,
-            observers: game.observers, // Send observer list
+            observers: game.observers,
             player1Name: game.players.find(pl => pl.number === 1)?.name,
             player2Name: game.players.find(pl => pl.number === 2)?.name,
             player3Name: game.players.find(pl => pl.number === 3)?.name,
@@ -2663,11 +2440,9 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     });
   });
 
- // Leave Game Event (Player or Observer voluntarily leaves)
 socket.on("leave-game", async ({ gameId }) => {
   const game = games[gameId];
   
-  // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
   const user = socket.request.session?.passport?.user || socket.request.user || null;
   const userId = user ? (user.id || socket.request.user?.id) : null;
   const userName = user ? (user.displayName || user.name || 'Unknown User') : 'Unknown User';
@@ -2675,102 +2450,73 @@ socket.on("leave-game", async ({ gameId }) => {
   if (game && userId) {
     const gameMapping = userGameMap[userId];
     if (!gameMapping || gameMapping.gameId !== gameId) {
-        console.warn(`User ${userId} tried to leave game ${gameId} but was not mapped to it.`);
         return;
     }
 
-    // Remove from userGameMap
     delete userGameMap[userId];
-    socket.leave(gameId); // Make the socket leave the game room
+    socket.leave(gameId);
 
     if (gameMapping.role === 'player') {
       const playerInGame = game.players.find(p => p.userId === userId);
       if (playerInGame) {
-        playerInGame.socketId = null; // Mark their socket as null
-        console.log(`User ${userId} (${playerInGame.name}) left game ${gameId} as a player.`);
+        playerInGame.socketId = null;
 
-        // Notify other players in the game (if 2v2) or opponent (if 1v1)
         game.players.filter(p => p.userId !== userId && p.socketId).forEach(player => {
             io.to(player.socketId).emit("opponent-left");
-            console.log(`Notified player ${player.name} that ${playerInGame.name} left.`);
         });
-        // Notify observers in the game that a player left
         io.to(gameId).emit("player-left", { name: playerInGame.name, userId: playerInGame.userId, role: 'player' });
 
-        // Set game status to 'waiting_for_resume' when a player voluntarily leaves.
         try {
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
               status: 'waiting_for_resume',
               lastUpdated: Timestamp.now()
           }, { merge: true });
-          console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore due to player leaving.`);
         } catch (error) {
           console.error("Error updating game status to 'waiting_for_resume' on player leave:", error);
         }
       }
     } else if (gameMapping.role === 'observer') {
-      // Remove observer from the in-memory game object
       game.observers = game.observers.filter(o => o.userId !== userId);
-      console.log(`User ${userId} (${userName}) left game ${gameId} as an observer.`);
 
-      // Update Firestore to remove the observer
       try {
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).update({
               observers: FieldValue.arrayRemove({ userId, name: userName })
           });
-          console.log(`Observer ${userName} removed from game ${gameId} in Firestore.`);
       } catch (error) {
           console.error("Error removing observer from Firestore on leave:", error);
       }
-      // Notify others in the game that an observer left
       io.to(gameId).emit("observer-left", { name: userName, userId: userId });
     }
-  } else {
-      console.warn(`Attempt to leave game failed: game ${gameId} not found or userId missing.`);
   }
 
-  // Attempt to re-add player/observer to lobby list if they were logged in
-  if (userId && !userGameMap[userId]) { // Only add to lobby if they successfully left their game and are not mapped to another
+  if (userId && !userGameMap[userId]) {
       let existingPlayerInLobby = players.find(p => p.userId === userId);
       if (existingPlayerInLobby) {
-          existingPlayerInLobby.id = socket.id; // Update their socket if needed
-          console.log(`User ${userName} updated in lobby players list with new socket.`);
+          existingPlayerInLobby.id = socket.id;
       } else {
           const userNameForLobby = user ? (user.displayName || user.name) : `User_${userId.substring(0, 8)}`;
           players.push({ id: socket.id, userId: userId, name: userNameForLobby });
-          console.log(`User ${userName} added to lobby players list after leaving game.`);
       }
   }
-  emitLobbyPlayersList(); // Always update lobby list to reflect changes
-  socket.emit("request-observable-games"); // Refresh observable games
+  emitLobbyPlayersList();
+  socket.emit("request-observable-games");
 });
 
 
-// Socket Disconnect Event (e.g., browser tab closed, network drop)
 socket.on("disconnect", async () => {
-  console.log(`[Disconnect] Socket disconnected: ${socket.id}`);
-  
-  // FIXED: Fallback user detection context matching for Safari ITP layouts on exit
   const user = socket.request.session?.passport?.user || socket.request.user || null;
   const disconnectedUserId = user ? (user.id || socket.request.user?.id) : null;
   const disconnectedUserName = user ? (user.displayName || user.name || 'Unknown User') : 'Unknown User';
 
   if (disconnectedUserId) {
-    // Correctly remove from userSocketMap as this specific socket is no longer active for this user
     delete userSocketMap[disconnectedUserId];
-    console.log(`[Disconnect] User ${disconnectedUserId} socket removed from userSocketMap.`);
   }
 
-  // Filter players list: This list represents users who are currently online.
   players = players.filter(p => userSocketMap[p.userId] !== undefined);
-  console.log(`[Disconnect] Players array after filter for disconnected socket: ${JSON.stringify(players.map(p => ({ id: p.id, userId: p.userId, name: p.name })))}`);
-  emitLobbyPlayersList(); // Use the helper to update lobby list
+  emitLobbyPlayersList();
 
-
-  // Check if the disconnected user was in a game (as player or observer)
   let gameId = null;
   let role = null;
-  // Iterate through userGameMap to find if the disconnected user was in any game
   for (const uid in userGameMap) {
       if (uid === disconnectedUserId) {
           gameId = userGameMap[uid].gameId;
@@ -2781,30 +2527,25 @@ socket.on("disconnect", async () => {
 
   if (gameId) {
     const game = games[gameId];
-    console.log(`[Disconnect] Disconnected user ${disconnectedUserId} was in game ${gameId} as a ${role}.`);
 
     if (game) {
       if (role === 'player') {
         const disconnectedPlayerInGame = game.players.find(p => p.userId === disconnectedUserId);
         if (disconnectedPlayerInGame) {
-          disconnectedPlayerInGame.socketId = null; // Mark their socket as null
-          console.log(`[Disconnect] Player ${disconnectedPlayerInGame.name} (${disconnectedUserId}) in game ${gameId} disconnected (socket marked null).`);
+          disconnectedPlayerInGame.socketId = null;
         }
 
         try {
           await db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            status: 'waiting_for_resume', // Set game status to waiting_for_resume
+            status: 'waiting_for_resume',
             lastUpdated: Timestamp.now()
           }, { merge: true });
-          console.log(`Game ${gameId} status set to 'waiting_for_resume' in Firestore.`);
         } catch (error) {
           console.error("[Disconnect] Error updating game status to 'waiting_for_resume' on disconnect:", error);
         }
 
-        // Notify other players in the game that a player disconnected
         game.players.filter(p => p.userId !== disconnectedUserId && p.socketId).forEach(player => {
             io.to(player.socketId).emit("opponent-left");
-            console.log(`Notified player ${player.name} that ${disconnectedUserName} disconnected.`);
         });
         io.to(gameId).emit("player-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'player' });
 
@@ -2812,23 +2553,19 @@ socket.on("disconnect", async () => {
         const disconnectedObserverInGame = game.observers.find(o => o.userId === disconnectedUserId);
         if (disconnectedObserverInGame) {
             disconnectedObserverInGame.socketId = null;
-            console.log(`[Disconnect] Observer ${disconnectedObserverInGame.name} (${disconnectedUserId}) disconnected (socket marked null).`);
         }
 
-        // Notify others in the game that an observer left (disconnected)
         io.to(gameId).emit("observer-left", { name: disconnectedUserName, userId: disconnectedUserId, role: 'observer' });
       }
-      socket.emit("request-observable-games"); // Refresh observable games
+      socket.emit("request-observable-games");
     } else {
       delete userGameMap[disconnectedUserId];
-      console.log(`[Disconnect] User ${disconnectedUserId} was mapped to game ${gameId} but game not in memory. Clearing userGameMap.`);
     }
   }
 });
 
 });
 
-// REST Endpoint to fetch finished games for the Replays & Stats page
 app.get("/api/finished-games", async (req, res) => {
   try {
     const finishedSnapshot = await db.collection(GAMES_COLLECTION_PATH)
@@ -2851,7 +2588,6 @@ app.get("/api/finished-games", async (req, res) => {
       });
     });
 
-    // Sort descending by lastUpdated in memory to avoid needing a custom Firestore composite index
     finishedGames.sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
 
     res.json(finishedGames);
@@ -2861,8 +2597,7 @@ app.get("/api/finished-games", async (req, res) => {
   }
 });
 
-// --- Server Startup ---
-const PORT = process.env.PORT || 3001; // Use Render's PORT env var, or 3001 for local dev
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
