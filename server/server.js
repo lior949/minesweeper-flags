@@ -57,7 +57,58 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      // 1. Multi-point interior sampling to bypass colored selection borders (Red/Blue outlines)
+      // 1. Scan the central 50% core of the tile FIRST for flag elements
+      let bluePx = 0;
+      let greenPx = 0;
+      let redPx = 0;
+      let purplePx = 0;
+      let darkPolePx = 0;
+
+      const startX = tileX + Math.floor(cW * 0.25);
+      const endX = tileX + Math.floor(cW * 0.75);
+      const startY = tileY + Math.floor(cH * 0.25);
+      const endY = tileY + Math.floor(cH * 0.75);
+
+      for (let py = startY; py < endY; py++) {
+        for (let px = startX; px < endX; px++) {
+          const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
+
+          // Black/Dark Pole (#000000 or dark base)
+          if (r < 75 && g < 75 && b < 75) {
+            darkPolePx++;
+          }
+          // Purple/Magenta (Number 4)
+          else if (r > 110 && b > 110 && g < 80) {
+            purplePx++;
+          }
+          // Blue (Number 1 or Blue Flag)
+          else if (b > 130 && b > r + 25) {
+            bluePx++;
+          }
+          // Green (Number 2)
+          else if (g > 110 && g > r + 20 && g > b + 20) {
+            greenPx++;
+          }
+          // Red (Number 3 or Red Flag)
+          else if (r > 140 && g < 80 && b < 80) {
+            redPx++;
+          }
+        }
+      }
+
+      // 2. FLAG OVERRIDE: Check if dark flag pole exists with flag cloth
+      const hasFlagPole = darkPolePx >= 1;
+      const isBlueFlag = hasFlagPole && bluePx >= 1;
+      const isRedFlag = hasFlagPole && redPx >= 1;
+
+      if (isRedFlag || isBlueFlag) {
+        board[y][x].revealed = true;
+        board[y][x].isMine = true;
+        board[y][x].ownerTeam = isRedFlag ? 1 : 2; // Team 1 = Red, Team 2 = Blue
+        continue;
+      }
+
+      // 3. Multi-point interior sampling for revealed yellow tiles
       const samplePoints = [
         Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.25))),
         Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.75), tileY + Math.floor(cH * 0.25))),
@@ -65,8 +116,6 @@ async function parseScreenshotToBoard(base64Image) {
         Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.50), tileY + Math.floor(cH * 0.50)))
       ];
 
-      // A tile is revealed if AT LEAST ONE sample point hits yellow canvas background
-      // Yellow canvas: Red > 130, Green > 110, Blue < 140, and Red/Green significantly higher than Blue
       const isYellowBg = samplePoints.some(px => 
         px.r > 130 && px.g > 110 && (px.r + px.g) / 2 > px.b + 30
       );
@@ -74,52 +123,7 @@ async function parseScreenshotToBoard(base64Image) {
       if (isYellowBg) {
         board[y][x].revealed = true;
 
-        let bluePx = 0;
-        let greenPx = 0;
-        let redPx = 0;
-        let purplePx = 0;
-        let darkPolePx = 0;
-
-        // 2. Scan central 50% core of the tile
-        const startX = tileX + Math.floor(cW * 0.25);
-        const endX = tileX + Math.floor(cW * 0.75);
-        const startY = tileY + Math.floor(cH * 0.25);
-        const endY = tileY + Math.floor(cH * 0.75);
-
-        for (let py = startY; py < endY; py++) {
-          for (let px = startX; px < endX; px++) {
-            const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
-
-            // Dark Pole / Flag Base Shadow (#000000 / Dark Gray)
-            if (r < 75 && g < 75 && b < 75) {
-              darkPolePx++;
-            }
-            // Purple/Magenta (Number 4)
-            else if (r > 110 && b > 110 && g < 80) {
-              purplePx++;
-            }
-            // Blue (Number 1 or Blue Flag)
-            else if (b > 130 && b > r + 30) {
-              bluePx++;
-            }
-            // Green (Number 2)
-            else if (g > 110 && g > r + 20 && g > b + 20) {
-              greenPx++;
-            }
-            // Red (Number 3 or Red Flag)
-            else if (r > 140 && g < 80 && b < 80) {
-              redPx++;
-            }
-          }
-        }
-
-        // 3. Flags vs Numbers classification
-        const isFlag = darkPolePx >= 1;
-
-        if (isFlag && (redPx >= 1 || bluePx >= 1)) {
-          board[y][x].isMine = true;
-          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2; // Team 1 = Red, Team 2 = Blue
-        } else if (purplePx >= 2) {
+        if (purplePx >= 2) {
           board[y][x].adjacentMines = 4;
         } else if (redPx >= 2) {
           board[y][x].adjacentMines = 3;
