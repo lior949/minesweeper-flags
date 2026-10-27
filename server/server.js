@@ -68,8 +68,26 @@ function distributeMinesForParsedBoard(board) {
     }
   }
 
-  // 2. Safe Random Fill: ONLY place remaining mines in cells that DO NOT touch any revealed number 
-  // (or where revealed numbers are already fully satisfied), preventing number corruption.
+  // Identify all cells that are adjacent to ANY revealed number tile. 
+  // Random background mines are STRICTLY forbidden from being placed here to protect numbers like '1'.
+  const restrictedCells = new Set();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (board[y][x].revealed) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const ny = y + dy;
+            const nx = x + dx;
+            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+              restrictedCells.add(`${nx},${ny}`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Safe Random Fill: Only place remaining mines in unrevealed cells that are FAR AWAY from any revealed numbers
   let currentMinesCount = 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -82,50 +100,31 @@ function distributeMinesForParsedBoard(board) {
   let minesToPlace = Math.max(0, MINES - currentMinesCount);
   let safety = 0;
 
+  // First try placing randomly only in un-restricted (far away) zones
   while (minesToPlace > 0 && safety < 5000) {
     safety++;
     const rx = Math.floor(Math.random() * width);
     const ry = Math.floor(Math.random() * height);
 
     const target = board[ry][rx];
-    if (target.revealed || target.isMine || target.ownerTeam !== null) continue;
+    const cellKey = `${rx},${ry}`;
 
-    // Check if placing a mine here would violate any adjacent revealed number constraint
-    let violatesAnyConstraint = false;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const ny = ry + dy;
-        const nx = rx + dx;
-        if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-          const neighbor = board[ny][nx];
-          if (neighbor.revealed && neighbor.adjacentMines > 0) {
-            // Count current mines around this neighbor
-            let minesCount = 0;
-            for (let ndy = -1; ndy <= 1; ndy++) {
-              for (let ndx = -1; ndx <= 1; ndx++) {
-                if (ndx === 0 && ndy === 0) continue;
-                const nnx = nx + ndx;
-                const nny = ny + ndy;
-                if (nny >= 0 && nny < height && nnx >= 0 && nnx < width) {
-                  if (board[nny][nnx].isMine || board[nny][nnx].ownerTeam !== null || (nny === ry && nnx === rx)) {
-                    minesCount++;
-                  }
-                }
-              }
-            }
-            if (minesCount > neighbor.adjacentMines) {
-              violatesAnyConstraint = true;
-              break;
-            }
-          }
+    if (target.revealed || target.isMine || target.ownerTeam !== null) continue;
+    if (restrictedCells.has(cellKey)) continue; // Skip anything touching a revealed number
+
+    target.isMine = true;
+    minesToPlace--;
+  }
+
+  // Fallback: If quota isn't met because restricted zones were too large, safely fill remaining slots without breaking numbers
+  if (minesToPlace > 0) {
+    for (let y = 0; y < height && minesToPlace > 0; y++) {
+      for (let x = 0; x < width && minesToPlace > 0; x++) {
+        if (!board[y][x].revealed && !board[y][x].isMine && board[y][x].ownerTeam === null) {
+          board[y][x].isMine = true;
+          minesToPlace--;
         }
       }
-      if (violatesAnyConstraint) break;
-    }
-
-    if (!violatesAnyConstraint) {
-      target.isMine = true;
-      minesToPlace--;
     }
   }
 
@@ -153,7 +152,6 @@ function distributeMinesForParsedBoard(board) {
 
   return board;
 }
-
 async function parseScreenshotToBoard(base64Image) {
   const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
   const imageBuffer = Buffer.from(base64Data, 'base64');
