@@ -246,10 +246,9 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      let bluePx = 0;
+      let textPx = 0;    // Counts any blue/dark text pixels for 1 and 4
       let greenPx = 0;
       let redPx = 0;
-      let purplePx = 0;  // Specifically for 4 (purple/magenta: needs high red + high blue)
       let brownPx = 0;   // For 5
       let cyanPx = 0;    // For 6
       let blackPx = 0;   // For 7
@@ -267,17 +266,15 @@ async function parseScreenshotToBoard(base64Image) {
 
           if (r < 75 && g < 75 && b < 75) darkPolePx++;
           // Black / Dark text (7)
-          else if (r < 60 && g < 60 && g < 60) blackPx++;
-          // Purple / Magenta text (4) -> Requires strong red AND strong blue together
-          else if (r > 100 && b > 100 && g < 80) purplePx++;
+          else if (r < 60 && g < 60 && b < 60) blackPx++;
           // Brown / Dark Orange text (5)
           else if (r > 100 && r < 160 && g > 60 && g < 110 && b < 60) brownPx++;
           // Cyan / Teal text (6)
           else if (r < 50 && g > 110 && b > 110) cyanPx++;
           // Olive Green text (8)
           else if (r > 80 && r < 140 && g > 90 && g < 150 && b < 50) olivePx++;
-          // Blue text (1) -> Pure blue with strictly low red
-          else if (b > 120 && r < 90 && g < 100) bluePx++;
+          // Blue text (Catches both 1 and 4 since they share blue hues)
+          else if (b > 100 && r < 120) textPx++;
           else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
           else if (r > 140 && g < 80 && b < 80) redPx++;
         }
@@ -302,11 +299,11 @@ async function parseScreenshotToBoard(base64Image) {
         else if (blackPx >= 2) board[y][x].adjacentMines = 7;
         else if (cyanPx >= 2) board[y][x].adjacentMines = 6;
         else if (brownPx >= 2) board[y][x].adjacentMines = 5;
-        else if (purplePx >= 2) board[y][x].adjacentMines = 4; // <--- Clean check for purple 4
+        else if (textPx >= 35) board[y][x].adjacentMines = 4; // <--- Thicker glyph (4) has more pixels
         else if (redPx >= 2) board[y][x].adjacentMines = 3;
         else if (greenPx >= 2) board[y][x].adjacentMines = 2;
-        else if (bluePx >= 1) board[y][x].adjacentMines = 1;
-        else board[y][x].adjacentMines = 0;
+        else if (textPx > 0) board[y][x].adjacentMines = 1;   // <--- Thinner glyph (1) has fewer pixels
+        else board[y][x],adjacentMines = 0;
       } else {
         board[y][x].revealed = false;
       }
