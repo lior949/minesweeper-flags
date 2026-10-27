@@ -31,12 +31,12 @@ function distributeMinesForParsedBoard(board) {
   const height = board.length;
   const width = board[0].length;
 
-  // 1. Pass: Enforce strict compliance with revealed OCR numbers
+  // 1. Strict constraint pass: Ensure each revealed number has EXACTLY its required mines
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
         let unrevealedNeighbors = [];
-        let currentMineCount = 0;
+        let existingMinesAround = 0;
 
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
@@ -44,21 +44,26 @@ function distributeMinesForParsedBoard(board) {
             const ny = y + dy;
             const nx = x + dx;
             if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-              if (board[ny][nx].isMine) {
-                currentMineCount++;
+              if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
+                existingMinesAround++;
               } else if (!board[ny][nx].revealed) {
-                unrevealedNeighbors.push({ x: nx, y: ny });
+                // Only collect safe unrevealed tiles that aren't already counted
+                if (!unrevealedNeighbors.some(n => n.x === nx && n.y === ny)) {
+                  unrevealedNeighbors.push({ x: nx, y: ny });
+                }
               }
             }
           }
         }
 
-        // If this revealed cell needs more mines to match its OCR number, place them cleanly
-        const needed = board[y][x].adjacentMines - currentMineCount;
+        // Calculate how many *additional* mines this number needs
+        const needed = board[y][x].adjacentMines - existingMinesAround;
+        
+        // If it needs mines and has available unrevealed neighbors, place them safely
         if (needed > 0 && unrevealedNeighbors.length >= needed) {
           unrevealedNeighbors.sort(() => Math.random() - 0.5);
           for (let i = 0; i < needed; i++) {
-            const pos = unrevealedNeighbors[i];
+            const pos = unrevealedNeighbors;
             board[pos.y][pos.x].isMine = true;
           }
         }
@@ -70,7 +75,7 @@ function distributeMinesForParsedBoard(board) {
   let currentMinesCount = 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (board[y][x].isMine) {
+      if (board[y][x].isMine || board[y][x].ownerTeam !== null) {
         currentMinesCount++;
       }
     }
@@ -82,13 +87,13 @@ function distributeMinesForParsedBoard(board) {
     safety++;
     const rx = Math.floor(Math.random() * width);
     const ry = Math.floor(Math.random() * height);
-    if (!board[ry][rx].revealed && !board[ry][rx].isMine) {
+    if (!board[ry][rx].revealed && !board[ry][rx].isMine && board[ry][rx].ownerTeam === null) {
       board[ry][rx].isMine = true;
       minesToPlace--;
     }
   }
 
-  // 3. Final Pass: Recalculate adjacentMines ONLY for unrevealed tiles. Never touch revealed ones.
+  // 3. Final Pass: Recalculate adjacentMines ONLY for unrevealed tiles. Lock OCR numbers permanently.
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!board[y][x].revealed) {
@@ -99,7 +104,7 @@ function distributeMinesForParsedBoard(board) {
             const ny = y + dy;
             const nx = x + dx;
             if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-              if (board[ny][nx].isMine) {
+              if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
                 count++;
               }
             }
