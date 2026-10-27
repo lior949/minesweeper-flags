@@ -57,83 +57,77 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      // 1. Dynamic background detection (works on both bright and dark images)
-      // Sample inner tile padding at 20% inset to bypass border lines
+      // 1. זיהוי משבצת חשופה ע"י השוואה יחסית בין הערוצים (בצהוב ערוץ B נמוך מ-R ו-G)
       const samplePx = Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.2), tileY + Math.floor(cH * 0.2)));
-      
-      // Yellow canvas has high R & G compared to B: (R + G) / 2 > B + 30
-      const isYellowBg = (samplePx.r + samplePx.g) / 2 > (samplePx.b + 30);
+      const isYellowBg = (samplePx.r > samplePx.b + 20) && (samplePx.g > samplePx.b + 20);
 
       if (isYellowBg) {
         board[y][x].revealed = true;
 
-        // 2. Scan central 60% box of the tile
         let bluePx = 0;
         let greenPx = 0;
         let redPx = 0;
         let purplePx = 0;
-        let darkPolePx = 0;
+        let blackPolePx = 0;
 
-        const startX = tileX + Math.floor(cW * 0.20);
-        const endX = tileX + Math.floor(cW * 0.80);
-        const startY = tileY + Math.floor(cH * 0.20);
-        const endY = tileY + Math.floor(cH * 0.80);
+        // סריקה של הליבה המרכזית בלבד (30% עד 70%)
+        const startX = tileX + Math.floor(cW * 0.3);
+        const endX = tileX + Math.floor(cW * 0.7);
+        const startY = tileY + Math.floor(cH * 0.3);
+        const endY = tileY + Math.floor(cH * 0.7);
 
         for (let py = startY; py < endY; py++) {
           for (let px = startX; px < endX; px++) {
             const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-            // Dark flag pole/shadow/base
-            if (r < 70 && g < 70 && b < 70) {
-              darkPolePx++;
+            // עמוד/בסיס דגל שחור
+            if (r < 80 && g < 80 && b < 80) {
+              blackPolePx++;
             }
-            // Purple/Magenta (Number 4)
-            else if (r > 100 && b > 100 && g < 80) {
+            // סגול (מספר 4) - R ו-B גבוהים יחסית ל-G
+            else if (r > g + 30 && b > g + 30) {
               purplePx++;
             }
-            // Blue (Number 1 or Blue Flag)
-            else if (b > 130 && r < 100 && (b - r > 40)) {
+            // כחול (מספר 1 / דגל כחול) - B גבוה מ-R ו-G
+            else if (b > r + 30 && b > g + 20) {
               bluePx++;
             }
-            // Green (Number 2)
-            else if (g > 110 && r < 100 && b < 100) {
+            // ירוק (מספר 2) - G גבוה מ-R ו-B
+            else if (g > r + 20 && g > b + 20) {
               greenPx++;
             }
-            // Red (Number 3 or Red Flag)
-            else if (r > 140 && g < 80 && b < 80) {
+            // אדום (מספר 3 / דגל אדום) - R גבוה מ-G ו-B
+            else if (r > g + 40 && r > b + 40) {
               redPx++;
             }
           }
         }
 
-        // 3. Flags vs Numbers classification
-        const hasFlagPole = darkPolePx >= 1;
+        // 2. סיווג לפי תכונות יחסיות
+        const hasPole = blackPolePx >= 1;
 
-        if (hasFlagPole && (redPx >= 2 || bluePx >= 2)) {
+        if (hasPole && (redPx >= 2 || bluePx >= 2)) {
           board[y][x].isMine = true;
-          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2; // Team 1 = Red, Team 2 = Blue
-        } else if (purplePx >= 3) {
+          board[y][x].ownerTeam = redPx >= bluePx ? 1 : 2; // קבוצה 1 = אדום, קבוצה 2 = כחול
+        } else if (purplePx >= 2) {
           board[y][x].adjacentMines = 4;
-        } else if (redPx >= 3) {
+        } else if (redPx >= 2) {
           board[y][x].adjacentMines = 3;
-        } else if (greenPx >= 3) {
+        } else if (greenPx >= 2) {
           board[y][x].adjacentMines = 2;
-        } else if (bluePx >= 3) {
+        } else if (bluePx >= 2) {
           board[y][x].adjacentMines = 1;
         } else {
-          // Blank yellow tile (0 adjacent mines)
-          board[y][x].adjacentMines = 0;
+          board[y][x].adjacentMines = 0; // משבצת צהובה ריקה
         }
       } else {
-        // Unrevealed tile (Blue canvas)
-        board[y][x].revealed = false;
+        board[y][x].revealed = false; // משבצת כחולה לא חשופה
       }
     }
   }
 
   return board;
 }
-
 // New global data structures for robust player tracking across reconnections
 const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID, Guest ID)
 // userGameMap maps userId to an object { gameId: string, role: 'player' | 'observer' }
