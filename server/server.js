@@ -31,85 +31,65 @@ function distributeMinesForParsedBoard(board) {
   const height = board.length;
   const width = board[0].length;
 
-  // 1. Collect all unrevealed, non-mine, non-flag candidate positions
-  let unrevealedTiles = [];
-  let currentMinesCount = 0;
+  // 1. First, place mines strictly to satisfy all revealed OCR number constraints
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
+        let unrevealedNeighbors = [];
+        let flaggedOrMineNeighbors = 0;
 
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const ny = y + dy;
+            const nx = x + dx;
+            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+              if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
+                flaggedOrMineNeighbors++;
+              } else if (!board[ny][nx].revealed) {
+                unrevealedNeighbors.push({ x: nx, y: ny });
+              }
+            }
+          }
+        }
+
+        // If the number requires more mines than currently touching it, place them in unrevealed neighbors
+        const needed = board[y][x].adjacentMines - flaggedOrMineNeighbors;
+        if (needed > 0 && unrevealedNeighbors.length >= needed) {
+          // Shuffle neighbors to randomly place the required mines for this constraint
+          unrevealedNeighbors.sort(() => Math.random() - 0.5);
+          for (let i = 0; i < needed; i++) {
+            const pos = unrevealedNeighbors[i];
+            board[pos.y][pos.x].isMine = true;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Fill any remaining board quota up to total MINES randomly in unrevealed/non-constrained areas
+  let currentMinesCount = 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (board[y][x].isMine || board[y][x].ownerTeam !== null) {
         currentMinesCount++;
-      } else if (!board[y][x].revealed) {
-        unrevealedTiles.push({ x, y });
       }
     }
   }
 
-  // Shuffle unrevealed tiles for random distribution
-  unrevealedTiles.sort(() => Math.random() - 0.5);
-
   let minesToPlace = Math.max(0, MINES - currentMinesCount);
-
-  // 2. Intelligent placement: try placing mines while validating against revealed number constraints
-  // We run a backtracking or weighted random pass to satisfy board numbers
-  for (let tile of unrevealedTiles) {
-    if (minesToPlace <= 0) break;
-
-    // Temporarily place a mine
-    board[tile.y][tile.x].isMine = true;
-
-    // Check if this placement violates any revealed number constraint (e.g. a '1' now touching 2 mines)
-    let violatesConstraint = false;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
-          let actualMinesAround = 0;
-          let unrevealedCountAround = 0;
-
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              if (dx === 0 && dy === 0) continue;
-              const ny = y + dy;
-              const nx = x + dx;
-              if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
-                  actualMinesAround++;
-                }
-              }
-            }
-          }
-
-          // If a revealed number has MORE mines around it than its value permits, it's invalid
-          if (actualMinesAround > board[y][x].adjacentMines) {
-            violatesConstraint = true;
-            break;
-          }
-        }
-      }
-      if (violatesConstraint) break;
-    }
-
-    if (violatesConstraint) {
-      // Revert placement if it broke a constraint
-      board[tile.y][tile.x].isMine = false;
-    } else {
+  let safety = 0;
+  while (minesToPlace > 0 && safety < 2000) {
+    safety++;
+    const rx = Math.floor(Math.random() * width);
+    const ry = Math.floor(Math.random() * height);
+    if (!board[ry][rx].revealed && !board[ry][rx].isMine && board[ry][rx].ownerTeam === null) {
+      board[ry][rx].isMine = true;
       minesToPlace--;
     }
   }
 
-  // If strict constraints left extra mines to place, distribute them safely into remaining slots
-  if (minesToPlace > 0) {
-    for (let tile of unrevealedTiles) {
-      if (minesToPlace <= 0) break;
-      if (!board[tile.y][tile.x].isMine) {
-        board[tile.y][tile.x].isMine = true;
-        minesToPlace--;
-      }
-    }
-  }
-
-  // 3. Final Pass: Calculate correct adjacentMines count ONLY for unrevealed tiles.
-  // CRITICAL: We never overwrite `board[y][x].adjacentMines` if `board[y][x].revealed` is true!
+  // 3. FINAL GUARD: NEVER overwrite adjacentMines on revealed tiles. Keep OCR numbers 100% locked.
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!board[y][x].revealed) {
@@ -2092,31 +2072,6 @@ if ((!game.moves || game.moves.length === 0) && !isMidGameSetup) {
         emitLobbyPlayersList();
       }
     } else {
-      // Dynamically calculate adjacent mine counts around the clicked tile for midgame boards
-      if (isMidGameSetup) {
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const ny = y + dy;
-            const nx = x + dx;
-            if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
-              let count = 0;
-              for (let ndy = -1; ndy <= 1; ndy++) {
-                for (let ndx = -1; ndx <= 1; ndx++) {
-                  if (ndx === 0 && ndy === 0) continue;
-                  const nny = ny + ndy;
-                  const nnx = nx + ndx;
-                  if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
-                    if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
-                      count++;
-                    }
-                  }
-                }
-              }
-              game.board[ny][nx].adjacentMines = count;
-            }
-          }
-        }
-      }
 
       revealRecursive(game.board, x, y);
 
