@@ -30,42 +30,47 @@ const Jimp = require("jimp");
 function distributeMinesForParsedBoard(board) {
   const height = board.length;
   const width = board[0].length;
+  let changed = true;
 
-  // 1. Mark tiles adjacent to numbers as potential mine spots
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
-        let unrevealedNeighbors = [];
-        let flaggedNeighbors = 0;
+  // Pass 1: Iteratively deduct deterministic mines based on OCR numbers & flags
+  while (changed) {
+    changed = false;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
+          let unrevealedNeighbors = [];
+          let flaggedNeighbors = 0;
 
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx === 0 && dy === 0) continue;
-            const ny = y + dy;
-            const nx = x + dx;
-            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-              if (board[ny][nx].ownerTeam !== null) {
-                flaggedNeighbors++;
-              } else if (!board[ny][nx].revealed) {
-                unrevealedNeighbors.push({ x: nx, y: ny });
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const ny = y + dy;
+              const nx = x + dx;
+              if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                if (board[ny][nx].ownerTeam !== null || board[ny][nx].isMine) {
+                  flaggedNeighbors++;
+                } else if (!board[ny][nx].revealed) {
+                  unrevealedNeighbors.push({ x: nx, y: ny });
+                }
               }
             }
           }
-        }
 
-        const remainingMinesNeeded = board[y][x].adjacentMines - flaggedNeighbors;
-        
-        // If remaining hidden neighbors match remaining mines needed, mark them as mines
-        if (remainingMinesNeeded > 0 && unrevealedNeighbors.length === remainingMinesNeeded) {
-          unrevealedNeighbors.forEach(pos => {
-            board[pos.y][pos.x].isMine = true;
-          });
+          const remainingMinesNeeded = board[y][x].adjacentMines - flaggedNeighbors;
+          if (remainingMinesNeeded > 0 && unrevealedNeighbors.length === remainingMinesNeeded) {
+            unrevealedNeighbors.forEach(pos => {
+              if (!board[pos.y][pos.x].isMine) {
+                board[pos.y][pos.x].isMine = true;
+                changed = true;
+              }
+            });
+          }
         }
       }
     }
   }
 
-  // 2. Recalculate adjacentMines for all unrevealed tiles so clicks register correctly
+  // Pass 2: Calculate correct adjacentMines count for ALL unrevealed tiles
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (!board[y][x].revealed) {
@@ -76,7 +81,9 @@ function distributeMinesForParsedBoard(board) {
             const ny = y + dy;
             const nx = x + dx;
             if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-              if (board[ny][nx].isMine) count++;
+              if (board[ny][nx].isMine || board[ny][nx].ownerTeam !== null) {
+                count++;
+              }
             }
           }
         }
@@ -520,7 +527,7 @@ const pending2v2Acceptances = {};
 const lobbyMessages = [];
 const MAX_LOBBY_MESSAGES = 100;
 
-const generateBoard = () => {
+const generateBoard = (safeX = null, safeY = null) => {
   const board = Array.from({ length: HEIGHT }, () =>
     Array.from({ length: WIDTH }, () => ({
       isMine: false,
@@ -535,6 +542,12 @@ const generateBoard = () => {
   while (minesPlaced < MINES) {
     const x = Math.floor(Math.random() * WIDTH);
     const y = Math.floor(Math.random() * HEIGHT);
+
+    // Skip placement if tile is within safe click radius
+    if (safeX !== null && safeY !== null && Math.abs(x - safeX) <= 1 && Math.abs(y - safeY) <= 1) {
+      continue;
+    }
+
     if (!board[y][x].isMine) {
       board[y][x].isMine = true;
       minesPlaced++;
@@ -1996,7 +2009,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
   // Standard safe-first-click board generation (ONLY for non-midgame setups)
   if (!game.moves || game.moves.length === 0) {
     if (!isMidGameSetup) {
-      game.board = generateBoard(x, y);
+      game.board = generateBoard(x, y); // <-- Updated to pass clicked coordinates
     }
   }
 
@@ -2102,6 +2115,33 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
 
       return;
     }
+
+    if (!tile.isMine) {
+  if (isMidGameSetup) {
+    // Recalculate dynamic adjacent mines for target tile and its immediate neighborhood
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const ny = y + dy;
+        const nx = x + dx;
+        if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
+          let count = 0;
+          for (let ndy = -1; ndy <= 1; ndy++) {
+            for (let ndx = -1; ndx <= 1; ndx++) {
+              if (ndx === 0 && ndy === 0) continue;
+              const nny = ny + ndy;
+              const nnx = nx + ndx;
+              if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
+                if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
+                  count++;
+                }
+              }
+            }
+          }
+          game.board[ny][nx].adjacentMines = count;
+        }
+      }
+    }
+  }
 
     revealRecursive(game.board, x, y);
 
