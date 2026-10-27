@@ -2603,8 +2603,6 @@ socket.on("disconnect", async () => {
   }
 });
 
-});
-
 app.get("/api/finished-games", async (req, res) => {
   try {
     const finishedSnapshot = await db.collection(GAMES_COLLECTION_PATH)
