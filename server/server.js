@@ -2000,102 +2000,140 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
 
 
   socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
-    const game = games[gameId];
-    if (!game || game.gameOver) {
-      return;
+  const game = games[gameId];
+  if (!game || game.gameOver) {
+    return;
+  }
+
+  const isMidGameSetup = Boolean(game.screenshot);
+
+  // Standard safe-first-click board generation (ONLY for standard, non-midgame setups)
+  if (!game.moves || game.moves.length === 0) {
+    if (!isMidGameSetup) {
+      game.board = generateBoard(x, y);
     }
+  }
 
-    const isMidGameSetup = Boolean(game.screenshot);
+  game.clickStartTime = clickStartTime;
 
-    // Standard safe-first-click board generation (ONLY for non-midgame setups)
-    if (!game.moves || game.moves.length === 0) {
-      if (!isMidGameSetup) {
-        game.board = generateBoard(x, y); // <-- Updated to pass clicked coordinates
+  const user = socket.request.session?.passport?.user || socket.request.user || null;
+  const userId = user ? (user.id || socket.request.user?.id) : null;
+
+  if (!userId) {
+    socket.emit("game-error", "Authentication required to make moves.");
+    return;
+  }
+
+  const player = game.players.find((p) => p.userId === userId);
+  if (!player || player.number !== game.turn) {
+    return;
+  }
+
+  player.socketId = socket.id;
+
+  const tile = game.board[y][x];
+  if (tile.revealed) {
+    return;
+  }
+
+  game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
+
+  if (tile.isMine) {
+    tile.revealed = true;
+    tile.owner = player.number;
+    tile.ownerTeam = player.team;
+    game.scores[player.team]++;
+
+    if (checkGameOver(game.scores)) {
+      game.gameOver = true;
+      game.players.forEach(p => delete userGameMap[p.userId]);
+      emitLobbyPlayersList();
+    }
+  } else {
+    // Dynamically calculate adjacent mine counts around the clicked tile for midgame boards
+    if (isMidGameSetup) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const ny = y + dy;
+          const nx = x + dx;
+          if (ny >= 0 && ny < HEIGHT && nx >= 0 && nx < WIDTH) {
+            let count = 0;
+            for (let ndy = -1; ndy <= 1; ndy++) {
+              for (let ndx = -1; ndx <= 1; ndx++) {
+                if (ndx === 0 && ndy === 0) continue;
+                const nny = ny + ndy;
+                const nnx = nx + ndx;
+                if (nny >= 0 && nny < HEIGHT && nnx >= 0 && nnx < WIDTH) {
+                  if (game.board[nny][nnx].isMine || game.board[nny][nnx].ownerTeam !== null) {
+                    count++;
+                  }
+                }
+              }
+            }
+            game.board[ny][nx].adjacentMines = count;
+          }
+        }
       }
     }
 
-    game.clickStartTime = clickStartTime;
+    revealRecursive(game.board, x, y);
 
-    const user = socket.request.session?.passport?.user || socket.request.user || null;
-    const userId = user ? (user.id || socket.request.user?.id) : null;
-
-    if (!userId) {
-      socket.emit("game-error", "Authentication required to make moves.");
-      return;
+    if (game.gameType === '1v1') {
+      game.turn = game.turn === 1 ? 2 : 1;
+    } else if (game.gameType === '2v2') {
+      game.turn = getNext2v2Turn(game.turn);
     }
+  }
 
-    const player = game.players.find((p) => p.userId === userId);
-    if (!player || player.number !== game.turn) {
-      return;
+  if (!game.moves) game.moves = [];
+  game.moves.push({
+    type: 'click',
+    playerNumber: player.number,
+    team: player.team,
+    x,
+    y,
+    timestamp: Date.now()
+  });
+
+  if (!game.gameOver) {
+    const nextPlayer = game.players.find(p => p.number === game.turn);
+    if (nextPlayer && nextPlayer.isAi) {
+      processAiTurn(gameId);
     }
+  }
 
-    player.socketId = socket.id;
+  const cachedBoardString = JSON.stringify(game.board);
 
-    const tile = game.board[y][x];
-    if (tile.revealed) {
-      return;
-    }
+  io.to(gameId).emit("board-update", {
+    gameId: game.gameId,
+    board: cachedBoardString,
+    turn: game.turn,
+    scores: game.scores,
+    bombsUsed: game.bombsUsed,
+    gameOver: game.gameOver,
+    lastClickedTile: game.lastClickedTile,
+    observers: game.observers,
+    clickStartTime: game.clickStartTime
+  });
 
-    game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
-
-    if (tile.isMine) {
-      tile.revealed = true;
-      tile.owner = player.number;
-      tile.ownerTeam = player.team;
-      game.scores[player.team]++;
-
-      if (checkGameOver(game.scores)) {
-        game.gameOver = true;
-        game.players.forEach(p => delete userGameMap[p.userId]);
-        emitLobbyPlayersList();
-      }
-    } else {
-      const isBlankTile = tile.adjacentMines === 0;
-      const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
-
-      // PREVENT MID-GAME RESTART ON BLANK TILE CLICK
-      if (isBlankTile && noFlagsRevealedYet && !isMidGameSetup) {
-        game.board = generateBoard();
-        game.scores = { 1: 0, 2: 0 };
-        game.bombsUsed = { 1: false, 2: false };
-        game.turn = 1;
-        game.gameOver = false;
-        game.lastClickedTile = {};
-        game.messages = [];
-
-        const serializedBoard = JSON.stringify(game.board);
-        if (!game.moves) game.moves = [];
-        game.moves.push({
-          type: 'restart',
-          board: serializedBoard,
-          timestamp: Date.now()
-        });
-
-        game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-        game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
-        emitLobbyPlayersList();
-
-        game.players.forEach(p => {
-          io.to(p.socketId).emit("game-restarted", {
-            gameId: game.gameId,
-            gameType: game.gameType,
-            playerNumber: p.number,
-            board: serializedBoard,
-            turn: game.turn,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
-            gameChat: game.messages,
-            observers: game.observers,
-            player1Name: game.players.find(pl => pl.number === 1)?.name,
-            player2Name: game.players.find(pl => pl.number === 2)?.name,
-            player3Name: game.players.find(pl => pl.number === 3)?.name,
-            player4Name: game.players.find(pl => pl.number === 4)?.name,
-          });
-        });
-
+  const newStatus = game.gameOver ? 'completed' : 'active';
+  db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+    board: cachedBoardString,
+    turn: game.turn,
+    scores: game.scores,
+    bombsUsed: game.bombsUsed,
+    gameOver: game.gameOver,
+    lastClickedTile: game.lastClickedTile,
+    status: newStatus,
+    moves: game.moves,
+    lastUpdated: Timestamp.now(),
+    winnerTeam: game.gameOver ? (game.scores[1] > game.scores[2] ? 1 : 2) : null,
+    loserTeam: game.gameOver ? (game.scores[1] < game.scores[2] ? 1 : 2) : null,
+    observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+  }, { merge: true }).catch(error => {
+    console.error("Error updating game in Firestore:", error);
+  });
+});
         db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
           board: serializedBoard,
           scores: game.scores,
