@@ -246,8 +246,8 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      let darkBluePx = 0; // For 4: (0, 0, 154) -> blue channel around 120-180
-      let pureBluePx = 0; // For 1: (0, 0, 255) -> blue channel > 200
+      let bluePixelCount = 0;
+      let totalBlueIntensity = 0;
       let greenPx = 0;
       let redPx = 0;
       let brownPx = 0;   // For 5
@@ -266,10 +266,10 @@ async function parseScreenshotToBoard(base64Image) {
 
           if (r < 60 && g < 60 && b < 60) {
             blackPx++; // 7 (Black)
-          } else if (r < 40 && g < 40 && b >= 100 && b <= 180) {
-            darkBluePx++; // 4 -> Matches (0, 0, 154) range
-          } else if (r < 40 && g < 40 && b > 200) {
-            pureBluePx++; // 1 -> Matches (0, 0, 255) range
+          } else if (r < 60 && g < 60 && b > 80) {
+            // Collects ALL blue pixels for both 1 and 4
+            bluePixelCount++;
+            totalBlueIntensity += b;
           } else if (g > 110 && g > r && g > b) {
             greenPx++;  // 2 (Green)
           } else if (r > 140 && g < 90 && b < 90) {
@@ -291,8 +291,16 @@ async function parseScreenshotToBoard(base64Image) {
         else if (blackPx >= 3) board[y][x].adjacentMines = 7;
         else if (cyanPx >= 3) board[y][x].adjacentMines = 6;
         else if (brownPx >= 3) board[y][x].adjacentMines = 5;
-        else if (pureBluePx >= 3) board[y][x].adjacentMines = 1;  // <--- CHECK 1 FIRST! If it has bright blue, it's 1.
-        else if (darkBluePx >= 8) board[y][x].adjacentMines = 4;  // <--- CHECK 4 AFTERWARDS, requiring higher pixel density (8+)
+        else if (bluePixelCount >= 3) {
+          const avgBlue = totalBlueIntensity / bluePixelCount;
+          // 1 is bright blue (~255), 4 is dark navy (~154). 
+          // 190 acts as an unshakeable dividing line.
+          if (avgBlue > 190) {
+            board[y][x].adjacentMines = 1;
+          } else {
+            board[y][x].adjacentMines = 4;
+          }
+        }
         else if (redPx >= 3) board[y][x].adjacentMines = 3;
         else if (greenPx >= 3) board[y][x].adjacentMines = 2;
         else board[y][x].adjacentMines = 0;
