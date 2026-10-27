@@ -30,50 +30,37 @@ const Jimp = require("jimp");
 function distributeMinesForParsedBoard(board) {
   const height = board.length;
   const width = board[0].length;
-  let changed = true;
-
-  // Pass 1: Deduct deterministic mines based on OCR numbers & flags
-  while (changed) {
-    changed = false;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (board[y][x].revealed && board[y][x].adjacentMines > 0) {
-          let unrevealedNeighbors = [];
-          let flaggedNeighbors = 0;
-
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              if (dx === 0 && dy === 0) continue;
-              const ny = y + dy;
-              const nx = x + dx;
-              if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                if (board[ny][nx].ownerTeam !== null || board[ny][nx].isMine) {
-                  flaggedNeighbors++;
-                } else if (!board[ny][nx].revealed) {
-                  unrevealedNeighbors.push({ x: nx, y: ny });
-                }
-              }
-            }
-          }
-
-          const remainingMinesNeeded = board[y][x].adjacentMines - flaggedNeighbors;
-          if (remainingMinesNeeded > 0 && unrevealedNeighbors.length === remainingMinesNeeded) {
-            unrevealedNeighbors.forEach(pos => {
-              if (!board[pos.y][pos.x].isMine) {
-                board[pos.y][pos.x].isMine = true;
-                changed = true;
-              }
-            });
-          }
-        }
+  
+  // Count how many mines/flags were already parsed from the screenshot
+  let currentMinesCount = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (board[y][x].isMine || board[y][x].ownerTeam !== null) {
+        currentMinesCount++;
       }
     }
   }
 
-  // Pass 2: Calculate correct adjacentMines count for ALL non-mine tiles
+  // Randomly fill the remaining necessary mines up to the total MINES (51)
+  // avoiding already revealed tiles or existing flags/mines
+  let minesToPlace = Math.max(0, MINES - currentMinesCount);
+  let safetyCounter = 0;
+
+  while (minesToPlace > 0 && safetyCounter < 1000) {
+    safetyCounter++;
+    const rx = Math.floor(Math.random() * width);
+    const ry = Math.floor(Math.random() * height);
+
+    if (!board.revealed && !board.isMine && board.ownerTeam === null) {
+      board.isMine = true;
+      minesToPlace--;
+    }
+  }
+
+  // Recalculate adjacentMines for all unrevealed tiles based on the complete minefield
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (!board[y][x].isMine && board[y][x].ownerTeam === null) {
+      if (!board[y][x].revealed) {
         let count = 0;
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
@@ -87,10 +74,7 @@ function distributeMinesForParsedBoard(board) {
             }
           }
         }
-        // Only update if the tile was unrevealed (preserve original OCR numbers on revealed tiles)
-        if (!board[y][x].revealed) {
-          board[y][x].adjacentMines = count;
-        }
+        board[y][x].adjacentMines = count;
       }
     }
   }
