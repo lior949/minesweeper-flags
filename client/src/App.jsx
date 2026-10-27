@@ -407,6 +407,11 @@ function App() {
               setHighlightedBombArea([]);
             });
 
+            socketRef.current.on("custom-feature-update", (data) => {
+            // Process custom feature data received from backend
+            console.log("Custom feature update received:", data);
+        });
+
             socketRef.current.on("receive-game-replay", (data) => {
               const initialBoard = data.board ? JSON.parse(data.board) : generateEmptyBoard();
 
@@ -712,6 +717,17 @@ function App() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
+
+    const handleCustomFeature = () => {
+    if (socketRef.current && socketRef.current.connected && gameId) {
+        socketRef.current.emit("custom-feature-action", { 
+            gameId, 
+            payload: "example_data" 
+        });
+    } else {
+        addGameMessage("Server", "Cannot trigger action: Not connected or not in a game.", true);
+    }
+};
 
     const handleStorageChange = (event) => {
       if (event.key === 'auth_success_user' && event.newValue) {
@@ -1545,6 +1561,26 @@ function App() {
               Use Bomb
           </button>
         )}
+      {playerNumber !== 0 && (
+  <button 
+    className="bomb-button"
+    onClick={handleCustomFeature}
+    disabled={!isSocketConnected || gameOver}
+    style={{ width: '100%', margin: '8px 0 0 0', background: '#8b5cf6' }}
+  >
+      Custom Feature
+  </button>
+)}
+
+{playerNumber !== 0 && bombMode && (
+  <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
+      Cancel Bomb
+  </button>
+)}
+
+<button className="btn-back-lobby" onClick={backToLobby} disabled={!isSocketConnected} style={{ width: '100%' }}>
+    Back to Lobby
+</button>
         {playerNumber !== 0 && bombMode && (
           <button className="bomb-button" onClick={handleCancelBomb} disabled={!isSocketConnected} style={{ width: '100%', margin: 0 }}>
               Cancel Bomb
