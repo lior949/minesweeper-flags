@@ -733,7 +733,7 @@ const generateBoard = (safeX = null, safeY = null) => {
     const x = Math.floor(Math.random() * WIDTH);
     const y = Math.floor(Math.random() * HEIGHT);
 
-    // Skip placement if tile is within safe click radius
+    // Skip placement if tile is within safe click radius of the first click
     if (safeX !== null && safeY !== null && Math.abs(x - safeX) <= 1 && Math.abs(y - safeY) <= 1) {
       continue;
     }
@@ -2199,13 +2199,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     }
 
     const isMidGameSetup = game.isMidgame || Boolean(game.screenshot);
+    const isFirstMove = !game.moves || game.moves.length === 0;
 
-
-
-   // Skip initial board regeneration for midgame matches
-if ((!game.moves || game.moves.length === 0) && !isMidGameSetup) {
-  game.board = generateBoard(x, y);
-}
+    // Regular games: Ensure the first click generates a safe board
+    if (isFirstMove && !isMidGameSetup) {
+      game.board = generateBoard(x, y);
+    }
 
     game.clickStartTime = clickStartTime;
 
