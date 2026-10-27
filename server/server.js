@@ -2201,7 +2201,6 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     const isMidGameSetup = game.isMidgame || Boolean(game.screenshot);
     const isFirstMove = !game.moves || game.moves.length === 0;
 
-    // Regular games: Ensure the first click generates a safe board
     if (isFirstMove && !isMidGameSetup) {
       game.board = generateBoard(x, y);
     }
@@ -2242,7 +2241,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
         emitLobbyPlayersList();
       }
     } else {
-
+      // STANDARD RECURSION ONLY: Never recalculate adjacentMines or modify revealed numbers!
       revealRecursive(game.board, x, y);
 
       if (game.gameType === '1v1') {
@@ -2262,15 +2261,12 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
       timestamp: Date.now()
     });
 
-    if (!game.gameOver) {
-      const nextPlayer = game.players.find(p => p.number === game.turn);
-      if (nextPlayer && nextPlayer.isAi) {
-        processAiTurn(gameId);
-      }
-    }
+    // NOTE: Removed any asynchronous/delayed board modifications here 
+    // to prevent the board from changing a second later.
 
     const cachedBoardString = JSON.stringify(game.board);
 
+    // Immediate single broadcast - immutable state
     io.to(gameId).emit("board-update", {
       gameId: game.gameId,
       board: cachedBoardString,
