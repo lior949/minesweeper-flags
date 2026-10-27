@@ -246,14 +246,14 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      let textPx = 0;    // Counts any blue/dark text pixels for 1 and 4
+      let darkBluePx = 0; // For 4: (0, 0, 154) -> blue channel around 120-180
+      let pureBluePx = 0; // For 1: (0, 0, 255) -> blue channel > 200
       let greenPx = 0;
       let redPx = 0;
       let brownPx = 0;   // For 5
       let cyanPx = 0;    // For 6
       let blackPx = 0;   // For 7
       let olivePx = 0;   // For 8
-      let darkPolePx = 0;
 
       const startX = tileX + Math.floor(cW * 0.25);
       const endX = tileX + Math.floor(cW * 0.75);
@@ -264,46 +264,38 @@ async function parseScreenshotToBoard(base64Image) {
         for (let px = startX; px < endX; px++) {
           const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-          if (r < 75 && g < 75 && b < 75) darkPolePx++;
-          // Black / Dark text (7)
-          else if (r < 60 && g < 60 && b < 60) blackPx++;
-          // Brown / Dark Orange text (5)
-          else if (r > 100 && r < 160 && g > 60 && g < 110 && b < 60) brownPx++;
-          // Cyan / Teal text (6)
-          else if (r < 50 && g > 110 && b > 110) cyanPx++;
-          // Olive Green text (8)
-          else if (r > 80 && r < 140 && g > 90 && g < 150 && b < 50) olivePx++;
-          // Blue text (Catches both 1 and 4 since they share blue hues)
-          else if (b > 100 && r < 120) textPx++;
-          else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
-          else if (r > 140 && g < 80 && b < 80) redPx++;
+          if (r < 60 && g < 60 && b < 60) {
+            blackPx++; // 7 (Black)
+          } else if (r < 40 && g < 40 && b >= 100 && b <= 180) {
+            darkBluePx++; // 4 -> Matches (0, 0, 154) range
+          } else if (r < 40 && g < 40 && b > 200) {
+            pureBluePx++; // 1 -> Matches (0, 0, 255) range
+          } else if (g > 110 && g > r && g > b) {
+            greenPx++;  // 2 (Green)
+          } else if (r > 140 && g < 90 && b < 90) {
+            redPx++;    // 3 (Red)
+          } else if (r > 110 && r < 160 && g > 60 && g < 110 && b < 60) {
+            brownPx++;  // 5 (Brown)
+          } else if (r < 60 && g > 110 && b > 110) {
+            cyanPx++;   // 6 (Cyan)
+          } else if (r > 90 && r < 140 && g > 90 && g < 140 && b > 60 && b < 110) {
+            olivePx++;  // 8 (Olive)
+          }
         }
       }
-
-      // Sample interior background
-      const samplePoints = [
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.25))),
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.75), tileY + Math.floor(cH * 0.25))),
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.75))),
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.50), tileY + Math.floor(cH * 0.50)))
-      ];
-
-      const isYellowBg = samplePoints.some(px => 
-        px.r > 130 && px.g > 110 && (px.r + px.g) / 2 > px.b + 30
-      );
 
       if (isYellowBg) {
         board[y][x].revealed = true;
 
-        if (olivePx >= 2) board[y][x].adjacentMines = 8;
-        else if (blackPx >= 2) board[y][x].adjacentMines = 7;
-        else if (cyanPx >= 2) board[y][x].adjacentMines = 6;
-        else if (brownPx >= 2) board[y][x].adjacentMines = 5;
-        else if (textPx >= 35) board[y][x].adjacentMines = 4; // <--- Thicker glyph (4) has more pixels
-        else if (redPx >= 2) board[y][x].adjacentMines = 3;
-        else if (greenPx >= 2) board[y][x].adjacentMines = 2;
-        else if (textPx > 0) board[y][x].adjacentMines = 1;   // <--- Thinner glyph (1) has fewer pixels
-        else board[y][x],adjacentMines = 0;
+        if (olivePx >= 3) board[y][x].adjacentMines = 8;
+        else if (blackPx >= 3) board[y][x].adjacentMines = 7;
+        else if (cyanPx >= 3) board[y][x].adjacentMines = 6;
+        else if (brownPx >= 3) board[y][x].adjacentMines = 5;
+        else if (darkBluePx >= 3) board[y][x].adjacentMines = 4; // <--- Darker blue (0,0,154)
+        else if (redPx >= 3) board[y][x].adjacentMines = 3;
+        else if (greenPx >= 3) board[y][x].adjacentMines = 2;
+        else if (pureBluePx >= 3) board[y][x].adjacentMines = 1; // <--- Bright blue (0,0,255)
+        else board[y][x].adjacentMines = 0;
       } else {
         board[y][x].revealed = false;
       }
