@@ -46,13 +46,14 @@ function distributeMinesForParsedBoard(board) {
   let minesToPlace = Math.max(0, MINES - currentMinesCount);
   let safetyCounter = 0;
 
-  while (minesToPlace > 0 && safetyCounter < 1000) {
+  while (minesToPlace > 0 && safetyCounter < 2000) {
     safetyCounter++;
     const rx = Math.floor(Math.random() * width);
     const ry = Math.floor(Math.random() * height);
 
-    if (!board.revealed && !board.isMine && board.ownerTeam === null) {
-      board.isMine = true;
+    // FIXED: Correctly reference the 2D array elements board[ry][rx]
+    if (!board[ry][rx].revealed && !board[ry][rx].isMine && board[ry][rx].ownerTeam === null) {
+      board[ry][rx].isMine = true;
       minesToPlace--;
     }
   }
