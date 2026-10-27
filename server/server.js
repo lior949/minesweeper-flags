@@ -2205,7 +2205,7 @@ socket.on("invite-player", async ({ targetSocketIds, gameType }) => {
     
     if (isRegularGameFirstClick) {
       const clickedTile = game.board[y][x];
-      const hasAnyScoreOrRevealed = (game.scores[1] > 0 || game.scores[2] > 0) || game.board.some(row => row.some(cell => cell.revealed));
+      const hasAnyScoreOrRevealed = (game.scores[1] > 0 || game.scores[2] > 0);
       
       // If the first click hits a blank tile (0 adjacent mines, not a mine) and nothing is revealed yet:
       if (clickedTile.adjacentMines === 0 && !clickedTile.isMine && !hasAnyScoreOrRevealed) {
