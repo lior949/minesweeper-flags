@@ -1168,10 +1168,30 @@ socket.on("resume-game", async ({ gameId }) => {
     else if (gameData.player3_userId === userId) currentPlayerNumber = 3;
     else if (gameData.player4_userId === userId) currentPlayerNumber = 4;
 
+    let realPlayer1Name = gameData.player1_name;
+    if (!realPlayer1Name || realPlayer1Name === "Player 1") {
+        const foundP1 = players.find(p => p.userId === gameData.player1_userId);
+        if (foundP1 && foundP1.name && foundP1.name !== "Player 1") {
+            realPlayer1Name = foundP1.name;
+        } else {
+            realPlayer1Name = `Guest_${gameData.player1_userId ? gameData.player1_userId.substring(6, 11) : 'ghost'}‎`;
+        }
+    }
+
+    let realPlayer2Name = gameData.player2_name;
+    if (!realPlayer2Name || realPlayer2Name === "Player 2") {
+        const foundP2 = players.find(p => p.userId === gameData.player2_userId);
+        if (foundP2 && foundP2.name && foundP2.name !== "Player 2") {
+            realPlayer2Name = foundP2.name;
+        } else {
+            realPlayer2Name = `Guest_${gameData.player2_userId ? gameData.player2_userId.substring(6, 11) : 'ghost'}‎`;
+        }
+    }
+
     // Prepare player names for sending to client
     const playerNamesForClient = {
-        1: gameData.player1_name || "Player 1",
-        2: gameData.player2_name || "Player 2",
+        1: realPlayer1Name,
+        2: realPlayer2Name,
         3: gameData.player3_name, // For 2v2
         4: gameData.player4_name, // For 2v2
     };
