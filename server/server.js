@@ -246,105 +246,6 @@ async function parseScreenshotToBoard(base64Image) {
       const cW = Math.floor(cellWidth);
       const cH = Math.floor(cellHeight);
 
-      let bluePx = 0;
-      let greenPx = 0;
-      let redPx = 0;
-      let darkPolePx = 0;
-
-      const startX = tileX + Math.floor(cW * 0.25);
-      const endX = tileX + Math.floor(cW * 0.75);
-      const startY = tileY + Math.floor(cH * 0.25);
-      const endY = tileY + Math.floor(cH * 0.75);
-
-      for (let py = startY; py < endY; py++) {
-        for (let px = startX; px < endX; px++) {
-          const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
-
-          if (r < 75 && g < 75 && b < 75) darkPolePx++;
-          else if (b > 130 && b > r + 25) bluePx++;
-          else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
-          else if (r > 140 && g < 80 && b < 80) redPx++;
-        }
-      }
-
-      // FLAG OVERRIDE
-      const hasFlagPole = darkPolePx >= 1;
-      const isBlueFlag = hasFlagPole && bluePx >= 1;
-      const isRedFlag = hasFlagPole && redPx >= 1;
-
-      if (isRedFlag || isBlueFlag) {
-        const team = isRedFlag ? 1 : 2;
-        board[y][x].revealed = true;
-        board[y][x].isMine = true;
-        board[y][x].ownerTeam = team;
-        initialScores[team]++;
-        continue;
-      }
-
-      // Sample interior background
-      const samplePoints = [
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.25))),
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.75), tileY + Math.floor(cH * 0.25))),
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.75))),
-        Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.50), tileY + Math.floor(cH * 0.50)))
-      ];
-
-      const isYellowBg = samplePoints.some(px => 
-        px.r > 130 && px.g > 110 && (px.r + px.g) / 2 > px.b + 30
-      );
-
-      if (isYellowBg) {
-        board[y][x].revealed = true;
-        if (redPx >= 2) board[y][x].adjacentMines = 3;
-        else if (greenPx >= 2) board[y][x].adjacentMines = 2;
-        else if (bluePx >= 3) {
-          if (bluePx >= 28) {
-            board[y][x].adjacentMines = 4; // Dense blue cluster = 4
-          } else {
-            board[y][x].adjacentMines = 1; // Sparse blue cluster = 1
-          }
-        }
-        else board[y][x].adjacentMines = 0;
-      } else {
-        board[y][x].revealed = false;
-      }
-    }
-  }
-
-  distributeMinesForParsedBoard(board);
-
-  return { board, initialScores };
-}
-async function parseScreenshotToBoard(base64Image) {
-  const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
-  const imageBuffer = Buffer.from(base64Data, 'base64');
-  
-  const image = await Jimp.read(imageBuffer);
-  
-  const width = 16;
-  const height = 16;
-  const cellWidth = image.bitmap.width / width;
-  const cellHeight = image.bitmap.height / height;
-
-  const initialScores = { 1: 0, 2: 0 };
-
-  const board = Array.from({ length: height }, () =>
-    Array.from({ length: width }, () => ({
-      isMine: false,
-      revealed: false,
-      adjacentMines: 0,
-      owner: null,
-      ownerTeam: null,
-    }))
-  );
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tileX = Math.floor(x * cellWidth);
-      const tileY = Math.floor(y * cellHeight);
-      const cW = Math.floor(cellWidth);
-      const cH = Math.floor(cellHeight);
-
       let bluePx = 0;   // 1
       let greenPx = 0;  // 2
       let redPx = 0;    // 3
@@ -379,11 +280,11 @@ async function parseScreenshotToBoard(base64Image) {
           else if (r > 160 && g < 80 && b < 80) {
             redPx++;
           }
-          // 4: Distinct Purple / Violet (High blue & moderate red, low green)
-          else if (r > 70 && r < 140 && g < 70 && b > 120 && b > r) {
+          // 4: Distinct Purple / Violet (Balanced red and blue, low green)
+          else if (r > 80 && r < 140 && g < 60 && b > 110 && b >= r - 20) {
             purplePx++;
           }
-          // 5: Brown/Orange (Higher red, moderate green, low blue)
+          // 5: Brown/Orange
           else if (r > 120 && r < 180 && g > 70 && g < 130 && b < 60) {
             brownPx++;
           }
@@ -395,8 +296,8 @@ async function parseScreenshotToBoard(base64Image) {
           else if (r < 60 && g < 60 && b < 60) {
             blackPx++;
           }
-          // 8: Olive Green
-          else if (r > 90 && r < 140 && g > 90 && g < 140 && b > 60 && b < 110) {
+          // 8: Olive Green (Stricter: green must be notably higher than red/blue)
+          else if (r > 60 && r < 110 && g > 90 && g < 150 && b > 40 && b < 90 && g > r && g > b) {
             olivePx++;
           }
         }
@@ -431,11 +332,11 @@ async function parseScreenshotToBoard(base64Image) {
       if (isYellowBg) {
         board[y][x].revealed = true;
 
-        // Order matters: check 4 (purple) BEFORE 5 (brown)
-        if (olivePx >= 3) board[y][x].adjacentMines = 8;
+        // Strict priority order (checking 4 and 8 securely)
+        if (purplePx >= 3) board[y][x].adjacentMines = 4;
+        else if (olivePx >= 3) board[y][x].adjacentMines = 8;
         else if (blackPx >= 3) board[y][x].adjacentMines = 7;
         else if (cyanPx >= 3) board[y][x].adjacentMines = 6;
-        else if (purplePx >= 3) board[y][x].adjacentMines = 4;
         else if (brownPx >= 3) board[y][x].adjacentMines = 5;
         else if (redPx >= 3) board[y][x].adjacentMines = 3;
         else if (greenPx >= 3) board[y][x].adjacentMines = 2;
