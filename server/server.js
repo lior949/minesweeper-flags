@@ -269,35 +269,35 @@ async function parseScreenshotToBoard(base64Image) {
             darkPolePx++;
           }
           // 1: Pure / Strong Blue
-          else if (b > 160 && r < 80 && g < 120) {
+          else if (b > 150 && r < 90 && g < 130) {
             bluePx++;
           }
           // 2: Green
-          else if (g > 120 && r < 80 && b < 100) {
+          else if (g > 110 && r < 90 && b < 110) {
             greenPx++;
           }
           // 3: Red
-          else if (r > 160 && g < 80 && b < 80) {
+          else if (r > 150 && g < 90 && b < 90) {
             redPx++;
           }
-          // 4: Distinct Purple / Violet (Balanced red and blue, low green)
-          else if (r > 80 && r < 140 && g < 60 && b > 110 && b >= r - 20) {
+          // 4: Purple / Violet (Loosened range to reliably catch the 4)
+          else if (r > 60 && r < 160 && g < 80 && b > 100 && b >= r - 40) {
             purplePx++;
           }
           // 5: Brown/Orange
-          else if (r > 120 && r < 180 && g > 70 && g < 130 && b < 60) {
+          else if (r > 110 && r < 190 && g > 60 && g < 140 && b < 70) {
             brownPx++;
           }
           // 6: Cyan / Teal
-          else if (r < 80 && g > 110 && b > 110) {
+          else if (r < 90 && g > 100 && b > 100) {
             cyanPx++;
           }
           // 7: Black text
-          else if (r < 60 && g < 60 && b < 60) {
+          else if (r < 70 && g < 70 && b < 70) {
             blackPx++;
           }
-          // 8: Olive Green (Stricter: green must be notably higher than red/blue)
-          else if (r > 60 && r < 110 && g > 90 && g < 150 && b > 40 && b < 90 && g > r && g > b) {
+          // 8: Olive Green
+          else if (r > 50 && r < 120 && g > 80 && g < 160 && b > 30 && b < 100 && g >= r) {
             olivePx++;
           }
         }
@@ -332,7 +332,6 @@ async function parseScreenshotToBoard(base64Image) {
       if (isYellowBg) {
         board[y][x].revealed = true;
 
-        // Strict priority order (checking 4 and 8 securely)
         if (purplePx >= 3) board[y][x].adjacentMines = 4;
         else if (olivePx >= 3) board[y][x].adjacentMines = 8;
         else if (blackPx >= 3) board[y][x].adjacentMines = 7;
