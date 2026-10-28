@@ -364,30 +364,28 @@ async function parseScreenshotToBoard(base64Image) {
         for (let px = startX; px < endX; px++) {
           const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
-          // Ignore the yellow background and white gloss/clouds
-          // Check for flag pole
           if (r < 75 && g < 75 && b < 75) {
             darkPolePx++;
           }
-          // 1: Pure / Strong Blue (e.g., RGB around 0, 0, 230)
+          // 1: Pure / Strong Blue
           else if (b > 160 && r < 80 && g < 120) {
             bluePx++;
           }
-          // 2: Green (e.g., RGB around 0, 180, 50)
+          // 2: Green
           else if (g > 120 && r < 80 && b < 100) {
             greenPx++;
           }
-          // 3: Red (e.g., RGB around 230, 0, 0)
+          // 3: Red
           else if (r > 160 && g < 80 && b < 80) {
             redPx++;
           }
-          // 4: Purple / Violet (e.g., RGB around 120, 0, 180)
-          else if (r > 80 && r < 150 && g < 80 && b > 120) {
+          // 4: Distinct Purple / Violet (High blue & moderate red, low green)
+          else if (r > 70 && r < 140 && g < 70 && b > 120 && b > r) {
             purplePx++;
           }
-          // 5 & 8: Brown / Olive
-          else if (r > 90 && r < 150 && g > 70 && g < 130 && b < 80) {
-            brownPx++; // or olive
+          // 5: Brown/Orange (Higher red, moderate green, low blue)
+          else if (r > 120 && r < 180 && g > 70 && g < 130 && b < 60) {
+            brownPx++;
           }
           // 6: Cyan / Teal
           else if (r < 80 && g > 110 && b > 110) {
@@ -396,6 +394,10 @@ async function parseScreenshotToBoard(base64Image) {
           // 7: Black text
           else if (r < 60 && g < 60 && b < 60) {
             blackPx++;
+          }
+          // 8: Olive Green
+          else if (r > 90 && r < 140 && g > 90 && g < 140 && b > 60 && b < 110) {
+            olivePx++;
           }
         }
       }
@@ -414,7 +416,7 @@ async function parseScreenshotToBoard(base64Image) {
         continue;
       }
 
-      // Sample interior background to confirm it's a revealed yellow tile
+      // Sample interior background
       const samplePoints = [
         Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.25), tileY + Math.floor(cH * 0.25))),
         Jimp.intToRGBA(image.getPixelColor(tileX + Math.floor(cW * 0.75), tileY + Math.floor(cH * 0.25))),
@@ -429,12 +431,12 @@ async function parseScreenshotToBoard(base64Image) {
       if (isYellowBg) {
         board[y][x].revealed = true;
 
-        // Assign number based on which unique color pixels were found
+        // Order matters: check 4 (purple) BEFORE 5 (brown)
         if (olivePx >= 3) board[y][x].adjacentMines = 8;
         else if (blackPx >= 3) board[y][x].adjacentMines = 7;
         else if (cyanPx >= 3) board[y][x].adjacentMines = 6;
-        else if (brownPx >= 3) board[y][x].adjacentMines = 5;
         else if (purplePx >= 3) board[y][x].adjacentMines = 4;
+        else if (brownPx >= 3) board[y][x].adjacentMines = 5;
         else if (redPx >= 3) board[y][x].adjacentMines = 3;
         else if (greenPx >= 3) board[y][x].adjacentMines = 2;
         else if (bluePx >= 3) board[y][x].adjacentMines = 1;
