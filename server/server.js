@@ -249,7 +249,6 @@ async function parseScreenshotToBoard(base64Image) {
       let bluePx = 0;
       let greenPx = 0;
       let redPx = 0;
-      let purplePx = 0;
       let darkPolePx = 0;
 
       const startX = tileX + Math.floor(cW * 0.25);
@@ -262,7 +261,6 @@ async function parseScreenshotToBoard(base64Image) {
           const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
           if (r < 75 && g < 75 && b < 75) darkPolePx++;
-          else if (r > 110 && b > 110 && g < 80) purplePx++;
           else if (b > 130 && b > r + 25) bluePx++;
           else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
           else if (r > 140 && g < 80 && b < 80) redPx++;
@@ -297,10 +295,15 @@ async function parseScreenshotToBoard(base64Image) {
 
       if (isYellowBg) {
         board[y][x].revealed = true;
-        if (purplePx >= 2) board[y][x].adjacentMines = 4;
-        else if (redPx >= 2) board[y][x].adjacentMines = 3;
+        if (redPx >= 2) board[y][x].adjacentMines = 3;
         else if (greenPx >= 2) board[y][x].adjacentMines = 2;
-        else if (bluePx >= 2) board[y][x].adjacentMines = 1;
+        else if (bluePx >= 3) {
+          if (bluePx >= 28) {
+            board[y][x].adjacentMines = 4; // Dense blue cluster = 4
+          } else {
+            board[y][x].adjacentMines = 1; // Sparse blue cluster = 1
+          }
+        }
         else board[y][x].adjacentMines = 0;
       } else {
         board[y][x].revealed = false;
