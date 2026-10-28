@@ -249,8 +249,8 @@ async function parseScreenshotToBoard(base64Image) {
       let bluePx = 0;   // 1
       let greenPx = 0;  // 2
       let redPx = 0;    // 3
-      let purplePx = 0; // 4
-      let brownPx = 0;  // 5
+      let purplePx = 0; // 4 (Blue-violet)
+      let brownPx = 0;  // 5 (Orange-brown)
       let cyanPx = 0;   // 6
       let blackPx = 0;  // 7
       let olivePx = 0;  // 8
@@ -280,12 +280,12 @@ async function parseScreenshotToBoard(base64Image) {
           else if (r > 150 && g < 90 && b < 90) {
             redPx++;
           }
-          // 4: Purple / Violet (Loosened range to reliably catch the 4)
-          else if (r > 60 && r < 160 && g < 80 && b > 100 && b >= r - 40) {
+          // 4: Purple / Violet (Blue is greater than or equal to Red, low green)
+          else if (r > 70 && r < 150 && g < 80 && b > 90 && b >= r - 15) {
             purplePx++;
           }
-          // 5: Brown/Orange
-          else if (r > 110 && r < 190 && g > 60 && g < 140 && b < 70) {
+          // 5: Brown / Orange (Red is strictly greater than Blue)
+          else if (r > 110 && r < 190 && g > 60 && g < 140 && b < 80 && r > b + 20) {
             brownPx++;
           }
           // 6: Cyan / Teal
