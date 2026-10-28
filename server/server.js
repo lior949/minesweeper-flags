@@ -348,7 +348,10 @@ async function parseScreenshotToBoard(base64Image) {
       let bluePx = 0;
       let greenPx = 0;
       let redPx = 0;
-      let purplePx = 0;
+      let brownPx = 0;   // For 5
+      let cyanPx = 0;    // For 6 (Teal/Cyan)
+      let blackPx = 0;   // For 7
+      let olivePx = 0;   // For 8
       let darkPolePx = 0;
 
       const startX = tileX + Math.floor(cW * 0.25);
@@ -356,22 +359,37 @@ async function parseScreenshotToBoard(base64Image) {
       const startY = tileY + Math.floor(cH * 0.25);
       const endY = tileY + Math.floor(cH * 0.75);
 
+      const totalSampledPixels = (endX - startX) * (endY - startY);
+
       for (let py = startY; py < endY; py++) {
         for (let px = startX; px < endX; px++) {
           const { r, g, b } = Jimp.intToRGBA(image.getPixelColor(px, py));
 
           if (r < 75 && g < 75 && b < 75) darkPolePx++;
-          else if (r > 110 && b > 110 && g < 80) purplePx++;
+          else if (r < 60 && g < 60 && b < 60) blackPx++;
           else if (b > 130 && b > r + 25) bluePx++;
           else if (g > 110 && g > r + 20 && g > b + 20) greenPx++;
           else if (r > 140 && g < 80 && b < 80) redPx++;
+          else if (r > 110 && r < 160 && g > 60 && g < 110 && b < 60) brownPx++;
+          else if (r < 60 && g > 110 && b > 110) cyanPx++;
+          else if (r > 90 && r < 140 && g > 90 && g < 140 && b > 60 && b < 110) olivePx++;
         }
       }
 
+      // Convert counts to percentages (0 to 1) relative to the sample window area
+      const blueRatio = bluePx / totalSampledPixels;
+      const greenRatio = greenPx / totalSampledPixels;
+      const redRatio = redPx / totalSampledPixels;
+      const brownRatio = brownPx / totalSampledPixels;
+      const cyanRatio = cyanPx / totalSampledPixels;
+      const blackRatio = blackPx / totalSampledPixels;
+      const oliveRatio = olivePx / totalSampledPixels;
+      const darkPoleRatio = darkPolePx / totalSampledPixels;
+
       // FLAG OVERRIDE
-      const hasFlagPole = darkPolePx >= 1;
-      const isBlueFlag = hasFlagPole && bluePx >= 1;
-      const isRedFlag = hasFlagPole && redPx >= 1;
+      const hasFlagPole = darkPoleRatio >= 0.005;
+      const isBlueFlag = hasFlagPole && blueRatio >= 0.005;
+      const isRedFlag = hasFlagPole && redRatio >= 0.005;
 
       if (isRedFlag || isBlueFlag) {
         const team = isRedFlag ? 1 : 2;
@@ -396,10 +414,22 @@ async function parseScreenshotToBoard(base64Image) {
 
       if (isYellowBg) {
         board[y][x].revealed = true;
-        if (purplePx >= 2) board[y][x].adjacentMines = 4;
-        else if (redPx >= 2) board[y][x].adjacentMines = 3;
-        else if (greenPx >= 2) board[y][x].adjacentMines = 2;
-        else if (bluePx >= 2) board[y][x].adjacentMines = 1;
+
+        // Thresholds based on percentage of tile coverage
+        if (oliveRatio >= 0.01) board[y][x].adjacentMines = 8;
+        else if (blackRatio >= 0.01) board[y][x].adjacentMines = 7;
+        else if (cyanRatio >= 0.01) board[y][x].adjacentMines = 6;
+        else if (brownRatio >= 0.01) board[y][x].adjacentMines = 5;
+        else if (blueRatio >= 0.01) {
+          // 4 has significantly more stroke area than 1 (~3.5%+ vs ~1.5%)
+          if (blueRatio >= 0.03) {
+            board[y][x].adjacentMines = 4;
+          } else {
+            board[y][x].adjacentMines = 1;
+          }
+        }
+        else if (redRatio >= 0.01) board[y][x].adjacentMines = 3;
+        else if (greenRatio >= 0.01) board[y][x].adjacentMines = 2;
         else board[y][x].adjacentMines = 0;
       } else {
         board[y][x].revealed = false;
@@ -411,7 +441,6 @@ async function parseScreenshotToBoard(base64Image) {
 
   return { board, initialScores };
 }
-
 // New global data structures for robust player tracking across reconnections
 const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, Facebook ID, Guest ID)
 // userGameMap maps userId to an object { gameId: string, role: 'player' | 'observer' }
