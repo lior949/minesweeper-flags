@@ -31,6 +31,26 @@ const userSocketMap = {}; // Maps userId to current socket.id (e.g., Google ID, 
 // userGameMap maps userId to an object { gameId: string, role: 'player' | 'observer' }
 const userGameMap = {};   // Maps userId to the gameId and role they are currently in
 
+const cleanupGameFromMemory = (gameId) => {
+    if (games[gameId]) {
+        const game = games[gameId];
+        game.players.forEach(p => {
+            if (userGameMap[p.userId]?.gameId === gameId) {
+                delete userGameMap[p.userId];
+            }
+        });
+        if (game.observers) {
+            game.observers.forEach(o => {
+                if (userGameMap[o.userId]?.gameId === gameId) {
+                    delete userGameMap[o.userId];
+                }
+            });
+        }
+        delete games[gameId];
+        console.log(`[Memory Cleanup] Game ${gameId} removed from server RAM.`);
+    }
+};
+
 // Configure CORS for Express
 // MUST match your frontend Render URL exactly
 app.use(
@@ -574,6 +594,9 @@ async function processAiTurn(gameId) {
             } else {
                 aiHitMine = true;
             }
+                setTimeout(() => {
+              cleanupGameFromMemory(gameId);
+          }, 1000 * 60 * 60);
         } else {
             revealRecursive(game.board, x, y); // Pass x (col) then y (row)
             
@@ -744,7 +767,7 @@ io.on("connection", (socket) => {
                         scores: gameData.scores,
                         bombsUsed: gameData.bombsUsed,
                         turn: gameData.turn,
-                        moves: game.moves,
+                        moves: gameData.moves,
                         gameOver: gameData.gameOver,
                         lastClickedTile: gameData.lastClickedTile || {},
                         players: [], // Will be populated with proper player objects
@@ -2171,6 +2194,9 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
           
           game.players.forEach(p => delete userGameMap[p.userId]);
           emitLobbyPlayersList();
+          setTimeout(() => {
+              cleanupGameFromMemory(gameId);
+          }, 1000 * 60 * 60);
       }
 
     } else { 
@@ -2507,6 +2533,9 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         // Clear userGameMap for all players when game is over
         game.players.forEach(p => delete userGameMap[p.userId]);
         emitLobbyPlayersList(); // Update lobby list
+        setTimeout(() => {
+              cleanupGameFromMemory(gameId);
+          }, 1000 * 60 * 60);
     }
     // Turn always switches after bomb usage, regardless of game type.
     if (game.gameType === '1v1') {
