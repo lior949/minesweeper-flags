@@ -1296,16 +1296,16 @@ socket.on("resume-game", async ({ gameId }) => {
     }
 
     game.players = playerUids.map((pUid, index) => {
-        const playerNum = index + 1;
-        let playerObj = players.find(p => p.userId === pUid);
-        if (!playerObj) { // If player not in global players list, add them
-            playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
-            players.push(playerObj);
-        }
-        // Assign the current socket ID if this is the resuming player, or get from map for other players
-        playerObj.socketId = (pUid === userId) ? socket.id : (userSocketMap[pUid] || null);
-        playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
-        return playerObj;
+    const playerNum = index + 1;
+    let playerObj = players.find(p => p.userId === pUid);
+    if (!playerObj) {
+        playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
+        players.push(playerObj);
+    }
+    // 💡 תיקון קריטי: עדכון ה-socketId לחיבור הנוכחי והפעיל של השחקן!
+    playerObj.socketId = (pUid === userId) ? socket.id : (userSocketMap[pUid] || null);
+    playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2;
+    return playerObj;
     });
 
     // Update observers' socketIds
@@ -2168,6 +2168,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     }
 
     player.socketId = socket.id;
+    userSocketMap[userId] = socket.id;
 
     const tile = game.board[y][x];
     if (tile.revealed) {
