@@ -1186,18 +1186,18 @@ socket.on("resume-game", async ({ gameId }) => {
 
     // Determine current player's number from Firestore data
     let currentPlayerNumber = null;
-    if (gameData.player1_userId === userId) currentPlayerNumber = 1;
-    else if (gameData.player2_userId === userId) currentPlayerNumber = 2;
-    else if (gameData.player3_userId === userId) currentPlayerNumber = 3;
-    else if (gameData.player4_userId === userId) currentPlayerNumber = 4;
+    if (String(gameData.player1_userId) === String(userId)) currentPlayerNumber = 1;
+    else if (String(gameData.player2_userId) === String(userId)) currentPlayerNumber = 2;
+    else if (String(gameData.player3_userId) === String(userId)) currentPlayerNumber = 3;
+    else if (String(gameData.player4_userId) === String(userId)) currentPlayerNumber = 4;
 
     // Prepare player names for sending to client
     const playerNamesForClient = {
-        1: gameData.player1_name || "Player 1",
-        2: gameData.player2_name || "Player 2",
-        3: gameData.player3_name, // For 2v2
-        4: gameData.player4_name, // For 2v2
-    };
+    1: gameData.player1_name || players.find(p => p.userId === gameData.player1_userId)?.name || "Player 1",
+    2: gameData.player2_name || players.find(p => p.userId === gameData.player2_userId)?.name || "Player 2",
+    3: gameData.player3_name || players.find(p => p.userId === gameData.player3_userId)?.name || "Player 3",
+    4: gameData.player4_name || players.find(p => p.userId === gameData.player4_userId)?.name || "Player 4",
+};
 
     // Check if the game is already in memory
     if (games[gameId]) {
