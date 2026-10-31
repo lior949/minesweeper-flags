@@ -799,7 +799,7 @@ io.on("connection", (socket) => {
                             players.push(playerObj);
                         }
                         playerObj.socketId = userSocketMap[pUid] || null; // Update socketId from userSocketMap
-                        playerObj.team = (player.number === 1 || player.number === 2) ? 1 : 2;
+                        playerObj.team = player.numbeרף
                         return playerObj;
                     });
 
