@@ -389,11 +389,13 @@ function App() {
 
             socketRef.current.on('connect', () => {
               setIsSocketConnected(true);
-              socketRef.current.emit("join-lobby", currentUserName);
-
               if (gameId) {
-                  socketRef.current.emit("resume-game", { gameId });
-              }
+              console.log("Resuming active game on reconnect...");
+              socketRef.current.emit("resume-game", { gameId });
+                } else {
+                    // רק אם היא לא בתוך משחק, תן לו להיכנס ללובבי
+                    socketRef.current.emit("join-lobby", currentUserName);
+                }
 
               const urlParams = new URLSearchParams(window.location.search);
               const autoReplayId = urlParams.get("replayGameId");
