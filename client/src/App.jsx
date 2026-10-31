@@ -1150,20 +1150,15 @@ function App() {
     if (!tile.revealed) return "";
     
     if (tile.isMine && tile.ownerTeam) {
+      // קביעת צבע לפי קבוצה (או שחקן)
+      const flagColor = tile.ownerTeam === 1 ? "red" : "blue";
+
       return (
         <div className="tile hidden"> 
-          {tile.ownerTeam === 1 && (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red" width="24px" height="24px">
-              <path d="M0 0h24v24H0z" fill="none"/>
-              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-            </svg>
-          )}
-          {tile.ownerTeam === 2 && (
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue" width="24px" height="24px">
-              <path d="M0 0h24v24H0z" fill="none"/>
-              <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
-            </svg>
-          )}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={flagColor} width="24px" height="24px">
+            <path d="M0 0h24v24H0z" fill="none"/>
+            <path d="M14.4 6L14 4H5V20h2v-7h5.6l.4 2h7V6z"/>
+          </svg>
         </div>
       );
     }
