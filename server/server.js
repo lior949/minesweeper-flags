@@ -1150,6 +1150,10 @@ socket.on("resume-game", async ({ gameId }) => {
   const userId = user ? (user.id || socket.request.user?.id) : null;
   const userName = user ? (user.displayName || user.name || 'Unknown Player') : 'Unknown Player';
 
+    console.log(`[RESUME DEBUG] socket.id: ${socket.id}`);
+    console.log(`[RESUME DEBUG] Extracted userId:`, userId);
+    console.log(`[RESUME DEBUG] Full user object in session:`, user);
+
   if (!userId) {
     socket.emit("join-error", "Authentication required to resume game.");
     return;
@@ -1164,6 +1168,7 @@ socket.on("resume-game", async ({ gameId }) => {
     const gameDoc = await gameDocRef.get();
 
     if (!gameDoc.exists) {
+        console.log(`[RESUME DEBUG] Game ${gameId} not found in Firestore!`);
       socket.emit("join-error", "Game not found or already ended.");
       // Also, if a game is not found, ensure userGameMap doesn't point to it
       if (userGameMap[userId] && userGameMap[userId].gameId === gameId) {
@@ -1173,6 +1178,8 @@ socket.on("resume-game", async ({ gameId }) => {
     }
 
     const gameData = gameDoc.data();
+      console.log(`[RESUME DEBUG] Firestore data - p1_id: ${gameData.player1_userId}, p2_id: ${gameData.player2_userId}`);
+    console.log(`[RESUME DEBUG] Firestore data - p1_name: ${gameData.player1_name}, p2_name: ${gameData.player2_name}`);
 
     // Verify that the resuming user is one of the players in this game
     const allPlayerUserIds = [gameData.player1_userId, gameData.player2_userId];
