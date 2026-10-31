@@ -1186,10 +1186,15 @@ socket.on("resume-game", async ({ gameId }) => {
 
     // Determine current player's number from Firestore data
     let currentPlayerNumber = null;
-    if (String(gameData.player1_userId) === String(userId)) currentPlayerNumber = 1;
-    else if (String(gameData.player2_userId) === String(userId)) currentPlayerNumber = 2;
-    else if (String(gameData.player3_userId) === String(userId)) currentPlayerNumber = 3;
-    else if (String(gameData.player4_userId) === String(userId)) currentPlayerNumber = 4;
+    if (gameData.player1_userId && String(gameData.player1_userId).trim() === String(userId).trim()) {
+    currentPlayerNumber = 1;
+} else if (gameData.player2_userId && String(gameData.player2_userId).trim() === String(userId).trim()) {
+    currentPlayerNumber = 2;
+} else if (gameData.gameType === '2v2' && gameData.player3_userId && String(gameData.player3_userId).trim() === String(userId).trim()) {
+    currentPlayerNumber = 3;
+} else if (gameData.gameType === '2v2' && gameData.player4_userId && String(gameData.player4_userId).trim() === String(userId).trim()) {
+    currentPlayerNumber = 4;
+}
 
     // Prepare player names for sending to client
     const playerNamesForClient = {
@@ -1299,14 +1304,15 @@ socket.on("resume-game", async ({ gameId }) => {
     const playerNum = index + 1;
     let playerObj = players.find(p => p.userId === pUid);
     if (!playerObj) {
-        playerObj = { userId: pUid, name: playerNamesForClient[playerNum], number: playerNum };
+        // שליפת השם האמיתי מתוך ה-Firestore או ברירת מחדל בטוחה
+        const fallbackName = playerNum === 1 ? gameData.player1_name : (playerNum === 2 ? gameData.player2_name : `Player ${playerNum}`);
+        playerObj = { userId: pUid, name: fallbackName || `Player ${playerNum}`, number: playerNum };
         players.push(playerObj);
     }
-    // 💡 תיקון קריטי: עדכון ה-socketId לחיבור הנוכחי והפעיל של השחקן!
-    playerObj.socketId = (pUid === userId) ? socket.id : (userSocketMap[pUid] || null);
+    playerObj.socketId = (String(pUid).trim() === String(userId).trim()) ? socket.id : (userSocketMap[pUid] || null);
     playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2;
     return playerObj;
-    });
+});
 
     // Update observers' socketIds
     game.observers.forEach(observer => {
