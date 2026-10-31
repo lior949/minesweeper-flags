@@ -955,6 +955,10 @@ io.on("connection", (socket) => {
     
     // FIXED: Handle cases where passport user is either an object or just the user directly
     const userId = user ? (user.id || socket.request.user?.id) : null;
+      if (userId && userGameMap[userId]) {
+        console.log(`[Join Lobby Blocked] User ${userId} is currently in an active game and cannot join the lobby.`);
+        return;
+    }
     const userName = user ? (user.displayName || user.name || name) : name; 
 
     if (!userId) {
