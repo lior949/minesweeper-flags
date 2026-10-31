@@ -391,6 +391,10 @@ function App() {
               setIsSocketConnected(true);
               socketRef.current.emit("join-lobby", currentUserName);
 
+              if (gameId) {
+                  socketRef.current.emit("resume-game", { gameId });
+              }
+
               const urlParams = new URLSearchParams(window.location.search);
               const autoReplayId = urlParams.get("replayGameId");
               if (autoReplayId) {
