@@ -1267,11 +1267,14 @@ if (!currentPlayerNumber) {
           // Update userGameMap for the player's role
           userGameMap[userId] = { gameId, role: 'player' };
 
+          const playerInGame = existingGame.players.find(p => p.userId === userId);
+        const assignedPlayerNumber = playerInGame ? playerInGame.number : null;
+
           // Emit the game state to the resuming player
           io.to(currentPlayerInGame.socketId).emit("game-start", { // Using game-start for initial state after resume
               gameId: existingGame.gameId,
               gameType: existingGame.gameType,
-              playerNumber: currentPlayerNumber, // Use the derived number
+              playerNumber: assignedPlayerNumber, // Use the derived number
               board: JSON.stringify(existingGame.board),
               turn: existingGame.turn,
               scores: existingGame.scores,
