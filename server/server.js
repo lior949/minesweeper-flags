@@ -2191,7 +2191,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     if (!game || game.gameOver) {
         return;
     }
-   game.clickStartTime = clickStartTime;
+    game.clickStartTime = clickStartTime;
 
     const user = socket.request.session?.passport?.user || socket.request.user || null;
     const userId = user ? (user.id || socket.request.user?.id) : null;
@@ -2202,7 +2202,14 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     }
 
     const player = game.players.find((p) => p.userId === userId);
-    if (!player || player.number !== game.turn) {
+    
+    // --- 1. אכיפת תור קשיחה (מונעת לחלוטין שחקן מלשחק שלא בתורו או ללחוץ ללא הפסקה) ---
+    const isPlayersTurn = (game.gameType === '1v1' && player && player.number === game.turn) || 
+                          (game.gameType === '2v2' && player && (game.turn === player.number || game.players.find(p => p.number === game.turn)?.team === player.team));
+
+    if (!player || !isPlayersTurn) {
+        console.warn(`[Turn Block] Player ${player?.name || userId} tried to play out of turn. Current turn: ${game.turn}`);
+        socket.emit("game-error", "It's not your turn!");
         return;
     }
 
@@ -2210,113 +2217,114 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     userSocketMap[userId] = socket.id;
 
     const tile = game.board[y][x];
-    if (tile.revealed) {
-        return;
+    if (tile.revealed || tile.flagged) {
+        return; // מונע לחלוטין לחיצה חוזרת על משבצת שכבר נחשפה!
     }
 
     game.lastClickedTile = { ...game.lastClickedTile, [player.number]: { x, y } };
 
     if (tile.isMine) {
-      tile.revealed = true;
-      tile.owner = player.number; 
-      tile.ownerTeam = player.team; 
-      game.scores[player.team]++; 
+        tile.revealed = true;
+        tile.owner = player.number; 
+        tile.ownerTeam = player.team; 
+        game.scores[player.team]++; 
 
-      if (checkGameOver(game.scores)) {
-          game.gameOver = true;
-          let winnerTeam = null;
-          let loserTeam = null;
-          if (game.scores[1] > game.scores[2]) {
-              winnerTeam = 1; loserTeam = 2;
-          } else if (game.scores[2] > game.scores[1]) {
-              winnerTeam = 2; loserTeam = 1;
-          }
-          
-          game.players.forEach(p => delete userGameMap[p.userId]);
-          emitLobbyPlayersList();
-          setTimeout(() => {
-              cleanupGameFromMemory(gameId);
-          }, 1000 * 60 * 60);
-      }
-
+        if (checkGameOver(game.scores)) {
+            game.gameOver = true;
+            let winnerTeam = null;
+            let loserTeam = null;
+            if (game.scores[1] > game.scores[2]) {
+                winnerTeam = 1; loserTeam = 2;
+            } else if (game.scores[2] > game.scores[1]) {
+                winnerTeam = 2; loserTeam = 1;
+            }
+            
+            game.players.forEach(p => delete userGameMap[p.userId]);
+            emitLobbyPlayersList();
+            setTimeout(() => {
+                cleanupGameFromMemory(gameId);
+            }, 1000 * 60 * 60);
+        }
     } else { 
-      const isBlankTile = tile.adjacentMines === 0;
-      const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
+        const isBlankTile = tile.adjacentMines === 0;
+        const noFlagsRevealedYet = game.scores[1] === 0 && game.scores[2] === 0;
 
-      if (isBlankTile && noFlagsRevealedYet) {
-        game.board = generateBoard();
-        game.scores = { 1: 0, 2: 0 };
-        game.bombsUsed = { 1: false, 2: false };
-        game.turn = 1;
-        game.gameOver = false;
-        game.lastClickedTile = {};
-        game.messages = [];
+        if (isBlankTile && noFlagsRevealedYet) {
+            game.board = generateBoard();
+            game.scores = { 1: 0, 2: 0 };
+            game.bombsUsed = { 1: false, 2: false };
+            game.turn = 1;
+            game.gameOver = false;
+            game.lastClickedTile = {};
+            game.messages = [];
 
-        const serializedBoard = JSON.stringify(game.board);
-        if (!game.moves) game.moves = [];
-        game.moves.push({
-            type: 'restart',
-            board: serializedBoard,
-            timestamp: Date.now()
-        });
-
-        game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
-        game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
-        emitLobbyPlayersList();
-
-        // INSTANTLY emit game restart to avoid waiting for Firestore write
-        game.players.forEach(p => {
-            io.to(p.socketId).emit("game-restarted", {
-                gameId: game.gameId,
-                gameType: game.gameType,
-                playerNumber: p.number,
+            const serializedBoard = JSON.stringify(game.board);
+            if (!game.moves) game.moves = [];
+            game.moves.push({
+                type: 'restart',
                 board: serializedBoard,
-                turn: game.turn,
+                timestamp: Date.now()
+            });
+
+            game.players.forEach(p => userGameMap[p.userId] = { gameId, role: 'player' });
+            game.observers.forEach(o => userGameMap[o.userId] = { gameId, role: 'observer' });
+            emitLobbyPlayersList();
+
+            game.players.forEach(p => {
+                io.to(p.socketId).emit("game-restarted", {
+                    gameId: game.gameId,
+                    gameType: game.gameType,
+                    playerNumber: p.number,
+                    board: serializedBoard,
+                    turn: game.turn,
+                    scores: game.scores,
+                    bombsUsed: game.bombsUsed,
+                    gameOver: game.gameOver,
+                    lastClickedTile: game.lastClickedTile,
+                    opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
+                    gameChat: game.messages,
+                    observers: game.observers,
+                    player1Name: game.players.find(pl => pl.number === 1)?.name,
+                    player2Name: game.players.find(pl => pl.number === 2)?.name,
+                    player3Name: game.players.find(pl => pl.number === 3)?.name,
+                    player4Name: game.players.find(pl => pl.number === 4)?.name,
+                });
+            });
+
+            db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
+                board: serializedBoard,
                 scores: game.scores,
                 bombsUsed: game.bombsUsed,
+                turn: game.turn,
                 gameOver: game.gameOver,
                 lastClickedTile: game.lastClickedTile,
-                opponentName: game.gameType === '1v1' ? game.players.find(op => op.userId !== p.userId)?.name : "N/A",
-                gameChat: game.messages,
-                observers: game.observers,
-                player1Name: game.players.find(pl => pl.number === 1)?.name,
-                player2Name: game.players.find(pl => pl.number === 2)?.name,
-                player3Name: game.players.find(pl => pl.number === 3)?.name,
-                player4Name: game.players.find(pl => pl.number === 4)?.name,
+                moves: game.moves,
+                status: 'active',
+                lastUpdated: Timestamp.now(),
+                winnerTeam: null,
+                loserTeam: null,
+                messages: game.messages,
+                observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
+            }, { merge: true }).catch(error => {
+                console.error("Error restarting game in Firestore:", error);
             });
-        });
 
-        db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
-            board: serializedBoard,
-            scores: game.scores,
-            bombsUsed: game.bombsUsed,
-            turn: game.turn,
-            gameOver: game.gameOver,
-            lastClickedTile: game.lastClickedTile,
-            moves: game.moves,
-            status: 'active',
-            lastUpdated: Timestamp.now(),
-            winnerTeam: null,
-            loserTeam: null,
-            messages: game.messages,
-            observers: game.observers.map(o => ({ userId: o.userId, name: o.name }))
-        }, { merge: true }).catch(error => {
-            console.error("Error restarting game in Firestore (background persist):", error);
-        });
+            return;
+        }
 
-        return;
-      }
+        // חשיפת המשבצת בפועל
+        revealRecursive(game.board, x, y);
 
-      revealRecursive(game.board, x, y);
-
-      if (game.gameType === '1v1') {
-        game.turn = game.turn === 1 ? 2 : 1;
-      } else if (game.gameType === '2v2') {
-        game.turn = getNext2v2Turn(game.turn);
-      }
+        // --- 2. החלפת תור מידית וחוקית (מונעת תקיעה של התור) ---
+        if (game.gameType === '1v1') {
+            game.turn = game.turn === 1 ? 2 : 1;
+        } else if (game.gameType === '2v2') {
+            game.turn = getNext2v2Turn(game.turn);
+        }
     }
 
-  if (!game.moves) game.moves = [];
+    // תיעוד הצעד פעם אחת בלבד בצורה מסודרת
+    if (!game.moves) game.moves = [];
     game.moves.push({
         type: 'click',
         playerNumber: player.number,
@@ -2326,7 +2334,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         timestamp: Date.now()
     });
 
-// AI Adversary Turn Loop Integration
+    // אינטגרציה עם תור ה-AI במידת הצורך
     if (!game.gameOver) {
         const nextPlayer = game.players.find(p => p.number === game.turn);
         if (nextPlayer && nextPlayer.isAi) {
@@ -2334,23 +2342,9 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         }
     }
 
-  if (!game.moves) game.moves = [];
-    game.moves.push({
-        type: 'click',
-        playerNumber: player.number,
-        x,
-        y,
-        timestamp: Date.now()
-    });
-
-    // =========================================================================
-    // PERFORMANCE BOTTLENECK REMOVAL: JSON SERIALIZATION CACHING & MEMORY STREAMING
-    // =========================================================================
-    // By pre-serializing the board string once outside the emit loop and optimizing 
-    // payload size, we bypass heavy stringification overhead on every single client socket.
     const cachedBoardString = JSON.stringify(game.board);
 
-    // 1. Instantly emit state updates to eliminate interaction delay
+    // שליחת עדכון הלוח והתור החדש לכל המשתתפים בחדר
     io.to(gameId).emit("board-update", {
         gameId: game.gameId,
         board: cachedBoardString,
@@ -2360,10 +2354,10 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
         gameOver: game.gameOver,
         lastClickedTile: game.lastClickedTile,
         observers: game.observers,
-        clickStartTime: game.clickStartTime // ⏱️ Echo it back here!
+        clickStartTime: game.clickStartTime
     });
 
-    // 2. Persist state asynchronously in the background without `await`
+    // שמירה אסינכרונית ב-Firestore
     const newStatus = game.gameOver ? 'completed' : 'active';
     db.collection(GAMES_COLLECTION_PATH).doc(gameId).set({
         board: cachedBoardString,
@@ -2381,7 +2375,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     }, { merge: true }).catch(error => {
         console.error("Error updating game in Firestore (tile-click background persist):", error);
     });
-  });
+});
 
   // Handle Game Chat Messages
   socket.on("send-game-message", async ({ gameId, message }) => {
