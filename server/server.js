@@ -948,6 +948,12 @@ io.on("connection", (socket) => {
       console.log(`Unauthenticated socket ${socket.id} connected.`);
   }
 
+    socket.on("force-resume-game", ({ gameId }) => {
+    console.log("Server forced game resume for game:", gameId);
+    // שלח לשרת בקשת המשך משחק כדי לקבל את הלוח והנתונים המלאים
+    socket.emit("resume-game", { gameId });
+});
+
 // Lobby Join Event
   socket.on("join-lobby", (name) => {
     // FIXED: Fallback to socket.request.user if passport session is null (Safari fix)
@@ -956,7 +962,12 @@ io.on("connection", (socket) => {
     // FIXED: Handle cases where passport user is either an object or just the user directly
     const userId = user ? (user.id || socket.request.user?.id) : null;
       if (userId && userGameMap[userId]) {
-        console.log(`[Join Lobby Blocked] User ${userId} is currently in an active game and cannot join the lobby.`);
+        console.log(`[Join Lobby Blocked] User ${userId} is currently in an active game. Forcing game resume instead.`);
+        
+        // במקום לעשות רק return שקט שיגרום לקליינט להתנתק, 
+        // נשלח לו הודעה לחזור למשחק שלו אוטומטית!
+        const activeGameId = userGameMap[userId].gameId;
+        socket.emit("force-resume-game", { gameId: activeGameId });
         return;
     }
     const userName = user ? (user.displayName || user.name || name) : name; 
