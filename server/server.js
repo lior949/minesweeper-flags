@@ -1197,7 +1197,9 @@ socket.on("resume-game", async ({ gameId }) => {
 
     // Determine current player's number from Firestore data
     let currentPlayerNumber = null;
-    if (gameData.player1_userId && String(gameData.player1_userId).trim() === String(userId).trim()) {
+
+// חיפוש מדויק או גמיש יותר של ה-userId של ohana מול השחקנים הרשומים
+if (gameData.player1_userId && String(gameData.player1_userId).trim() === String(userId).trim()) {
     currentPlayerNumber = 1;
 } else if (gameData.player2_userId && String(gameData.player2_userId).trim() === String(userId).trim()) {
     currentPlayerNumber = 2;
@@ -1205,6 +1207,15 @@ socket.on("resume-game", async ({ gameId }) => {
     currentPlayerNumber = 3;
 } else if (gameData.gameType === '2v2' && gameData.player4_userId && String(gameData.player4_userId).trim() === String(userId).trim()) {
     currentPlayerNumber = 4;
+}
+
+// אם ohana לא נמצא לפי ה-ID הישיר אך שמו מופיע במשחק או שמדובר בהתאמת מפתח חלופית:
+if (!currentPlayerNumber) {
+    // בדיקה האם המשתמש קיים במערך השחקנים המקומי או לפי שם
+    const matchedPlayerIndex = game.players.findIndex(p => p.userId === userId || p.name === userName);
+    if (matchedPlayerIndex !== -1) {
+        currentPlayerNumber = game.players[matchedPlayerIndex].number;
+    }
 }
 
     // Prepare player names for sending to client
