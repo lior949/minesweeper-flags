@@ -2093,7 +2093,7 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     if (tile.isMine) {
         tile.revealed = true;
         tile.owner = player.number; 
-        const calculatedTeam = (player.number === 1 || player.number === 2) ? 1 : 2;
+        const calculatedTeam = player.number;
         tile.ownerTeam = calculatedTeam;  
         
         console.log(`[Mine Claim] Player ${player.name} (Number: ${player.number}, Assigned Team: ${player.team}, Calculated Team: ${calculatedTeam}) hit a mine at (${x}, ${y}). Incrementing score for team ${calculatedTeam}.`);
