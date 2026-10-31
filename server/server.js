@@ -799,7 +799,7 @@ io.on("connection", (socket) => {
                             players.push(playerObj);
                         }
                         playerObj.socketId = userSocketMap[pUid] || null; // Update socketId from userSocketMap
-                        playerObj.team = (playerNum === 1 || playerNum === 2) ? 1 : 2; // Assign team for 2v2
+                        playerObj.team = (player.number === 1 || player.number === 2) ? 1 : 2;
                         return playerObj;
                     });
 
@@ -2093,8 +2093,12 @@ socket.on("tile-click", async ({ gameId, x, y, clickStartTime }) => {
     if (tile.isMine) {
         tile.revealed = true;
         tile.owner = player.number; 
-        tile.ownerTeam = player.team; 
-        game.scores[player.team]++; 
+        const calculatedTeam = (player.number === 1 || player.number === 2) ? 1 : 2;
+        tile.ownerTeam = calculatedTeam;  
+        
+        console.log(`[Mine Claim] Player ${player.name} (Number: ${player.number}, Assigned Team: ${player.team}, Calculated Team: ${calculatedTeam}) hit a mine at (${x}, ${y}). Incrementing score for team ${calculatedTeam}.`);
+
+        game.scores[calculatedTeam] = (game.scores[calculatedTeam] || 0) + 1;
 
         if (checkGameOver(game.scores)) {
             game.gameOver = true;
